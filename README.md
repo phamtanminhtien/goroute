@@ -12,3 +12,5 @@ A Go-first AI routing proxy focused on Codex-style workflows.
 ## Status
 
 Early bootstrap.
+
+_This draft PR is a test of the workflow._
