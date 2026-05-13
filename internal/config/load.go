@@ -23,6 +23,8 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("decode config %q: %w", resolvedPath, err)
 	}
 
+	cfg = ApplyDefaults(cfg)
+
 	if err := Validate(cfg); err != nil {
 		return Config{}, err
 	}

@@ -2,13 +2,9 @@ package config
 
 import "fmt"
 
-const defaultListenAddr = ":2232"
+const DefaultListenAddr = ":2232"
 
 func Validate(cfg Config) error {
-	if cfg.Server.Listen == "" {
-		cfg.Server.Listen = defaultListenAddr
-	}
-
 	if cfg.Server.AuthToken == "" {
 		return fmt.Errorf("config.server.auth_token is required")
 	}
@@ -27,4 +23,12 @@ func Validate(cfg Config) error {
 	}
 
 	return nil
+}
+
+func ApplyDefaults(cfg Config) Config {
+	if cfg.Server.Listen == "" {
+		cfg.Server.Listen = DefaultListenAddr
+	}
+
+	return cfg
 }
