@@ -1,16 +1,11 @@
 # Configuration and Data Model
 
-## Configuration Direction
+## Current Config Schema
 
-The user config file is expected at `~/.goroute/config.json`.
-It should configure local runtime behavior and credentials only; it should not define drivers, model namespaces, or model catalogs.
+The user config file is loaded from `~/.goroute/config.json`.
+It configures local runtime behavior and credentials only; it does not define drivers, model namespaces, or model catalogs.
 
-The exact schema is not finalized yet, but the likely config domains are:
-
-- server
-- providers
-
-Illustrative `~/.goroute/config.json` example:
+The schema currently implemented in `internal/config` is:
 
 ```json
 {
@@ -20,23 +15,61 @@ Illustrative `~/.goroute/config.json` example:
   },
   "providers": [
     {
-      "id": "1",
+      "id": "codex-primary",
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
-      "name": "[EMAIL_ADDRESS]"
+      "name": "user@example.com"
     },
     {
-      "id": "2",
+      "id": "openai-primary",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
-      "name": "[EMAIL_ADDRESS]"
+      "name": "user@example.com"
     }
   ]
 }
 ```
 
-This example is descriptive, not a committed spec.
+### Validation rules implemented now
+
+- `providers` must contain at least one entry.
+- Every provider must include:
+  - `id`
+  - `type`
+  - `name`
+- `server.listen` defaults to `:2232` when omitted.
+- Provider-specific credentials are not yet deeply validated at config-load time; adapters fail later if no usable credential is present.
+
+### Provider fields implemented now
+
+#### Common fields
+
+- `id`: stable local identifier for the configured provider entry
+- `type`: upstream provider family, currently expected to match built-in adapters such as `codex` or `openai`
+- `name`: display name or account identity used in logs and errors
+
+#### Credential fields currently recognized
+
+- `api_key`: used by OpenAI-compatible execution, and accepted as a fallback credential by the Codex adapter
+- `access_token`: used by the Codex adapter, and also accepted by the OpenAI-compatible adapter as a fallback bearer token
+- `refresh_token`: currently stored for Codex-oriented setups, but not yet actively refreshed by runtime logic
+
+## Custom OpenAI-Compatible Base URL Direction
+
+The current implementation uses the built-in OpenAI base URL (`https://api.openai.com`) for `type: "openai"` providers.
+There is no config field yet for overriding this per provider.
+
+That is an intentional bootstrap constraint for now:
+
+- keep the config contract small while real execution settles
+- avoid introducing an underspecified field before fallback and observability are in place
+- leave room for other OpenAI-compatible upstreams without prematurely hard-coding policy
+
+The likely future direction is a per-provider optional field such as `base_url` on OpenAI-compatible providers, rather than a global setting.
+That would preserve the existing provider-centric config shape and allow multiple OpenAI-compatible accounts or vendors side by side.
+
+Until that lands, `type: "openai"` should be read as “the standard OpenAI upstream” rather than “any OpenAI-compatible endpoint.”
 
 ## System Data
 
@@ -80,15 +113,15 @@ Illustrative system data:
 
 ## Data Model Considerations
 
-Even before implementation, a few internal structures are implied.
+The bootstrap code already implies a few stable internal structures.
 
 ### Provider config
 
-Fields likely needed:
+Fields implemented now:
 
-- name
-- id
-- type
+- `name`
+- `id`
+- `type`
 - type-specific credential fields, such as `api_key`
 - type-specific session fields, such as `access_token` and `refresh_token`
 

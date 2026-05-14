@@ -57,10 +57,10 @@ The client remains unchanged while routing policy evolves server-side.
 
 ## Configuration Direction
 
-The user config file is expected at `~/.goroute/config.json`.
-It should configure local runtime behavior and credentials only; it should not define drivers, model namespaces, or model catalogs.
+The user config file is loaded from `~/.goroute/config.json`.
+It configures local runtime behavior and credentials only; it does not define drivers, model namespaces, or model catalogs.
 
-Illustrative example:
+Current implemented shape:
 
 ```json
 {
@@ -70,21 +70,30 @@ Illustrative example:
   },
   "providers": [
     {
+      "id": "codex-primary",
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
-      "name": "[EMAIL_ADDRESS]"
+      "name": "user@example.com"
     },
     {
+      "id": "openai-primary",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
-      "name": "[EMAIL_ADDRESS]"
+      "name": "user@example.com"
     }
   ]
 }
 ```
 
-This example is descriptive, not a committed spec.
+Notes:
+
+- `providers` must contain at least one entry.
+- Each provider currently requires `id`, `type`, and `name`.
+- `server.listen` defaults to `:2232` when omitted.
+- `type: "openai"` currently targets the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
+
+See [Configuration and data model](./docs/configuration.md) for the fuller contract and rationale.
 
 ## Documentation
 
