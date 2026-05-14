@@ -15,7 +15,7 @@ import (
 func chatCompletionsHandler(catalog driver.Catalog, providerRegistry chatcompletion.ProviderRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
@@ -23,7 +23,7 @@ func chatCompletionsHandler(catalog driver.Catalog, providerRegistry chatcomplet
 
 		var request openaiwire.ChatCompletionsRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid JSON body: %v", err))
+			writeError(r, w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid JSON body: %v", err))
 			return
 		}
 
@@ -33,9 +33,9 @@ func chatCompletionsHandler(catalog driver.Catalog, providerRegistry chatcomplet
 				var upstreamErr chatcompletion.UpstreamError
 				switch {
 				case errors.As(err, &upstreamErr):
-					writeError(w, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
+					writeError(r, w, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
 				default:
-					writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+					writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
 				}
 				return
 			}
@@ -55,9 +55,9 @@ func chatCompletionsHandler(catalog driver.Catalog, providerRegistry chatcomplet
 			var upstreamErr chatcompletion.UpstreamError
 			switch {
 			case errors.As(err, &upstreamErr):
-				writeError(w, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
+				writeError(r, w, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
 			default:
-				writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
 			}
 			return
 		}
