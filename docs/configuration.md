@@ -2,8 +2,8 @@
 
 ## Configuration
 
-The user config file is expected at `~/.goroute/config.json`.
-It should configure local runtime behavior and credentials only; it should not define drivers, model namespaces, or model catalogs.
+The user config file is loaded from `~/.goroute/config.json`.
+It configures local runtime behavior and credentials only; it does not define drivers, model namespaces, or model catalogs.
 
 The current schema has two top-level domains:
 
@@ -24,13 +24,13 @@ Example `~/.goroute/config.json`:
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
-      "name": "[EMAIL_ADDRESS]"
+      "name": "user@example.com"
     },
     {
       "id": "openai-1",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
-      "name": "[EMAIL_ADDRESS]"
+      "name": "user@example.com"
     }
   ]
 }
@@ -45,6 +45,22 @@ Current provider credential behavior:
 - `codex` uses `access_token`, falling back to `api_key` if present.
 - `openai` uses `api_key`, falling back to `access_token` if present.
 - `refresh_token` is represented in config but is not used for refresh yet.
+
+## Custom OpenAI-Compatible Base URL Direction
+
+The current implementation uses the built-in OpenAI base URL (`https://api.openai.com`) for `type: "openai"` providers.
+There is no config field yet for overriding this per provider.
+
+That is an intentional bootstrap constraint for now:
+
+- keep the config contract small while real execution settles
+- avoid introducing an underspecified field before fallback and observability are in place
+- leave room for other OpenAI-compatible upstreams without prematurely hard-coding policy
+
+The likely future direction is a per-provider optional field such as `base_url` on OpenAI-compatible providers, rather than a global setting.
+That would preserve the existing provider-centric config shape and allow multiple OpenAI-compatible accounts or vendors side by side.
+
+Until that lands, `type: "openai"` should be read as “the standard OpenAI upstream” rather than “any OpenAI-compatible endpoint.”
 
 ## System Data
 
