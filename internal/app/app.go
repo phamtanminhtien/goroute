@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -45,7 +46,7 @@ func New() (*App, error) {
 }
 
 func buildProviderRegistry(providerConfigs []config.ProviderConfig) (chatcompletion.ProviderRegistry, error) {
-	providers := make(map[string][]chatcompletion.Provider, len(providerConfigs))
+	providers := make(map[string][]chatcompletion.ProviderEntry, len(providerConfigs))
 	for _, providerConfig := range providerConfigs {
 		var provider chatcompletion.Provider
 		switch providerConfig.Type {
@@ -56,8 +57,12 @@ func buildProviderRegistry(providerConfigs []config.ProviderConfig) (chatcomplet
 		default:
 			return chatcompletion.ProviderRegistry{}, fmt.Errorf("unsupported provider type %q", providerConfig.Type)
 		}
-		providers[providerConfig.Type] = append(providers[providerConfig.Type], provider)
+		providers[providerConfig.Type] = append(providers[providerConfig.Type], chatcompletion.ProviderEntry{
+			ID:       providerConfig.ID,
+			Name:     providerConfig.Name,
+			Provider: provider,
+		})
 	}
 
-	return chatcompletion.NewProviderRegistry(providers), nil
+	return chatcompletion.NewProviderRegistryWithEntries(providers, log.Default()), nil
 }

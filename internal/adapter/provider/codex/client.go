@@ -99,7 +99,11 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 		credential = strings.TrimSpace(c.provider.APIKey)
 	}
 	if credential == "" {
-		return nil, fmt.Errorf("provider %q has no usable credential", c.provider.Name)
+		return nil, chatcompletion.ProviderConfigurationError{
+			ProviderID:   c.provider.ID,
+			ProviderName: c.provider.Name,
+			Message:      "missing access_token or api_key",
+		}
 	}
 
 	machineID := machineID()
