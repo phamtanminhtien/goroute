@@ -1,16 +1,16 @@
 # Configuration and Data Model
 
-## Configuration Direction
+## Configuration
 
 The user config file is expected at `~/.goroute/config.json`.
 It should configure local runtime behavior and credentials only; it should not define drivers, model namespaces, or model catalogs.
 
-The exact schema is not finalized yet, but the likely config domains are:
+The current schema has two top-level domains:
 
 - server
 - providers
 
-Illustrative `~/.goroute/config.json` example:
+Example `~/.goroute/config.json`:
 
 ```json
 {
@@ -20,14 +20,14 @@ Illustrative `~/.goroute/config.json` example:
   },
   "providers": [
     {
-      "id": "1",
+      "id": "codex-1",
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
       "name": "[EMAIL_ADDRESS]"
     },
     {
-      "id": "2",
+      "id": "openai-1",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
       "name": "[EMAIL_ADDRESS]"
@@ -36,13 +36,21 @@ Illustrative `~/.goroute/config.json` example:
 }
 ```
 
-This example is descriptive, not a committed spec.
+Current validation requires every provider to have `id`, `type`, and `name`.
+`server.listen` defaults to `:2232` when omitted.
+Provider credentials are validated lazily by the selected provider adapter during request execution.
+
+Current provider credential behavior:
+
+- `codex` uses `access_token`, falling back to `api_key` if present.
+- `openai` uses `api_key`, falling back to `access_token` if present.
+- `refresh_token` is represented in config but is not used for refresh yet.
 
 ## System Data
 
-System data is expected to live in a JSON file for now.
+System data currently lives in `data/system-drivers.json`.
 
-Illustrative system data:
+Current shape:
 
 ```json
 {
@@ -53,6 +61,7 @@ Illustrative system data:
       "name": "Codex",
       "provider": "codex",
       "auth_type": "oauth",
+      "default_model": "cx/gpt-5.4",
       "models": [
         {
           "id": "cx/gpt-5.4",
@@ -62,13 +71,14 @@ Illustrative system data:
       ]
     },
     {
-      "id": "opena",
+      "id": "openai",
       "name": "OpenAI",
       "provider": "openai",
       "auth_type": "api_key",
+      "default_model": "openai/gpt-4.1",
       "models": [
         {
-          "id": "opena/gpt-4.1",
+          "id": "openai/gpt-4.1",
           "name": "GPT-4.1",
           "description": ""
         }
@@ -78,23 +88,22 @@ Illustrative system data:
 }
 ```
 
-## Data Model Considerations
-
-Even before implementation, a few internal structures are implied.
+## Data Model
 
 ### Provider config
 
-Fields likely needed:
+Implemented fields:
 
-- name
 - id
 - type
-- type-specific credential fields, such as `api_key`
-- type-specific session fields, such as `access_token` and `refresh_token`
+- name
+- api_key
+- access_token
+- refresh_token
 
 ### System driver definition
 
-Fields likely needed:
+Implemented fields:
 
 - driver ID / client-facing prefix, such as `cx`
 - display name
@@ -106,13 +115,12 @@ Fields likely needed:
 
 ### Resolved execution target
 
-At request time, routing should produce a resolved structure containing:
+At request time, routing produces:
 
 - client-facing prefix
 - requested upstream model
-- selected driver
-- selected provider
-- fallback index / attempt state
-- request-scoped timeout context
+- driver ID and name
+- provider type
 
-This resolved object should be what the execution path logs.
+Provider selection and fallback currently happen in the provider registry after resolution.
+Fallback attempt index and request-scoped timeout metadata are not yet represented in the resolved target.
