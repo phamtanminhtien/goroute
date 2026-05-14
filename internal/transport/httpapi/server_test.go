@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,6 +77,13 @@ func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
 	}
+	var response openaiwire.ListModelsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) == 0 || response.Data[0].Metadata["driver_id"] == "" {
+		t.Fatalf("expected model metadata, got %#v", response.Data)
+	}
 }
 
 func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
@@ -104,6 +112,9 @@ func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
 
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusBadGateway, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"request_id":"req-`) {
+		t.Fatalf("expected request_id in error body, got body=%s", rec.Body.String())
 	}
 }
 
@@ -156,5 +167,40 @@ func TestChatCompletionsAcceptsCommonOpenAIFields(t *testing.T) {
 	}
 	if len(provider.lastReq.Tools) != 1 || provider.lastReq.Tools[0].Function.Name != "lookup_weather" {
 		t.Fatalf("expected tools to decode, got %#v", provider.lastReq.Tools)
+	}
+}
+
+func TestDebugRequestsReturnsStructuredAttemptHistory(t *testing.T) {
+	provider := &testProvider{
+		response: openaiwire.ChatCompletionsResponse{
+			ID:     "chatcmpl-3",
+			Object: "chat.completion",
+			Model:  "gpt-5.4",
+			Choices: []openaiwire.ChatChoice{{
+				Index:   0,
+				Message: openaiwire.ChatMessage{Role: "assistant", Content: "ok"},
+			}},
+		},
+	}
+	handler := NewServer(testCatalog(), testProviderRegistry(provider))
+
+	requestBody := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(requestBody))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	req := httptest.NewRequest(http.MethodGet, "/debug/requests?limit=1", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"requested_model":"cx/gpt-5.4"`) {
+		t.Fatalf("expected requested model in history, got body=%s", body)
+	}
+	if !strings.Contains(body, `"final_status":"success"`) {
+		t.Fatalf("expected success final status in history, got body=%s", body)
 	}
 }

@@ -20,6 +20,7 @@ type ProviderEntry struct {
 type ProviderRegistry struct {
 	providers map[string][]ProviderEntry
 	logger    *log.Logger
+	history   *requestHistoryStore
 }
 
 func NewProviderRegistry(providers map[string][]Provider) ProviderRegistry {
@@ -42,7 +43,11 @@ func NewProviderRegistryWithEntries(providers map[string][]ProviderEntry, logger
 		logger = log.Default()
 	}
 
-	return ProviderRegistry{providers: providers, logger: logger}
+	return ProviderRegistry{
+		providers: providers,
+		logger:    logger,
+		history:   newRequestHistoryStore(defaultHistoryLimit),
+	}
 }
 
 func (r ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
@@ -50,6 +55,19 @@ func (r ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.Ch
 	if len(providers) == 0 {
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("no executor configured for provider type %q", target.ProviderType)
 	}
+
+	record := RequestAttemptHistory{
+		RequestID:      RequestID(ctx),
+		RequestedModel: req.Model,
+		ResolvedTarget: target.Prefix + "/" + target.RequestedModel,
+		ProviderType:   target.ProviderType,
+		Stream:         false,
+		StartedAt:      time.Now().UTC(),
+	}
+	defer func() {
+		record.CompletedAt = time.Now().UTC()
+		r.history.add(record)
+	}()
 
 	var lastErr error
 	var lastPolicy FailurePolicy
@@ -59,21 +77,42 @@ func (r ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.Ch
 		latency := time.Since(started)
 		if err == nil {
 			r.logAttempt(req.Model, target, provider, i, latency, "success", "none", false)
+			record.Attempts = append(record.Attempts, RequestAttempt{
+				ProviderID:    provider.ID,
+				ProviderName:  provider.Name,
+				AttemptIndex:  i,
+				Outcome:       "success",
+				ErrorCategory: "none",
+				LatencyMillis: latency.Milliseconds(),
+			})
+			record.FinalStatus = "success"
 			return response, nil
 		}
 
 		policy := ClassifyError(err)
 		r.logAttempt(req.Model, target, provider, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		record.Attempts = append(record.Attempts, RequestAttempt{
+			ProviderID:    provider.ID,
+			ProviderName:  provider.Name,
+			AttemptIndex:  i,
+			Outcome:       string(policy.Class),
+			ErrorCategory: policy.Category,
+			LatencyMillis: latency.Milliseconds(),
+		})
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
 			r.logFinalFailure(req.Model, target, policy.Category)
+			record.FinalStatus = "error"
+			record.FinalErrorCategory = policy.Category
 			return openaiwire.ChatCompletionsResponse{}, err
 		}
 	}
 
 	if lastErr != nil {
 		r.logFinalFailure(req.Model, target, lastPolicy.Category)
+		record.FinalStatus = "error"
+		record.FinalErrorCategory = lastPolicy.Category
 	}
 
 	return openaiwire.ChatCompletionsResponse{}, lastErr
@@ -84,6 +123,19 @@ func (r ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiw
 	if len(providers) == 0 {
 		return nil, fmt.Errorf("no executor configured for provider type %q", target.ProviderType)
 	}
+
+	record := RequestAttemptHistory{
+		RequestID:      RequestID(ctx),
+		RequestedModel: req.Model,
+		ResolvedTarget: target.Prefix + "/" + target.RequestedModel,
+		ProviderType:   target.ProviderType,
+		Stream:         true,
+		StartedAt:      time.Now().UTC(),
+	}
+	defer func() {
+		record.CompletedAt = time.Now().UTC()
+		r.history.add(record)
+	}()
 
 	var lastErr error
 	var lastPolicy FailurePolicy
@@ -97,6 +149,13 @@ func (r ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiw
 				AllowFallback: true,
 			}
 			r.logAttempt(req.Model, target, provider, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+			record.Attempts = append(record.Attempts, RequestAttempt{
+				ProviderID:    provider.ID,
+				ProviderName:  provider.Name,
+				AttemptIndex:  i,
+				Outcome:       string(lastPolicy.Class),
+				ErrorCategory: lastPolicy.Category,
+			})
 			continue
 		}
 
@@ -105,24 +164,53 @@ func (r ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiw
 		latency := time.Since(started)
 		if err == nil {
 			r.logAttempt(req.Model, target, provider, i, latency, "success", "none", false)
+			record.Attempts = append(record.Attempts, RequestAttempt{
+				ProviderID:    provider.ID,
+				ProviderName:  provider.Name,
+				AttemptIndex:  i,
+				Outcome:       "success",
+				ErrorCategory: "none",
+				LatencyMillis: latency.Milliseconds(),
+			})
+			record.FinalStatus = "success"
 			return body, nil
 		}
 
 		policy := ClassifyError(err)
 		r.logAttempt(req.Model, target, provider, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		record.Attempts = append(record.Attempts, RequestAttempt{
+			ProviderID:    provider.ID,
+			ProviderName:  provider.Name,
+			AttemptIndex:  i,
+			Outcome:       string(policy.Class),
+			ErrorCategory: policy.Category,
+			LatencyMillis: latency.Milliseconds(),
+		})
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
 			r.logFinalFailure(req.Model, target, policy.Category)
+			record.FinalStatus = "error"
+			record.FinalErrorCategory = policy.Category
 			return nil, err
 		}
 	}
 
 	if lastErr != nil {
 		r.logFinalFailure(req.Model, target, lastPolicy.Category)
+		record.FinalStatus = "error"
+		record.FinalErrorCategory = lastPolicy.Category
 	}
 
 	return nil, lastErr
+}
+
+func (r ProviderRegistry) RecentRequestAttempts(limit int) []RequestAttemptHistory {
+	if r.history == nil {
+		return nil
+	}
+
+	return r.history.recent(limit)
 }
 
 func (r ProviderRegistry) logAttempt(requestedModel string, target routing.Target, provider ProviderEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {

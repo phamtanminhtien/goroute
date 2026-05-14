@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -13,12 +14,13 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeError(w http.ResponseWriter, status int, code string, message string) {
+func writeError(r *http.Request, w http.ResponseWriter, status int, code string, message string) {
 	writeJSON(w, status, openaiwire.ErrorEnvelope{
 		Error: openaiwire.ErrorBody{
-			Message: message,
-			Type:    code,
-			Code:    code,
+			Message:   message,
+			Type:      code,
+			Code:      code,
+			RequestID: chatcompletion.RequestID(r.Context()),
 		},
 	})
 }

@@ -13,6 +13,7 @@ func NewServer(catalog driver.Catalog, providerRegistry chatcompletion.ProviderR
 	mux.Handle("/healthz", health.Handler())
 	mux.Handle("/v1/models", modelsHandler(catalog))
 	mux.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, providerRegistry))
+	mux.Handle("/debug/requests", requestHistoryHandler(providerRegistry))
 
 	return requestIDMiddleware(loggingMiddleware(mux))
 }

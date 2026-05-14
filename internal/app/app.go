@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
@@ -46,8 +47,14 @@ func New() (*App, error) {
 }
 
 func buildProviderRegistry(providerConfigs []config.ProviderConfig) (chatcompletion.ProviderRegistry, error) {
+	return buildProviderRegistryWithLogger(providerConfigs, log.Default())
+}
+
+func buildProviderRegistryWithLogger(providerConfigs []config.ProviderConfig, logger *log.Logger) (chatcompletion.ProviderRegistry, error) {
 	providers := make(map[string][]chatcompletion.ProviderEntry, len(providerConfigs))
 	for _, providerConfig := range providerConfigs {
+		logProviderDiagnostic(logger, providerConfig)
+
 		var provider chatcompletion.Provider
 		switch providerConfig.Type {
 		case "codex":
@@ -64,5 +71,39 @@ func buildProviderRegistry(providerConfigs []config.ProviderConfig) (chatcomplet
 		})
 	}
 
-	return chatcompletion.NewProviderRegistryWithEntries(providers, log.Default()), nil
+	return chatcompletion.NewProviderRegistryWithEntries(providers, logger), nil
+}
+
+func logProviderDiagnostic(logger *log.Logger, provider config.ProviderConfig) {
+	if logger == nil {
+		return
+	}
+
+	problems := make([]string, 0, 2)
+	switch provider.Type {
+	case "codex":
+		if strings.TrimSpace(provider.AccessToken) == "" && strings.TrimSpace(provider.APIKey) == "" {
+			problems = append(problems, "missing access_token or api_key")
+		}
+	case "openai":
+		if strings.TrimSpace(provider.APIKey) == "" && strings.TrimSpace(provider.AccessToken) == "" {
+			problems = append(problems, "missing api_key or access_token")
+		}
+	default:
+		problems = append(problems, "unsupported provider type")
+	}
+
+	status := "ready"
+	if len(problems) > 0 {
+		status = "misconfigured"
+	}
+
+	logger.Printf(
+		"provider_diagnostic provider_id=%q provider_name=%q provider_type=%q status=%q problems=%q",
+		provider.ID,
+		provider.Name,
+		provider.Type,
+		status,
+		strings.Join(problems, ", "),
+	)
 }

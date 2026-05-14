@@ -5,7 +5,8 @@ type ErrorEnvelope struct {
 }
 
 type ErrorBody struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    string `json:"code"`
+	Message   string `json:"message"`
+	Type      string `json:"type"`
+	Code      string `json:"code"`
+	RequestID string `json:"request_id,omitempty"`
 }

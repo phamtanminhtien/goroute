@@ -11,7 +11,7 @@ import (
 func modelsHandler(catalog driver.Catalog) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
@@ -22,9 +22,12 @@ func modelsHandler(catalog driver.Catalog) http.Handler {
 		}
 		for _, item := range items {
 			response.Data = append(response.Data, openaiwire.Model{
-				ID:      item.ID,
-				Object:  item.Object,
-				OwnedBy: item.OwnedBy,
+				ID:       item.ID,
+				Object:   item.Object,
+				OwnedBy:  item.OwnedBy,
+				Root:     item.Root,
+				Parent:   item.Parent,
+				Metadata: item.Metadata,
 			})
 		}
 
