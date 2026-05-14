@@ -8,9 +8,19 @@ This project is intended for environments where multiple upstream LLM providers 
 
 ## Status
 
-Early bootstrap.
+Early implementation.
 
-The repository currently defines project direction and expected behavior. Implementation is still minimal / not yet present.
+The repository has the first request path in place:
+
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- model prefix resolution from `data/system-drivers.json`
+- configured provider registry for `codex` and `openai`
+- OpenAI-compatible upstream execution for non-streaming chat completions
+- Codex responses execution for non-streaming and streaming chat completions
+- request ID and request logging middleware
+
+The implementation is still intentionally small. Fallback is deterministic across configured providers of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Admin APIs, UI, request history, and broader OpenAI wire compatibility are still pending.
 
 ## Core Idea
 
@@ -35,10 +45,11 @@ The first useful version should focus on:
 - request/response passthrough with minimal normalization
 - structured logging and debuggable routing behavior
 
-Initial target endpoints:
+Currently implemented endpoints:
 
 - `POST /v1/chat/completions`
 - `GET /v1/models`
+- `GET /healthz`
 
 ## Example Usage
 
@@ -70,14 +81,14 @@ Current implemented shape:
   },
   "providers": [
     {
-      "id": "codex-primary",
+      "id": "codex-1",
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
       "name": "user@example.com"
     },
     {
-      "id": "openai-primary",
+      "id": "openai-1",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
       "name": "user@example.com"
@@ -86,12 +97,9 @@ Current implemented shape:
 }
 ```
 
-Notes:
+The current loader validates `id`, `type`, and `name` for every provider. Credentials are checked by the provider adapter when a request is executed.
 
-- `providers` must contain at least one entry.
-- Each provider currently requires `id`, `type`, and `name`.
-- `server.listen` defaults to `:2232` when omitted.
-- `type: "openai"` currently targets the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
+`type: "openai"` currently targets the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
 
 See [Configuration and data model](./docs/configuration.md) for the fuller contract and rationale.
 

@@ -1,11 +1,16 @@
 # Configuration and Data Model
 
-## Current Config Schema
+## Configuration
 
 The user config file is loaded from `~/.goroute/config.json`.
 It configures local runtime behavior and credentials only; it does not define drivers, model namespaces, or model catalogs.
 
-The schema currently implemented in `internal/config` is:
+The current schema has two top-level domains:
+
+- server
+- providers
+
+Example `~/.goroute/config.json`:
 
 ```json
 {
@@ -15,14 +20,14 @@ The schema currently implemented in `internal/config` is:
   },
   "providers": [
     {
-      "id": "codex-primary",
+      "id": "codex-1",
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
       "name": "user@example.com"
     },
     {
-      "id": "openai-primary",
+      "id": "openai-1",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
       "name": "user@example.com"
@@ -31,29 +36,15 @@ The schema currently implemented in `internal/config` is:
 }
 ```
 
-### Validation rules implemented now
+Current validation requires every provider to have `id`, `type`, and `name`.
+`server.listen` defaults to `:2232` when omitted.
+Provider credentials are validated lazily by the selected provider adapter during request execution.
 
-- `providers` must contain at least one entry.
-- Every provider must include:
-  - `id`
-  - `type`
-  - `name`
-- `server.listen` defaults to `:2232` when omitted.
-- Provider-specific credentials are not yet deeply validated at config-load time; adapters fail later if no usable credential is present.
+Current provider credential behavior:
 
-### Provider fields implemented now
-
-#### Common fields
-
-- `id`: stable local identifier for the configured provider entry
-- `type`: upstream provider family, currently expected to match built-in adapters such as `codex` or `openai`
-- `name`: display name or account identity used in logs and errors
-
-#### Credential fields currently recognized
-
-- `api_key`: used by OpenAI-compatible execution, and accepted as a fallback credential by the Codex adapter
-- `access_token`: used by the Codex adapter, and also accepted by the OpenAI-compatible adapter as a fallback bearer token
-- `refresh_token`: currently stored for Codex-oriented setups, but not yet actively refreshed by runtime logic
+- `codex` uses `access_token`, falling back to `api_key` if present.
+- `openai` uses `api_key`, falling back to `access_token` if present.
+- `refresh_token` is represented in config but is not used for refresh yet.
 
 ## Custom OpenAI-Compatible Base URL Direction
 
@@ -73,9 +64,9 @@ Until that lands, `type: "openai"` should be read as “the standard OpenAI upst
 
 ## System Data
 
-System data is expected to live in a JSON file for now.
+System data currently lives in `data/system-drivers.json`.
 
-Illustrative system data:
+Current shape:
 
 ```json
 {
@@ -86,6 +77,7 @@ Illustrative system data:
       "name": "Codex",
       "provider": "codex",
       "auth_type": "oauth",
+      "default_model": "cx/gpt-5.4",
       "models": [
         {
           "id": "cx/gpt-5.4",
@@ -95,13 +87,14 @@ Illustrative system data:
       ]
     },
     {
-      "id": "opena",
+      "id": "openai",
       "name": "OpenAI",
       "provider": "openai",
       "auth_type": "api_key",
+      "default_model": "openai/gpt-4.1",
       "models": [
         {
-          "id": "opena/gpt-4.1",
+          "id": "openai/gpt-4.1",
           "name": "GPT-4.1",
           "description": ""
         }
@@ -111,23 +104,22 @@ Illustrative system data:
 }
 ```
 
-## Data Model Considerations
-
-The bootstrap code already implies a few stable internal structures.
+## Data Model
 
 ### Provider config
 
-Fields implemented now:
+Implemented fields:
 
-- `name`
-- `id`
-- `type`
-- type-specific credential fields, such as `api_key`
-- type-specific session fields, such as `access_token` and `refresh_token`
+- id
+- type
+- name
+- api_key
+- access_token
+- refresh_token
 
 ### System driver definition
 
-Fields likely needed:
+Implemented fields:
 
 - driver ID / client-facing prefix, such as `cx`
 - display name
@@ -139,13 +131,12 @@ Fields likely needed:
 
 ### Resolved execution target
 
-At request time, routing should produce a resolved structure containing:
+At request time, routing produces:
 
 - client-facing prefix
 - requested upstream model
-- selected driver
-- selected provider
-- fallback index / attempt state
-- request-scoped timeout context
+- driver ID and name
+- provider type
 
-This resolved object should be what the execution path logs.
+Provider selection and fallback currently happen in the provider registry after resolution.
+Fallback attempt index and request-scoped timeout metadata are not yet represented in the resolved target.
