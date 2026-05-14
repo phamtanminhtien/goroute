@@ -11,9 +11,10 @@ type ServerConfig struct {
 }
 
 type ProviderConfig struct {
+	ID           string `json:"id"`
 	Type         string `json:"type"`
-	Name         string `json:"name"`
 	APIKey       string `json:"api_key,omitempty"`
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	Name         string `json:"name"`
 }

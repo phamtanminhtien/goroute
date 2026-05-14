@@ -1,11 +1,10 @@
 {
   "driver_auth_types": ["oauth", "api_key"],
-  "driver_protocols": ["openai"],
   "drivers": [
     {
       "id": "cx",
       "name": "Codex",
-      "protocol": "openai",
+      "provider": "codex",
       "auth_type": "oauth",
       "default_model": "cx/gpt-5.4",
       "models": [
@@ -17,14 +16,14 @@
       ]
     },
     {
-      "id": "opena",
+      "id": "openai",
       "name": "OpenAI",
-      "protocol": "openai",
+      "provider": "openai",
       "auth_type": "api_key",
-      "default_model": "opena/gpt-4.1",
+      "default_model": "openai/gpt-4.1",
       "models": [
         {
-          "id": "opena/gpt-4.1",
+          "id": "openai/gpt-4.1",
           "name": "GPT-4.1",
           "description": ""
         }

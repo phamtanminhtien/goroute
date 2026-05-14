@@ -9,7 +9,7 @@ import (
 func TestResolveModel(t *testing.T) {
 	catalog := driver.Catalog{
 		Drivers: []driver.Driver{
-			{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"},
+			{ID: "cx", Name: "Codex", Provider: "codex", DefaultModel: "cx/gpt-5.4"},
 		},
 	}
 
@@ -24,12 +24,15 @@ func TestResolveModel(t *testing.T) {
 	if target.RequestedModel != "gpt-5.4" {
 		t.Fatalf("expected requested model gpt-5.4, got %q", target.RequestedModel)
 	}
+	if target.ProviderType != "codex" {
+		t.Fatalf("expected provider type codex, got %q", target.ProviderType)
+	}
 }
 
 func TestResolveModelUsesDriverDefault(t *testing.T) {
 	catalog := driver.Catalog{
 		Drivers: []driver.Driver{
-			{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"},
+			{ID: "cx", Name: "Codex", Provider: "codex", DefaultModel: "cx/gpt-5.4"},
 		},
 	}
 

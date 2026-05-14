@@ -27,6 +27,7 @@ func ResolveModel(catalog driver.Catalog, model string) (Target, error) {
 		RequestedModel: requestedModel,
 		DriverID:       drv.ID,
 		DriverName:     drv.Name,
+		ProviderType:   drv.Provider,
 	}, nil
 }
 
