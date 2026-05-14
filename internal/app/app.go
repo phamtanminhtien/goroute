@@ -14,6 +14,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
+	"github.com/phamtanminhtien/goroute/internal/usecase/providers"
 )
 
 type App struct {
@@ -21,7 +22,12 @@ type App struct {
 }
 
 func New() (*App, error) {
-	cfg, err := config.Load()
+	configPath, err := config.ResolvePath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve user config path: %w", err)
+	}
+
+	cfg, err := config.LoadPath(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
@@ -36,7 +42,12 @@ func New() (*App, error) {
 		return nil, err
 	}
 
-	handler := httpapi.NewServer(catalog, providerRegistry, cfg.Server.AuthToken)
+	providerService := providers.NewService(configPath, cfg, &providerRuntime{
+		registry: providerRegistry,
+		logger:   log.Default(),
+	}, log.Default())
+
+	handler := httpapi.NewServer(catalog, providerRegistry, providerService, cfg.Server.AuthToken)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,
@@ -46,12 +57,22 @@ func New() (*App, error) {
 	return &App{server: server}, nil
 }
 
-func buildProviderRegistry(providerConfigs []config.ProviderConfig) (chatcompletion.ProviderRegistry, error) {
+func buildProviderRegistry(providerConfigs []config.ProviderConfig) (*chatcompletion.ProviderRegistry, error) {
 	return buildProviderRegistryWithLogger(providerConfigs, log.Default())
 }
 
-func buildProviderRegistryWithLogger(providerConfigs []config.ProviderConfig, logger *log.Logger) (chatcompletion.ProviderRegistry, error) {
-	providers := make(map[string][]chatcompletion.ProviderEntry, len(providerConfigs))
+func buildProviderRegistryWithLogger(providerConfigs []config.ProviderConfig, logger *log.Logger) (*chatcompletion.ProviderRegistry, error) {
+	entries, err := buildProviderEntries(providerConfigs, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	registry := chatcompletion.NewProviderRegistryWithEntries(entries, logger)
+	return &registry, nil
+}
+
+func buildProviderEntries(providerConfigs []config.ProviderConfig, logger *log.Logger) (map[string][]chatcompletion.ProviderEntry, error) {
+	providersByType := make(map[string][]chatcompletion.ProviderEntry, len(providerConfigs))
 	for _, providerConfig := range providerConfigs {
 		logProviderDiagnostic(logger, providerConfig)
 
@@ -62,16 +83,16 @@ func buildProviderRegistryWithLogger(providerConfigs []config.ProviderConfig, lo
 		case "openai":
 			provider = provideropenai.NewClient(nil, providerConfig)
 		default:
-			return chatcompletion.ProviderRegistry{}, fmt.Errorf("unsupported provider type %q", providerConfig.Type)
+			return nil, fmt.Errorf("unsupported provider type %q", providerConfig.Type)
 		}
-		providers[providerConfig.Type] = append(providers[providerConfig.Type], chatcompletion.ProviderEntry{
+		providersByType[providerConfig.Type] = append(providersByType[providerConfig.Type], chatcompletion.ProviderEntry{
 			ID:       providerConfig.ID,
 			Name:     providerConfig.Name,
 			Provider: provider,
 		})
 	}
 
-	return chatcompletion.NewProviderRegistryWithEntries(providers, logger), nil
+	return providersByType, nil
 }
 
 func logProviderDiagnostic(logger *log.Logger, provider config.ProviderConfig) {
@@ -106,4 +127,19 @@ func logProviderDiagnostic(logger *log.Logger, provider config.ProviderConfig) {
 		status,
 		strings.Join(problems, ", "),
 	)
+}
+
+type providerRuntime struct {
+	registry *chatcompletion.ProviderRegistry
+	logger   *log.Logger
+}
+
+func (r *providerRuntime) ReplaceProviders(providerConfigs []config.ProviderConfig) error {
+	entries, err := buildProviderEntries(providerConfigs, r.logger)
+	if err != nil {
+		return err
+	}
+
+	r.registry.ReplaceProviders(entries)
+	return nil
 }

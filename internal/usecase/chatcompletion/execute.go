@@ -8,7 +8,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 )
 
-func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry ProviderRegistry, input Input) (Output, error) {
+func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry *ProviderRegistry, input Input) (Output, error) {
 	target, err := routing.ResolveModel(catalog, input.Request.Model)
 	if err != nil {
 		return Output{}, err
@@ -28,7 +28,7 @@ func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry Provi
 	return Output{Response: response}, nil
 }
 
-func ExecuteStream(ctx context.Context, catalog driver.Catalog, providerRegistry ProviderRegistry, input Input) (StreamOutput, error) {
+func ExecuteStream(ctx context.Context, catalog driver.Catalog, providerRegistry *ProviderRegistry, input Input) (StreamOutput, error) {
 	target, err := routing.ResolveModel(catalog, input.Request.Model)
 	if err != nil {
 		return StreamOutput{}, err

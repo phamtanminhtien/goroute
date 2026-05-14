@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
@@ -18,6 +19,7 @@ type ProviderEntry struct {
 }
 
 type ProviderRegistry struct {
+	mu        sync.RWMutex
 	providers map[string][]ProviderEntry
 	logger    *log.Logger
 	history   *requestHistoryStore
@@ -50,8 +52,8 @@ func NewProviderRegistryWithEntries(providers map[string][]ProviderEntry, logger
 	}
 }
 
-func (r ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
-	providers := r.providers[target.ProviderType]
+func (r *ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+	providers := r.providersForType(target.ProviderType)
 	if len(providers) == 0 {
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("no executor configured for provider type %q", target.ProviderType)
 	}
@@ -118,8 +120,8 @@ func (r ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.Ch
 	return openaiwire.ChatCompletionsResponse{}, lastErr
 }
 
-func (r ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	providers := r.providers[target.ProviderType]
+func (r *ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
+	providers := r.providersForType(target.ProviderType)
 	if len(providers) == 0 {
 		return nil, fmt.Errorf("no executor configured for provider type %q", target.ProviderType)
 	}
@@ -205,7 +207,7 @@ func (r ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiw
 	return nil, lastErr
 }
 
-func (r ProviderRegistry) RecentRequestAttempts(limit int) []RequestAttemptHistory {
+func (r *ProviderRegistry) RecentRequestAttempts(limit int) []RequestAttemptHistory {
 	if r.history == nil {
 		return nil
 	}
@@ -213,7 +215,28 @@ func (r ProviderRegistry) RecentRequestAttempts(limit int) []RequestAttemptHisto
 	return r.history.recent(limit)
 }
 
-func (r ProviderRegistry) logAttempt(requestedModel string, target routing.Target, provider ProviderEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
+func (r *ProviderRegistry) ReplaceProviders(providers map[string][]ProviderEntry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.providers = providers
+}
+
+func (r *ProviderRegistry) providersForType(providerType string) []ProviderEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	providers := r.providers[providerType]
+	if len(providers) == 0 {
+		return nil
+	}
+
+	cloned := make([]ProviderEntry, len(providers))
+	copy(cloned, providers)
+	return cloned
+}
+
+func (r *ProviderRegistry) logAttempt(requestedModel string, target routing.Target, provider ProviderEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
 	r.logger.Printf(
 		"chat_completion_attempt requested_model=%q resolved_target=%q provider_type=%q provider_id=%q provider_name=%q attempt_index=%d outcome=%q latency=%s error_category=%q will_fallback=%t",
 		requestedModel,
@@ -229,7 +252,7 @@ func (r ProviderRegistry) logAttempt(requestedModel string, target routing.Targe
 	)
 }
 
-func (r ProviderRegistry) logFinalFailure(requestedModel string, target routing.Target, finalCategory string) {
+func (r *ProviderRegistry) logFinalFailure(requestedModel string, target routing.Target, finalCategory string) {
 	r.logger.Printf(
 		"chat_completion_result requested_model=%q resolved_target=%q provider_type=%q final_error_category=%q",
 		requestedModel,

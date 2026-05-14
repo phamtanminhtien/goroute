@@ -12,7 +12,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
-func chatCompletionsHandler(catalog driver.Catalog, providerRegistry chatcompletion.ProviderRegistry) http.Handler {
+func chatCompletionsHandler(catalog driver.Catalog, providerRegistry *chatcompletion.ProviderRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

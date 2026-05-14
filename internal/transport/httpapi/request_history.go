@@ -7,7 +7,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
-func requestHistoryHandler(providerRegistry chatcompletion.ProviderRegistry) http.Handler {
+func requestHistoryHandler(providerRegistry *chatcompletion.ProviderRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
