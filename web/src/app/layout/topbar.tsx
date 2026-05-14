@@ -1,4 +1,4 @@
-import { Menu, MoonStar, SunMedium } from "lucide-react";
+import { LogOut, Menu, MoonStar, SunMedium } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
 import { useAuthStore } from "@/features/auth/auth-store";
@@ -7,11 +7,11 @@ import { Button } from "@/shared/ui/button";
 
 const topbarMeta = {
   "/providers": {
-    eyebrow: "Provider Operations",
-    title: "Monitor upstream readiness and credential posture",
+    eyebrow: "Providers",
+    title: "Manage your AI provider connections",
   },
   "/settings": {
-    eyebrow: "Runtime Control",
+    eyebrow: "Runtime",
     title: "Review ingress, auth, and default routing behavior",
   },
 } as const;
@@ -27,52 +27,55 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
     topbarMeta["/providers"];
 
   return (
-    <header className="admin-topbar border-border/85 bg-bg-secondary/92 sticky top-0 z-20 border-b backdrop-blur-[10px]">
-      <div className="flex min-h-[76px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-3">
+    <header className="admin-topbar dashboard-topbar-shell z-20 shrink-0 border-b backdrop-blur-[14px]">
+      <div className="flex min-h-[60px] items-center justify-between gap-3 px-4 sm:px-5 lg:px-7">
+        <div className="flex min-w-0 items-center gap-2.5">
           <Button
             aria-label="Open navigation menu"
-            className="lg:hidden"
+            className="bg-bg-secondary hover:bg-bg-tertiary hover:text-fg-primary h-8 border-[var(--dashboard-sidebar-border)] text-[var(--dashboard-subtle-text)] lg:hidden"
             iconOnly
-            leadingIcon={<Menu className="size-4" />}
+            leadingIcon={<Menu className="size-[15px]" />}
             onClick={onOpenNavigation}
             ripple={false}
             tone="secondary"
           />
           <div className="min-w-0">
-            <p className="text-fg-muted text-[11px] font-semibold tracking-[0.24em] uppercase">
+            <p className="text-[10px] font-semibold tracking-[0.22em] text-[var(--dashboard-muted-strong)] uppercase">
               {pageMeta.eyebrow}
             </p>
-            <p className="text-fg-primary truncate text-base font-semibold tracking-tight sm:text-lg">
+            <p className="truncate text-[14px] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)] sm:text-[16px]">
               {pageMeta.title}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
           <Button
             aria-label={
               theme === "light"
                 ? "Switch to dark theme"
                 : "Switch to light theme"
             }
+            className="hover:bg-bg-secondary hover:text-fg-primary h-8 border-[var(--dashboard-sidebar-border)] bg-transparent text-[var(--dashboard-subtle-text)] shadow-none"
+            iconOnly
             leadingIcon={
               theme === "light" ? (
-                <MoonStar className="size-4" />
+                <MoonStar className="size-[15px]" />
               ) : (
-                <SunMedium className="size-4" />
+                <SunMedium className="size-[15px]" />
               )
             }
             onClick={toggleTheme}
             tone="secondary"
+          />
+          <Button
+            aria-label="Sign out"
+            className="hover:bg-bg-secondary h-8 rounded-[12px] border-[var(--dashboard-shutdown-border)] bg-transparent px-3 text-[13px] text-[var(--dashboard-shutdown-text)] shadow-none"
+            leadingIcon={<LogOut className="size-[15px]" />}
+            onClick={signOut}
+            tone="secondary"
           >
-            <span className="hidden sm:inline">
-              {theme === "light" ? "Dark mode" : "Light mode"}
-            </span>
-          </Button>
-          <Button onClick={signOut} tone="secondary">
-            <span className="hidden sm:inline">Sign out</span>
-            <span className="sm:hidden">Exit</span>
+            Logout
           </Button>
         </div>
       </div>

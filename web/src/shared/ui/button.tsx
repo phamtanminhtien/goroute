@@ -45,7 +45,7 @@ const buttonVariants = createVariant(
       },
       tone: {
         ghost:
-          "border-transparent bg-transparent text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+          "border-transparent bg-transparent text-fg-secondary hover:bg-white/[0.04] hover:text-fg-primary",
         primary:
           "border-primary/15 bg-primary text-[var(--primary-foreground)] shadow-[var(--shadow-button)] hover:bg-[var(--primary-hover)]",
         secondary:
