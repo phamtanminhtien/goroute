@@ -34,7 +34,7 @@ func New() (*App, error) {
 		return nil, err
 	}
 
-	handler := httpapi.NewServer(cfg.Server.AuthToken, catalog, providerRegistry)
+	handler := httpapi.NewServer(catalog, providerRegistry)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,

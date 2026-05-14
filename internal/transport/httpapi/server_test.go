@@ -25,9 +25,11 @@ func testProviderRegistry(provider chatcompletion.Provider) chatcompletion.Provi
 	return chatcompletion.NewProviderRegistry(map[string][]chatcompletion.Provider{"codex": {provider}})
 }
 
-func TestModelsRequiresAuth(t *testing.T) {
-	handler := NewServer("secret", testCatalog(), testProviderRegistry(testProvider{}))
-	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {
+	handler := authMiddleware("secret", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/admin/test", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -37,10 +39,36 @@ func TestModelsRequiresAuth(t *testing.T) {
 	}
 }
 
-func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
-	handler := NewServer("secret", testCatalog(), testProviderRegistry(testProvider{}))
-	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+func TestAuthMiddlewareAllowsValidBearerToken(t *testing.T) {
+	handler := authMiddleware("secret", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/admin/test", nil)
 	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected %d, got %d", http.StatusNoContent, rec.Code)
+	}
+}
+
+func TestModelsDoesNotRequireAuth(t *testing.T) {
+	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
+	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -51,10 +79,9 @@ func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
 }
 
 func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
-	handler := NewServer("secret", testCatalog(), testProviderRegistry(testProvider{response: openaiwire.ChatCompletionsResponse{ID: "chatcmpl-1", Object: "chat.completion", Model: "gpt-5.4", Choices: []openaiwire.ChatChoice{{Index: 0, Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"}}}}}))
+	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{response: openaiwire.ChatCompletionsResponse{ID: "chatcmpl-1", Object: "chat.completion", Model: "gpt-5.4", Choices: []openaiwire.ChatChoice{{Index: 0, Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"}}}}}))
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -68,10 +95,9 @@ func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
 }
 
 func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
-	handler := NewServer("secret", testCatalog(), testProviderRegistry(testProvider{err: chatcompletion.UpstreamError{StatusCode: http.StatusTooManyRequests, Message: "rate limited"}}))
+	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{err: chatcompletion.UpstreamError{StatusCode: http.StatusTooManyRequests, Message: "rate limited"}}))
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

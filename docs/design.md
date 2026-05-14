@@ -109,16 +109,15 @@ with body:
 
 The intended flow is:
 
-1. authenticate the inbound request
-2. parse and validate the JSON body
-3. extract requested model (`cx/gpt-5.4`)
-4. split the model into driver prefix (`cx`) and upstream model (`gpt-5.4`)
-5. resolve `cx` to the system-defined Codex driver
-6. transform request only where required by provider adapter
-7. let the driver execute `gpt-5.4` through the matching user-configured providers
-8. if eligible failure occurs, advance through the driver's fallback policy
-9. normalize upstream response to OpenAI-compatible output
-10. emit logs / metrics describing the route decision
+1. parse and validate the JSON body
+2. extract requested model (`cx/gpt-5.4`)
+3. split the model into driver prefix (`cx`) and upstream model (`gpt-5.4`)
+4. resolve `cx` to the system-defined Codex driver
+5. transform request only where required by provider adapter
+6. let the driver execute `gpt-5.4` through the matching user-configured providers
+7. if eligible failure occurs, advance through the driver's fallback policy
+8. normalize upstream response to OpenAI-compatible output
+9. emit logs / metrics describing the route decision
 
 ## Provider Abstraction
 
@@ -278,6 +277,6 @@ Requirements:
 - use bounded server timeouts
 - avoid panic-driven 500s with leaked internals
 - be explicit about whether prompts/responses are logged
-- keep auth simple and mandatory by default
+- keep admin API auth simple and mandatory when admin endpoints are added
 
 If multi-tenant usage is ever considered later, auth and per-client isolation will need stronger design.

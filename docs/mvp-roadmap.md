@@ -9,7 +9,7 @@ Implemented now:
 - OpenAI-compatible HTTP surface for:
   - `GET /v1/models`
   - `POST /v1/chat/completions`
-- bearer-token auth middleware
+- bearer-token auth middleware reserved for future admin APIs
 - request ID and request logging middleware
 - system driver catalog loading from `data/system-drivers.json`
 - model prefix resolution such as `cx/gpt-5.4`

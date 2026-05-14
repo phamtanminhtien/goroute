@@ -9,13 +9,15 @@ type ModelView struct {
 }
 
 func Execute(catalog driver.Catalog) []ModelView {
-	models := make([]ModelView, 0, len(catalog.Drivers))
+	models := make([]ModelView, 0)
 	for _, drv := range catalog.Drivers {
-		models = append(models, ModelView{
-			ID:      drv.ID,
-			Object:  "model",
-			OwnedBy: "goroute",
-		})
+		for _, model := range drv.Models {
+			models = append(models, ModelView{
+				ID:      model.ID,
+				Object:  "model",
+				OwnedBy: drv.Provider,
+			})
+		}
 	}
 
 	return models

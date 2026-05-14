@@ -45,7 +45,7 @@ Initial target endpoints:
 A local client might be configured with:
 
 - Base URL: `http://localhost:2232/v1`
-- API key: proxy token
+- API key: any placeholder value required by the client
 - Model: `cx/gpt-5.4`
 
 `goroute` then resolves `cx/gpt-5.4` as:
