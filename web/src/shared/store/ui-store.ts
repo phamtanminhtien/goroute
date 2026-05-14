@@ -16,8 +16,14 @@ function readInitialTheme(): ThemeMode {
     return "dark";
   }
 
-  if (document.documentElement.classList.contains("dark")) {
-    return "dark";
+  const storedTheme = localStorage.getItem(storageKey);
+  if (storedTheme === "dark" || storedTheme === "light") {
+    return storedTheme;
+  }
+
+  const datasetTheme = document.documentElement.dataset.theme;
+  if (datasetTheme === "dark" || datasetTheme === "light") {
+    return datasetTheme;
   }
 
   return "light";
@@ -34,7 +40,6 @@ export function useSyncTheme() {
   const theme = useUIStore((state) => state.theme);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(storageKey, theme);
   }, [theme]);

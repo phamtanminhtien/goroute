@@ -1,7 +1,14 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-manrope);
+  --font-manrope: "Manrope", sans-serif;
+
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-background: var(--bg-primary);
+  --color-surface: var(--bg-secondary);
 
   --color-bg-primary: var(--bg-primary);
   --color-bg-secondary: var(--bg-secondary);
@@ -10,44 +17,200 @@
   --color-fg-secondary: var(--fg-secondary);
   --color-fg-muted: var(--fg-muted);
   --color-border: var(--border);
-  --color-primary: var(--primary);
-  --color-accent: var(--accent);
   --color-glass-bg: var(--glass-bg);
   --color-glass-border: var(--glass-border);
 }
 
 :root {
-  --bg-primary: #f4f8fc;
-  --bg-secondary: rgba(255, 255, 255, 0.82);
-  --bg-tertiary: rgba(248, 250, 252, 0.94);
-  --fg-primary: #071120;
-  --fg-secondary: #405265;
-  --fg-muted: #66798d;
-  --border: rgba(128, 151, 176, 0.24);
+  --font-manrope: "Manrope", sans-serif;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Border Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Compatibility tokens used by shared UI utilities */
+  --radius-control: 1rem;
+  --radius-surface: 1.25rem;
+  --control-height: 2.75rem;
+  --control-height-lg: 3rem;
+  --control-padding-x: var(--space-4);
+  --control-padding-x-lg: 1.125rem;
+  --control-padding-y: var(--space-3);
+
+  --bg-primary: #ebe5da;
+  --bg-secondary: #fcfbf8;
+  --bg-tertiary: #e1d8c8;
+
+  --fg-primary: #172133;
+  --fg-secondary: #4d5c70;
+  --fg-muted: #748295;
+
+  --secondary: #ffffff;
+  --secondary-hover: #f7f9fc;
+  --secondary-foreground: #192334;
+
+  --border: rgba(23, 33, 51, 0.18);
+  --border-hover: rgba(23, 33, 51, 0.32);
+
   --primary: #2563eb;
-  --accent: #06b6d4;
-  --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-border: rgba(255, 255, 255, 0.48);
-  --glass-blur: 20px;
-  --selection: rgba(37, 99, 235, 0.18);
+  --primary-hover: #1d4ed8;
+  --primary-foreground: #ffffff;
+
+  --accent: #0f766e;
+  --accent-hover: #0b5d57;
+
+  --success: #15803d;
+  --error: #ef4444;
+  --warning: #d97706;
+
+  --shadow-sm: 0 6px 14px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 14px 32px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 24px 56px rgba(15, 23, 42, 0.14);
+  --shadow-glow: 0 0 0 transparent;
+
+  --glass-bg: rgba(252, 251, 248, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.68);
+  --glass-blur: 14px;
+  --glass-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
+
+  --focus-ring: color-mix(in srgb, var(--primary) 18%, transparent);
+  --field-bg: #f6f3ed;
+  --field-bg-focus: #ffffff;
+  --field-border: rgba(23, 33, 51, 0.18);
+  --field-border-focus: rgba(37, 99, 235, 0.34);
+  --shadow-soft: var(--shadow-sm);
+  --shadow-elevated: var(--shadow-lg);
+  --shadow-button: 0 8px 18px rgba(37, 99, 235, 0.16);
+  --selection: color-mix(in srgb, var(--primary) 22%, transparent);
+  --pattern-dot: color-mix(in srgb, var(--fg-primary) 10%, transparent);
+  --pattern-line: color-mix(in srgb, var(--primary) 8%, transparent);
+  --pattern-glow-a: color-mix(in srgb, var(--primary) 10%, transparent);
+  --pattern-glow-b: color-mix(in srgb, var(--accent) 9%, transparent);
+
   color-scheme: light;
 }
 
-.dark {
-  --bg-primary: #07111f;
-  --bg-secondary: rgba(9, 18, 33, 0.84);
-  --bg-tertiary: rgba(16, 27, 46, 0.92);
-  --fg-primary: #f4f8ff;
-  --fg-secondary: #b0bfd1;
-  --fg-muted: #7f92aa;
-  --border: rgba(144, 167, 196, 0.18);
-  --primary: #4f8cff;
-  --accent: #41d8f4;
-  --glass-bg: rgba(16, 27, 46, 0.56);
-  --glass-border: rgba(148, 163, 184, 0.16);
-  --glass-blur: 22px;
-  --selection: rgba(79, 140, 255, 0.24);
+:root[data-theme="dark"] {
+  --bg-primary: #0d1523;
+  --bg-secondary: #141f31;
+  --bg-tertiary: #1a2740;
+
+  --fg-primary: #f5f7fb;
+  --fg-secondary: #c7d0de;
+  --fg-muted: #93a0b3;
+
+  --primary: #5b8cff;
+  --primary-hover: #7aa0ff;
+  --primary-foreground: #ffffff;
+
+  --secondary: #1a2740;
+  --secondary-hover: #22314c;
+  --secondary-foreground: #f5f5f7;
+
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+
+  --success: #22c55e;
+  --error: #ef4444;
+  --warning: #f59e0b;
+
+  --border: rgba(199, 208, 222, 0.2);
+  --border-hover: rgba(199, 208, 222, 0.34);
+
+  --shadow-sm: 0 8px 18px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 18px 38px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 28px 60px rgba(0, 0, 0, 0.42);
+  --shadow-glow: 0 0 0 transparent;
+
+  --glass-bg: rgba(20, 31, 49, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: 14px;
+  --glass-shadow: 0 20px 44px rgba(0, 0, 0, 0.34);
+
+  --focus-ring: color-mix(in srgb, var(--primary) 24%, transparent);
+  --field-bg: rgba(13, 21, 35, 0.96);
+  --field-bg-focus: rgba(20, 31, 49, 0.98);
+  --field-border: rgba(199, 208, 222, 0.2);
+  --field-border-focus: rgba(91, 140, 255, 0.42);
+  --shadow-soft: var(--shadow-sm);
+  --shadow-elevated: var(--shadow-lg);
+  --shadow-button: 0 10px 22px rgba(91, 140, 255, 0.18);
+  --selection: color-mix(in srgb, var(--primary) 26%, transparent);
+  --pattern-dot: color-mix(in srgb, white 6%, transparent);
+  --pattern-line: color-mix(in srgb, var(--primary) 7%, transparent);
+  --pattern-glow-a: color-mix(in srgb, var(--primary) 8%, transparent);
+  --pattern-glow-b: color-mix(in srgb, var(--accent) 7%, transparent);
+
   color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg-primary: #ebe5da;
+  --bg-secondary: #fcfbf8;
+  --bg-tertiary: #e1d8c8;
+
+  --fg-primary: #172133;
+  --fg-secondary: #4d5c70;
+  --fg-muted: #748295;
+
+  --secondary: #ffffff;
+  --secondary-hover: #f7f9fc;
+  --secondary-foreground: #192334;
+
+  --border: rgba(23, 33, 51, 0.18);
+  --border-hover: rgba(23, 33, 51, 0.32);
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-foreground: #ffffff;
+
+  --accent: #0f766e;
+  --accent-hover: #0b5d57;
+
+  --success: #15803d;
+  --error: #ef4444;
+  --warning: #d97706;
+
+  --shadow-sm: 0 6px 14px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 14px 32px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 24px 56px rgba(15, 23, 42, 0.14);
+  --shadow-glow: 0 0 0 transparent;
+
+  --glass-bg: rgba(252, 251, 248, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.68);
+  --glass-blur: 14px;
+  --glass-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
+
+  --focus-ring: color-mix(in srgb, var(--primary) 18%, transparent);
+  --field-bg: #f6f3ed;
+  --field-bg-focus: #ffffff;
+  --field-border: rgba(23, 33, 51, 0.18);
+  --field-border-focus: rgba(37, 99, 235, 0.34);
+  --shadow-soft: var(--shadow-sm);
+  --shadow-elevated: var(--shadow-lg);
+  --shadow-button: 0 8px 18px rgba(37, 99, 235, 0.16);
+  --selection: color-mix(in srgb, var(--primary) 22%, transparent);
+  --pattern-dot: color-mix(in srgb, var(--fg-primary) 10%, transparent);
+  --pattern-line: color-mix(in srgb, var(--primary) 8%, transparent);
+  --pattern-glow-a: color-mix(in srgb, var(--primary) 10%, transparent);
+  --pattern-glow-b: color-mix(in srgb, var(--accent) 9%, transparent);
+
+  color-scheme: light;
 }
 
 @layer base {
@@ -61,6 +224,16 @@
 
   body {
     @apply bg-bg-primary text-fg-primary min-h-screen;
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      var(--pattern-dot) 1px,
+      transparent 0
+    );
+    background-size: 32px 32px;
+  }
+
+  #root {
+    min-height: 100vh;
   }
 
   body::before {
@@ -68,12 +241,101 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 72px 72px;
-    mask-image: radial-gradient(circle at top, black, transparent 78%);
-    opacity: 0.32;
+    background:
+      radial-gradient(
+        circle at top left,
+        var(--pattern-glow-a),
+        transparent 32%
+      ),
+      radial-gradient(
+        circle at 85% 10%,
+        var(--pattern-glow-b),
+        transparent 24%
+      ),
+      radial-gradient(
+        circle at 50% 120%,
+        color-mix(in srgb, white 20%, transparent),
+        transparent 36%
+      );
+    opacity: 0.82;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        circle at 12% 18%,
+        transparent 0,
+        transparent 84px,
+        var(--pattern-line) 84px,
+        var(--pattern-line) 85px,
+        transparent 85px
+      ),
+      radial-gradient(
+        circle at 12% 18%,
+        transparent 0,
+        transparent 132px,
+        var(--pattern-line) 132px,
+        var(--pattern-line) 133px,
+        transparent 133px
+      ),
+      radial-gradient(
+        circle at 88% 82%,
+        transparent 0,
+        transparent 108px,
+        var(--pattern-line) 108px,
+        var(--pattern-line) 109px,
+        transparent 109px
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, white 30%, transparent),
+        transparent 24%
+      );
+    opacity: 0.26;
+  }
+
+  .admin-shell {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, white 16%, transparent),
+        transparent 20%
+      ),
+      linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--primary) 4%, transparent),
+        transparent 42%
+      );
+  }
+
+  :root[data-theme="dark"] .admin-shell {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, white 4%, transparent),
+        transparent 16%
+      ),
+      linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--primary) 2%, transparent),
+        transparent 34%
+      );
+  }
+
+  .admin-sidebar {
+    box-shadow: 6px 0 18px rgba(2, 8, 23, 0.08);
+  }
+
+  :root[data-theme="dark"] .admin-sidebar {
+    box-shadow: 8px 0 22px rgba(0, 0, 0, 0.18);
+  }
+
+  .admin-topbar {
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
   }
 
   ::selection {
@@ -90,14 +352,6 @@
   a {
     color: inherit;
     text-decoration: none;
-  }
-}
-
-@layer utilities {
-  .surface-outline {
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.03),
-      0 24px 80px rgba(15, 23, 42, 0.18);
   }
 }
 
