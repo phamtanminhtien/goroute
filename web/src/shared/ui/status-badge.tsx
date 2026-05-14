@@ -20,9 +20,9 @@ const badgeVariants = createVariant(
       tone: {
         info: "border-primary/12 bg-primary/8 text-primary",
         success:
-          "border-emerald-500/18 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+          "border-[color:color-mix(in_srgb,var(--success)_20%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)]",
         warning:
-          "border-amber-500/18 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+          "border-[color:color-mix(in_srgb,var(--warning)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--warning)_10%,transparent)] text-[var(--warning)]",
       },
     },
   },

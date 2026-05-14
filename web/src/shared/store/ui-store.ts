@@ -26,7 +26,7 @@ function readInitialTheme(): ThemeMode {
     return datasetTheme;
   }
 
-  return "light";
+  return "dark";
 }
 
 export const useUIStore = create<UIState>((set) => ({

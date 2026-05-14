@@ -11,20 +11,20 @@ export function AdminLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   return (
-    <main className="admin-dashboard min-h-screen">
+    <main className="admin-dashboard h-dvh overflow-hidden">
       <SidebarNav
         isMobileOpen={isMobileNavOpen}
         onClose={() => setIsMobileNavOpen(false)}
       />
 
-      <div className="min-h-screen lg:pl-[288px]">
+      <div className="flex h-dvh min-h-0 flex-col overflow-hidden lg:pl-[300px]">
         <Topbar onOpenNavigation={() => setIsMobileNavOpen(true)} />
 
-        <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5 lg:px-7 lg:py-5">
           <AnimatePresence mode="wait">
             <motion.div
               animate="visible"
-              className="space-y-6"
+              className="space-y-5"
               initial="hidden"
               key={location.pathname}
               variants={fadeInUp}
