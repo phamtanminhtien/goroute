@@ -298,7 +298,7 @@
     opacity: 0.26;
   }
 
-  .admin-shell {
+  .admin-dashboard {
     background:
       linear-gradient(
         180deg,
@@ -312,7 +312,7 @@
       );
   }
 
-  :root[data-theme="dark"] .admin-shell {
+  :root[data-theme="dark"] .admin-dashboard {
     background:
       linear-gradient(
         180deg,

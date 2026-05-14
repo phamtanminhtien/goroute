@@ -11,7 +11,7 @@ export function AdminLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   return (
-    <main className="admin-shell min-h-screen">
+    <main className="admin-dashboard min-h-screen">
       <SidebarNav
         isMobileOpen={isMobileNavOpen}
         onClose={() => setIsMobileNavOpen(false)}
