@@ -90,7 +90,7 @@ web/
   src/
     main.tsx                      # React entrypoint
     app/
-      app.tsx                     # top-level app shell
+      app.tsx                     # top-level dashboard app
       routes.tsx                  # route definitions
     features/
       providers/                  # provider config screens

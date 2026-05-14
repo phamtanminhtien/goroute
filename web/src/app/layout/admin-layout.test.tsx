@@ -20,7 +20,7 @@ describe("admin layout", () => {
     useUIStore.setState({ theme: "light" });
   });
 
-  it("renders the classic full-width dashboard shell", async () => {
+  it("renders the classic full-width dashboard", async () => {
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers"]}>
         <AppRoutes />
@@ -50,7 +50,7 @@ describe("admin layout", () => {
     expect(screen.queryByText(/admin token active/i)).not.toBeInTheDocument();
   });
 
-  it("keeps sign-out accessible from the admin shell", async () => {
+  it("keeps sign-out accessible from the admin dashboard", async () => {
     const user = userEvent.setup();
 
     renderWithQueryClient(

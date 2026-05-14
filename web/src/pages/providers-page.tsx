@@ -181,7 +181,7 @@ export function ProvidersPage() {
               },
               {
                 detail:
-                  "Credential rotation is represented in the shell, but backend mutation is intentionally not wired yet.",
+                  "Credential rotation is represented in the dashboard, but backend mutation is intentionally not wired yet.",
                 icon: <KeyRound className="text-primary size-4" />,
                 title: "Rotation workflow pending API",
               },
