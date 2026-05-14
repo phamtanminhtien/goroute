@@ -20,12 +20,14 @@ Illustrative `~/.goroute/config.json` example:
   },
   "providers": [
     {
+      "id": "1",
       "type": "codex",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
       "name": "[EMAIL_ADDRESS]"
     },
     {
+      "id": "2",
       "type": "openai",
       "api_key": "${OPENAI_API_KEY}",
       "name": "[EMAIL_ADDRESS]"
@@ -45,14 +47,12 @@ Illustrative system data:
 ```json
 {
   "driver_auth_types": ["oauth", "api_key"],
-  "driver_protocols": ["openai", "anthropic"],
   "drivers": [
     {
       "id": "cx",
       "name": "Codex",
-      "protocol": "openai",
+      "provider": "codex",
       "auth_type": "oauth",
-      "default_model": "cx/gpt-5.4",
       "models": [
         {
           "id": "cx/gpt-5.4",
@@ -64,9 +64,8 @@ Illustrative system data:
     {
       "id": "opena",
       "name": "OpenAI",
-      "protocol": "openai",
+      "provider": "openai",
       "auth_type": "api_key",
-      "default_model": "opena/gpt-4.1",
       "models": [
         {
           "id": "opena/gpt-4.1",
@@ -88,6 +87,7 @@ Even before implementation, a few internal structures are implied.
 Fields likely needed:
 
 - name
+- id
 - type
 - type-specific credential fields, such as `api_key`
 - type-specific session fields, such as `access_token` and `refresh_token`
@@ -98,7 +98,7 @@ Fields likely needed:
 
 - driver ID / client-facing prefix, such as `cx`
 - display name
-- protocol, such as `openai`
+- provider, such as `codex` or `openai`
 - auth type, such as `oauth` or `api_key`
 - default model
 - supported models

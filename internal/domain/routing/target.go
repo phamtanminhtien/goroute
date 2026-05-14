@@ -5,4 +5,5 @@ type Target struct {
 	RequestedModel string
 	DriverID       string
 	DriverName     string
+	ProviderType   string
 }

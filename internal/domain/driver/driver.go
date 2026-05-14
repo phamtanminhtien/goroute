@@ -3,7 +3,7 @@ package driver
 type Driver struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
-	Protocol     string  `json:"protocol"`
+	Provider     string  `json:"provider"`
 	AuthType     string  `json:"auth_type"`
 	DefaultModel string  `json:"default_model"`
 	Models       []Model `json:"models"`

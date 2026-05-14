@@ -14,6 +14,9 @@ func Validate(cfg Config) error {
 	}
 
 	for i, provider := range cfg.Providers {
+		if provider.ID == "" {
+			return fmt.Errorf("config.providers[%d].id is required", i)
+		}
 		if provider.Type == "" {
 			return fmt.Errorf("config.providers[%d].type is required", i)
 		}

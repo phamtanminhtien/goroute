@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"time"
 
+	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
+	provideropenai "github.com/phamtanminhtien/goroute/internal/adapter/provider/openai"
 	"github.com/phamtanminhtien/goroute/internal/adapter/systemdata"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
+	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
 type App struct {
@@ -26,7 +29,12 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("load system driver data: %w", err)
 	}
 
-	handler := httpapi.NewServer(cfg.Server.AuthToken, catalog)
+	providerRegistry, err := buildProviderRegistry(cfg.Providers)
+	if err != nil {
+		return nil, err
+	}
+
+	handler := httpapi.NewServer(cfg.Server.AuthToken, catalog, providerRegistry)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,
@@ -34,4 +42,22 @@ func New() (*App, error) {
 	}
 
 	return &App{server: server}, nil
+}
+
+func buildProviderRegistry(providerConfigs []config.ProviderConfig) (chatcompletion.ProviderRegistry, error) {
+	providers := make(map[string][]chatcompletion.Provider, len(providerConfigs))
+	for _, providerConfig := range providerConfigs {
+		var provider chatcompletion.Provider
+		switch providerConfig.Type {
+		case "codex":
+			provider = providercodex.NewClient(providerConfig)
+		case "openai":
+			provider = provideropenai.NewClient(nil, providerConfig)
+		default:
+			return chatcompletion.ProviderRegistry{}, fmt.Errorf("unsupported provider type %q", providerConfig.Type)
+		}
+		providers[providerConfig.Type] = append(providers[providerConfig.Type], provider)
+	}
+
+	return chatcompletion.NewProviderRegistry(providers), nil
 }

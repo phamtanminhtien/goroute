@@ -34,3 +34,9 @@ go.work.sum
 # OS files
 .DS_Store
 Thumbs.db
+
+# Cache
+.gocache/
+
+# Local data
+.data/
