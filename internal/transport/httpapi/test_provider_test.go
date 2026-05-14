@@ -12,17 +12,22 @@ import (
 type testProvider struct {
 	response openaiwire.ChatCompletionsResponse
 	err      error
+	lastReq  openaiwire.ChatCompletionsRequest
 }
 
-func (p testProvider) ChatCompletions(_ context.Context, _ openaiwire.ChatCompletionsRequest, _ routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+func (p *testProvider) ChatCompletions(_ context.Context, req openaiwire.ChatCompletionsRequest, _ routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+	p.lastReq = req
 	return p.response, p.err
 }
 
 type streamingTestProvider struct {
-	testProvider
+	*testProvider
 	body string
 }
 
-func (p streamingTestProvider) ChatCompletionsStream(_ context.Context, _ openaiwire.ChatCompletionsRequest, _ routing.Target) (io.ReadCloser, error) {
+func (p streamingTestProvider) ChatCompletionsStream(_ context.Context, req openaiwire.ChatCompletionsRequest, _ routing.Target) (io.ReadCloser, error) {
+	if p.testProvider != nil {
+		p.testProvider.lastReq = req
+	}
 	return io.NopCloser(strings.NewReader(p.body)), p.err
 }
