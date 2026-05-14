@@ -1,10 +1,17 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const DefaultListenAddr = ":2232"
 
 func Validate(cfg Config) error {
+	if strings.TrimSpace(cfg.Server.AuthToken) == "" {
+		return fmt.Errorf("config.server.auth_token is required")
+	}
+
 	if len(cfg.Providers) == 0 {
 		return fmt.Errorf("config.providers must contain at least one provider")
 	}
