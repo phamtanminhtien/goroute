@@ -106,3 +106,22 @@ func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusBadGateway, rec.Code, rec.Body.String())
 	}
 }
+
+func TestChatCompletionsStreamsProviderBody(t *testing.T) {
+	handler := NewServer(testCatalog(), testProviderRegistry(streamingTestProvider{body: "data: first\n\n"}))
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("expected text/event-stream, got %q", got)
+	}
+	if rec.Body.String() != "data: first\n\n" {
+		t.Fatalf("unexpected stream body=%q", rec.Body.String())
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/driver"
@@ -23,6 +24,29 @@ func chatCompletionsHandler(catalog driver.Catalog, providerRegistry chatcomplet
 		var request openaiwire.ChatCompletionsRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid JSON body: %v", err))
+			return
+		}
+
+		if request.Stream {
+			output, err := chatcompletion.ExecuteStream(r.Context(), catalog, providerRegistry, chatcompletion.Input{Request: request})
+			if err != nil {
+				var upstreamErr chatcompletion.UpstreamError
+				switch {
+				case errors.As(err, &upstreamErr):
+					writeError(w, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
+				default:
+					writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+				}
+				return
+			}
+			defer output.Body.Close()
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.Copy(w, output.Body)
 			return
 		}
 

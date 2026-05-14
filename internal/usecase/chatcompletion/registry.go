@@ -3,6 +3,7 @@ package chatcompletion
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -32,4 +33,28 @@ func (r ProviderRegistry) ChatCompletions(ctx context.Context, req openaiwire.Ch
 	}
 
 	return openaiwire.ChatCompletionsResponse{}, lastErr
+}
+
+func (r ProviderRegistry) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
+	providers := r.providers[target.ProviderType]
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("no executor configured for provider type %q", target.ProviderType)
+	}
+
+	var lastErr error
+	for _, provider := range providers {
+		streamingProvider, ok := provider.(StreamingProvider)
+		if !ok {
+			lastErr = fmt.Errorf("provider type %q does not support streaming", target.ProviderType)
+			continue
+		}
+
+		body, err := streamingProvider.ChatCompletionsStream(ctx, req, target)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+	}
+
+	return nil, lastErr
 }

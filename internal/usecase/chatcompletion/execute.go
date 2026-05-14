@@ -27,3 +27,21 @@ func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry Provi
 
 	return Output{Response: response}, nil
 }
+
+func ExecuteStream(ctx context.Context, catalog driver.Catalog, providerRegistry ProviderRegistry, input Input) (StreamOutput, error) {
+	target, err := routing.ResolveModel(catalog, input.Request.Model)
+	if err != nil {
+		return StreamOutput{}, err
+	}
+
+	if len(input.Request.Messages) == 0 {
+		return StreamOutput{}, fmt.Errorf("messages must contain at least one item")
+	}
+
+	body, err := providerRegistry.ChatCompletionsStream(ctx, input.Request, target)
+	if err != nil {
+		return StreamOutput{}, err
+	}
+
+	return StreamOutput{Body: body}, nil
+}

@@ -1,6 +1,10 @@
 package chatcompletion
 
-import "github.com/phamtanminhtien/goroute/internal/openaiwire"
+import (
+	"io"
+
+	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+)
 
 type Input struct {
 	Request openaiwire.ChatCompletionsRequest
@@ -8,4 +12,8 @@ type Input struct {
 
 type Output struct {
 	Response openaiwire.ChatCompletionsResponse
+}
+
+type StreamOutput struct {
+	Body io.ReadCloser
 }
