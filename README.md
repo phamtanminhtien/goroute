@@ -50,6 +50,7 @@ Currently implemented endpoints:
 - `POST /v1/chat/completions`
 - `GET /v1/models`
 - `GET /healthz`
+- `GET /debug/requests` (admin-only, requires `Authorization: Bearer <server.auth_token>`)
 
 ## Example Usage
 
@@ -98,6 +99,7 @@ Current implemented shape:
 ```
 
 The current loader validates `id`, `type`, and `name` for every provider. Credentials are checked by the provider adapter when a request is executed.
+`server.auth_token` is required and protects admin-only backend routes such as request history.
 
 `type: "openai"` currently targets the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
 

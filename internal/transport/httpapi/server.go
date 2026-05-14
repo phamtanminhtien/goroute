@@ -8,12 +8,12 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
-func NewServer(catalog driver.Catalog, providerRegistry chatcompletion.ProviderRegistry) http.Handler {
+func NewServer(catalog driver.Catalog, providerRegistry chatcompletion.ProviderRegistry, adminAuthToken string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", health.Handler())
 	mux.Handle("/v1/models", modelsHandler(catalog))
 	mux.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, providerRegistry))
-	mux.Handle("/debug/requests", requestHistoryHandler(providerRegistry))
+	mux.Handle("/debug/requests", authMiddleware(adminAuthToken, requestHistoryHandler(providerRegistry)))
 
 	return requestIDMiddleware(loggingMiddleware(mux))
 }

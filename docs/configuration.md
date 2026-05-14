@@ -38,6 +38,7 @@ Example `~/.goroute/config.json`:
 
 Current validation requires every provider to have `id`, `type`, and `name`.
 `server.listen` defaults to `:2232` when omitted.
+`server.auth_token` is required and is used to protect admin-only HTTP routes.
 Provider credentials are validated lazily by the selected provider adapter during request execution.
 
 Current provider credential behavior:
