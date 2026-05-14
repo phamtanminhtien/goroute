@@ -55,7 +55,7 @@ func TestAuthMiddlewareAllowsValidBearerToken(t *testing.T) {
 }
 
 func TestModelsDoesNotRequireAuth(t *testing.T) {
-	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{}))
+	handler := NewServer(testCatalog(), testProviderRegistry(&testProvider{}))
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
 
@@ -67,7 +67,7 @@ func TestModelsDoesNotRequireAuth(t *testing.T) {
 }
 
 func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
-	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{}))
+	handler := NewServer(testCatalog(), testProviderRegistry(&testProvider{}))
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
 
@@ -79,7 +79,7 @@ func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
 }
 
 func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
-	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{response: openaiwire.ChatCompletionsResponse{ID: "chatcmpl-1", Object: "chat.completion", Model: "gpt-5.4", Choices: []openaiwire.ChatChoice{{Index: 0, Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"}}}}}))
+	handler := NewServer(testCatalog(), testProviderRegistry(&testProvider{response: openaiwire.ChatCompletionsResponse{ID: "chatcmpl-1", Object: "chat.completion", Model: "gpt-5.4", Choices: []openaiwire.ChatChoice{{Index: 0, Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"}}}}}))
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -95,7 +95,7 @@ func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
 }
 
 func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
-	handler := NewServer(testCatalog(), testProviderRegistry(testProvider{err: chatcompletion.UpstreamError{StatusCode: http.StatusTooManyRequests, Message: "rate limited"}}))
+	handler := NewServer(testCatalog(), testProviderRegistry(&testProvider{err: chatcompletion.UpstreamError{StatusCode: http.StatusTooManyRequests, Message: "rate limited"}}))
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -108,7 +108,7 @@ func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
 }
 
 func TestChatCompletionsStreamsProviderBody(t *testing.T) {
-	handler := NewServer(testCatalog(), testProviderRegistry(streamingTestProvider{body: "data: first\n\n"}))
+	handler := NewServer(testCatalog(), testProviderRegistry(streamingTestProvider{testProvider: &testProvider{}, body: "data: first\n\n"}))
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -123,5 +123,38 @@ func TestChatCompletionsStreamsProviderBody(t *testing.T) {
 	}
 	if rec.Body.String() != "data: first\n\n" {
 		t.Fatalf("unexpected stream body=%q", rec.Body.String())
+	}
+}
+
+func TestChatCompletionsAcceptsCommonOpenAIFields(t *testing.T) {
+	provider := &testProvider{
+		response: openaiwire.ChatCompletionsResponse{
+			ID:     "chatcmpl-2",
+			Object: "chat.completion",
+			Model:  "gpt-5.4",
+			Choices: []openaiwire.ChatChoice{{
+				Index:   0,
+				Message: openaiwire.ChatMessage{Role: "assistant", Content: "weather ready"},
+			}},
+		},
+	}
+	handler := NewServer(testCatalog(), testProviderRegistry(provider))
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"temperature":0.5,"max_tokens":64,"tools":[{"type":"function","function":{"name":"lookup_weather","parameters":{"type":"object"}}}],"tool_choice":{"type":"function","function":{"name":"lookup_weather"}}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if provider.lastReq.Temperature == nil || *provider.lastReq.Temperature != 0.5 {
+		t.Fatalf("expected temperature to decode, got %#v", provider.lastReq.Temperature)
+	}
+	if provider.lastReq.MaxTokens == nil || *provider.lastReq.MaxTokens != 64 {
+		t.Fatalf("expected max_tokens to decode, got %#v", provider.lastReq.MaxTokens)
+	}
+	if len(provider.lastReq.Tools) != 1 || provider.lastReq.Tools[0].Function.Name != "lookup_weather" {
+		t.Fatalf("expected tools to decode, got %#v", provider.lastReq.Tools)
 	}
 }

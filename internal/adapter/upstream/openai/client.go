@@ -35,11 +35,8 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("openai-compatible executor cannot handle provider type %q", target.ProviderType)
 	}
 
-	credential := strings.TrimSpace(c.provider.APIKey)
-	if credential == "" {
-		credential = strings.TrimSpace(c.provider.AccessToken)
-	}
-	if credential == "" {
+	credential, err := c.credential()
+	if err != nil {
 		return openaiwire.ChatCompletionsResponse{}, chatcompletion.ProviderConfigurationError{
 			ProviderID:   c.provider.ID,
 			ProviderName: c.provider.Name,
@@ -50,17 +47,10 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 	upstreamRequest := req
 	upstreamRequest.Model = target.RequestedModel
 
-	payload, err := json.Marshal(upstreamRequest)
+	httpReq, err := c.newChatCompletionsRequest(ctx, upstreamRequest, credential)
 	if err != nil {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("encode upstream request: %w", err)
+		return openaiwire.ChatCompletionsResponse{}, err
 	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, defaultBaseURL+"/v1/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("build upstream request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+credential)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -79,4 +69,70 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 	}
 
 	return out, nil
+}
+
+func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
+	if target.ProviderType != c.provider.Type {
+		return nil, fmt.Errorf("openai-compatible executor cannot handle provider type %q", target.ProviderType)
+	}
+
+	credential, err := c.credential()
+	if err != nil {
+		return nil, chatcompletion.ProviderConfigurationError{
+			ProviderID:   c.provider.ID,
+			ProviderName: c.provider.Name,
+			Message:      "missing api_key or access_token",
+		}
+	}
+
+	upstreamRequest := req
+	upstreamRequest.Model = target.RequestedModel
+	upstreamRequest.Stream = true
+
+	httpReq, err := c.newChatCompletionsRequest(ctx, upstreamRequest, credential)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("execute upstream request: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+		return nil, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
+	}
+
+	return resp.Body, nil
+}
+
+func (c *Client) credential() (string, error) {
+	credential := strings.TrimSpace(c.provider.APIKey)
+	if credential == "" {
+		credential = strings.TrimSpace(c.provider.AccessToken)
+	}
+	if credential == "" {
+		return "", fmt.Errorf("missing credential")
+	}
+
+	return credential, nil
+}
+
+func (c *Client) newChatCompletionsRequest(ctx context.Context, req openaiwire.ChatCompletionsRequest, credential string) (*http.Request, error) {
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("encode upstream request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, defaultBaseURL+"/v1/chat/completions", bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build upstream request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+credential)
+
+	return httpReq, nil
 }
