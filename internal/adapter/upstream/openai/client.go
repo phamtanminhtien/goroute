@@ -40,7 +40,11 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 		credential = strings.TrimSpace(c.provider.AccessToken)
 	}
 	if credential == "" {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("provider %q has no usable credential", c.provider.Name)
+		return openaiwire.ChatCompletionsResponse{}, chatcompletion.ProviderConfigurationError{
+			ProviderID:   c.provider.ID,
+			ProviderName: c.provider.Name,
+			Message:      "missing api_key or access_token",
+		}
 	}
 
 	upstreamRequest := req

@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -26,8 +28,9 @@ func TestClientRequiresCredential(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected credential error")
 	}
-	if !strings.Contains(err.Error(), "no usable credential") {
-		t.Fatalf("expected credential error, got %v", err)
+	var configErr chatcompletion.ProviderConfigurationError
+	if !errors.As(err, &configErr) {
+		t.Fatalf("expected provider configuration error, got %v", err)
 	}
 }
 
