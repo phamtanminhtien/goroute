@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root" || exit 1
+
+staged_go_files=$(git diff --name-only --cached --diff-filter=ACMR -- '*.go')
+
+if [ -n "$staged_go_files" ]; then
+  echo "$staged_go_files" | xargs gofmt -w
+  echo "$staged_go_files" | xargs git add
+fi
+
+cd "$repo_root/web" || exit 1
+pnpm run lint-staged

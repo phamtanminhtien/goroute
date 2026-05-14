@@ -40,3 +40,11 @@ Thumbs.db
 
 # Local data
 .data/
+
+# Frontend
+web/node_modules/
+web/.vite/
+web/dist/
+web/tsconfig.app.tsbuildinfo
+web/tsconfig.node.tsbuildinfo
+web/.output/

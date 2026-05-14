@@ -1,4 +1,6 @@
-.PHONY: fmt test build run
+.PHONY: fmt test build run check web-install web-dev web-typecheck web-build web-preview
+
+WEB_DIR := ./web
 
 fmt:
 	gofmt -w ./cmd ./internal
@@ -11,3 +13,20 @@ build:
 
 run:
 	go run ./cmd/goroute
+
+check: test web-typecheck
+
+web-install:
+	pnpm --dir $(WEB_DIR) install
+
+web-dev:
+	pnpm --dir $(WEB_DIR) dev
+
+web-typecheck:
+	pnpm --dir $(WEB_DIR) typecheck
+
+web-build:
+	pnpm --dir $(WEB_DIR) build
+
+web-preview:
+	pnpm --dir $(WEB_DIR) preview
