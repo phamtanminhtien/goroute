@@ -15,8 +15,8 @@
     "lint-staged": "lint-staged",
     "preview": "vite preview",
     "prepare": "cd .. && husky",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "NODE_ENV=test vitest run",
+    "test:watch": "NODE_ENV=test vitest",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
