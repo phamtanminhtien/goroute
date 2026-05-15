@@ -16,7 +16,8 @@ Example `~/.goroute/config.json`:
 {
   "server": {
     "listen": ":2232",
-    "auth_token": "change-me"
+    "auth_token": "change-me",
+    "web_ui_dir": "web/dist"
   },
   "connections": [
     {
@@ -39,6 +40,7 @@ Example `~/.goroute/config.json`:
 Current validation requires every connection to have `id`, `provider_id`, and `name`.
 `server.listen` defaults to `:2232` when omitted.
 `server.auth_token` is required and is used to protect admin-only HTTP routes.
+`server.web_ui_dir` defaults to `web/dist`; when that directory exists, the Go server also serves the built admin UI and SPA routes.
 Connection credentials are validated lazily by the selected adapter during request execution.
 
 ## Logging Environment

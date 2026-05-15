@@ -2,7 +2,10 @@ package app
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
@@ -53,7 +56,14 @@ func New(logger zerolog.Logger) (*App, error) {
 		logger:    &connectionRegistryLogger,
 	}, providers, &connectionServiceLogger)
 
-	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken, &httpLogger)
+	webUIRoot, webUIDir := resolveWebUIRoot(cfg.Server.WebUIDir)
+	if webUIRoot == nil {
+		appLogger.Warn().Str("web_ui_dir", webUIDir).Msg("web_ui_disabled")
+	} else {
+		appLogger.Info().Str("web_ui_dir", webUIDir).Msg("web_ui_enabled")
+	}
+
+	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken, webUIRoot, &httpLogger)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,
@@ -134,4 +144,18 @@ func (r *connectionRuntime) ReplaceConnections(connectionConfigs []config.Connec
 
 	r.registry.ReplaceConnections(entries)
 	return nil
+}
+
+func resolveWebUIRoot(webUIDir string) (fs.FS, string) {
+	resolvedPath, err := filepath.Abs(webUIDir)
+	if err != nil {
+		return nil, webUIDir
+	}
+
+	info, err := os.Stat(resolvedPath)
+	if err != nil || !info.IsDir() {
+		return nil, resolvedPath
+	}
+
+	return os.DirFS(resolvedPath), resolvedPath
 }

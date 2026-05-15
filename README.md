@@ -78,7 +78,8 @@ Current implemented shape:
 {
   "server": {
     "listen": ":2232",
-    "auth_token": "change-me"
+    "auth_token": "change-me",
+    "web_ui_dir": "web/dist"
   },
   "connections": [
     {
@@ -100,8 +101,31 @@ Current implemented shape:
 
 The current loader validates `id`, `provider_id`, and `name` for every connection. Credentials are checked by the selected adapter when a request is executed.
 `server.auth_token` is required and protects admin-only backend routes such as request history.
+`server.web_ui_dir` defaults to `web/dist`; when that folder exists, `goroute` also serves the built admin UI from the same server.
 
 Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
+
+## Admin UI
+
+Build the web app, then start the Go server:
+
+```bash
+make web-build
+make run
+```
+
+Or in one step:
+
+```bash
+make run-with-web
+```
+
+After that:
+
+- admin UI: `http://localhost:2232/`
+- admin API: `http://localhost:2232/admin/api`
+
+During frontend development you can still use Vite separately with `make web-dev`.
 
 ## Logging
 

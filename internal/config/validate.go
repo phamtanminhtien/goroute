@@ -6,6 +6,7 @@ import (
 )
 
 const DefaultListenAddr = ":2232"
+const DefaultWebUIDir = "web/dist"
 
 func Validate(cfg Config) error {
 	if strings.TrimSpace(cfg.Server.AuthToken) == "" {
@@ -30,6 +31,9 @@ func Validate(cfg Config) error {
 func ApplyDefaults(cfg Config) Config {
 	if cfg.Server.Listen == "" {
 		cfg.Server.Listen = DefaultListenAddr
+	}
+	if strings.TrimSpace(cfg.Server.WebUIDir) == "" {
+		cfg.Server.WebUIDir = DefaultWebUIDir
 	}
 
 	return cfg

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +56,10 @@ func (r testRuntime) ReplaceConnections(connectionConfigs []config.ConnectionCon
 }
 
 func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler {
+	return testServerWithWebUI(t, connection, nil)
+}
+
+func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
 	t.Helper()
 
 	registry := testConnectionRegistry(connection)
@@ -128,7 +134,7 @@ func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler
 		t.Fatalf("build provider registry: %v", err)
 	}
 	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, providers, &logger)
-	return NewServer(testCatalog(), registry, service, testAdminToken, &logger)
+	return NewServer(testCatalog(), registry, service, testAdminToken, webUIRoot, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {
@@ -259,6 +265,119 @@ func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"request_id":"req-`) {
 		t.Fatalf("expected request_id in error body, got body=%s", rec.Body.String())
 	}
+}
+
+func TestWebUIServesBuiltIndexForRoot(t *testing.T) {
+	webUIRoot := writeTestWebUI(t)
+	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `<div id="root"></div>`) {
+		t.Fatalf("expected index html, got body=%s", rec.Body.String())
+	}
+}
+
+func TestWebUIServesBuiltAssetPaths(t *testing.T) {
+	webUIRoot := writeTestWebUI(t)
+	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
+	req := httptest.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if strings.TrimSpace(rec.Body.String()) != `console.log("goroute");` {
+		t.Fatalf("expected built asset, got body=%s", rec.Body.String())
+	}
+}
+
+func TestWebUIFallsBackToIndexForSPARoutes(t *testing.T) {
+	webUIRoot := writeTestWebUI(t)
+	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
+	req := httptest.NewRequest(http.MethodGet, "/providers/cx", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `<title>goroute</title>`) {
+		t.Fatalf("expected index fallback, got body=%s", rec.Body.String())
+	}
+}
+
+func TestWebUIFallsBackWithoutRedirectForLoginRoute(t *testing.T) {
+	webUIRoot := writeTestWebUI(t)
+	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if location := rec.Header().Get("Location"); location != "" {
+		t.Fatalf("expected no redirect location, got %q", location)
+	}
+	if !strings.Contains(rec.Body.String(), `<title>goroute</title>`) {
+		t.Fatalf("expected index fallback, got body=%s", rec.Body.String())
+	}
+}
+
+func TestWebUIReturnsNotFoundForMissingAsset(t *testing.T) {
+	webUIRoot := writeTestWebUI(t)
+	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
+	req := httptest.NewRequest(http.MethodGet, "/assets/missing.js", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNotFound, rec.Code, rec.Body.String())
+	}
+}
+
+func TestWebUIDoesNotCaptureUnknownAPIPaths(t *testing.T) {
+	webUIRoot := writeTestWebUI(t)
+	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
+	req := httptest.NewRequest(http.MethodGet, "/v1/unknown", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNotFound, rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `<title>goroute</title>`) {
+		t.Fatalf("expected api 404 instead of spa fallback, got body=%s", rec.Body.String())
+	}
+}
+
+func writeTestWebUI(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte(`<!doctype html><html><head><title>goroute</title></head><body><div id="root"></div></body></html>`), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "app.js"), []byte(`console.log("goroute");`), 0o644); err != nil {
+		t.Fatalf("write app.js: %v", err)
+	}
+
+	return root
 }
 
 func TestChatCompletionsStreamsConnectionBody(t *testing.T) {

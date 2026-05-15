@@ -8,6 +8,7 @@ type Config struct {
 type ServerConfig struct {
 	Listen    string `json:"listen"`
 	AuthToken string `json:"auth_token"`
+	WebUIDir  string `json:"web_ui_dir,omitempty"`
 }
 
 type ConnectionConfig struct {

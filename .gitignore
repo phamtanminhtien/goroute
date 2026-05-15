@@ -37,6 +37,7 @@ Thumbs.db
 
 # Cache
 .gocache/
+.gomodcache/
 
 # Local data
 .data/

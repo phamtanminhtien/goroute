@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -11,7 +12,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, adminAuthToken string, logger *zerolog.Logger) http.Handler {
+func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
 
@@ -30,6 +31,10 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Handle("/admin/api/connections/oauth", connectionOAuthHandler(connectionService))
 		r.Handle("/debug/requests", requestHistoryHandler(connectionRegistry))
 	})
+
+	if webUIRoot != nil {
+		router.NotFound(webUIHandler(webUIRoot).ServeHTTP)
+	}
 
 	return router
 }
