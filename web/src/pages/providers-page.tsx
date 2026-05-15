@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bot,
   Braces,
@@ -9,209 +9,301 @@ import {
   Gem,
   KeyRound,
   Layers3,
-  Play,
-  Plus,
+  type LucideIcon,
   Shield,
   Sparkles,
   Star,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+import {
+  listProviders,
+  type ProviderItem,
+  providersQueryKey,
+} from "@/features/providers/api";
 import { Button } from "@/shared/ui/button";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SectionCard } from "@/shared/ui/section-card";
 import { StatusBadge } from "@/shared/ui/status-badge";
 
-type ProviderTone = "default" | "success";
-
-type ProviderItem = {
-  icon: LucideIcon;
-  label?: string;
-  name: string;
-  status: string;
-  tone?: ProviderTone;
-};
-
 type ProviderSection = {
-  action?: ReactNode;
-  providers: ProviderItem[];
+  items: ProviderItem[];
+  key: string;
   title: string;
 };
 
-const sections: ProviderSection[] = [
-  {
-    action: (
-      <div className="flex flex-wrap items-center gap-2.5">
-        <Button
-          className="min-w-[210px] justify-center rounded-[12px] border-0 px-4 text-[13px] text-white"
-          leadingIcon={<Plus className="size-[15px]" />}
-        >
-          Add Anthropic Compatible
-        </Button>
-        <Button
-          className="bg-bg-secondary text-fg-primary hover:bg-bg-tertiary min-w-[196px] justify-center rounded-[12px] border border-[var(--dashboard-sidebar-border)] text-[13px] shadow-none"
-          leadingIcon={<Plus className="size-[15px]" />}
-        >
-          Add OpenAI Compatible
-        </Button>
-      </div>
-    ),
-    providers: [
-      {
-        icon: Bot,
-        name: "Wokushop",
-        status: "1 Connected",
-        tone: "success",
-      },
-    ],
-    title: "Custom Providers (OpenAI/Anthropic Compatible)",
-  },
-  {
-    action: (
-      <Button
-        className="bg-bg-secondary hover:bg-bg-tertiary hover:text-fg-primary rounded-[12px] border-[var(--dashboard-sidebar-border)] px-3.5 text-[13px] text-[var(--dashboard-subtle-text)] shadow-none"
-        leadingIcon={<Play className="size-[15px]" />}
-        tone="secondary"
-      >
-        Test All
-      </Button>
-    ),
-    providers: [
-      { icon: Sparkles, name: "Claude Code", status: "No connections" },
-      { icon: Gem, name: "Antigravity", status: "No connections" },
-      {
-        icon: KeyRound,
-        name: "OpenAI Codex",
-        status: "9 Connected",
-        tone: "success",
-      },
-      { icon: Bot, name: "GitHub Copilot", status: "No connections" },
-      { icon: Code2, name: "Cursor IDE", status: "No connections" },
-      {
-        icon: Braces,
-        name: "Kilo Code",
-        status: "1 Connected",
-        tone: "success",
-      },
-      { icon: Bot, name: "Cline", status: "No connections" },
-    ],
-    title: "OAuth Providers",
-  },
-  {
-    action: (
-      <Button
-        className="bg-bg-secondary hover:bg-bg-tertiary hover:text-fg-primary rounded-[12px] border-[var(--dashboard-sidebar-border)] px-3.5 text-[13px] text-[var(--dashboard-subtle-text)] shadow-none"
-        leadingIcon={<Play className="size-[15px]" />}
-        tone="secondary"
-      >
-        Test All
-      </Button>
-    ),
-    providers: [
-      { icon: Bot, name: "Kiro AI", status: "No connections" },
-      { icon: Sparkles, name: "Qwen Code", status: "No connections" },
-      { icon: Code2, name: "Gemini CLI", status: "No connections" },
-      { icon: Bot, name: "iFlow AI", status: "No connections" },
-      {
-        icon: Layers3,
-        name: "OpenCode Free",
-        status: "Ready",
-        tone: "success",
-      },
-      { icon: Braces, name: "OpenRouter", status: "No connections" },
-      { icon: Cpu, name: "NVIDIA NIM", status: "No connections" },
-      { icon: Bot, name: "Ollama Cloud", status: "No connections" },
-      { icon: Shield, name: "Vertex AI", status: "No connections" },
-      { icon: Sparkles, name: "Gemini", status: "No connections" },
-      {
-        icon: Cloud,
-        name: "Cloudflare",
-        status: "1 Connected",
-        tone: "success",
-      },
-      { icon: Braces, name: "BytePlus ModelArk", status: "No connections" },
-    ],
-    title: "Free Tier Providers",
-  },
-  {
-    action: (
-      <Button
-        className="bg-bg-secondary hover:bg-bg-tertiary hover:text-fg-primary rounded-[12px] border-[var(--dashboard-sidebar-border)] px-3.5 text-[13px] text-[var(--dashboard-subtle-text)] shadow-none"
-        leadingIcon={<Play className="size-[15px]" />}
-        tone="secondary"
-      >
-        Test All
-      </Button>
-    ),
-    providers: [
-      { icon: Code2, name: "GLM Coding", status: "No connections" },
-      { icon: Code2, name: "GLM (China)", status: "No connections" },
-      { icon: Star, name: "Kimi", status: "No connections" },
-      { icon: Gamepad2, name: "Minimax Coding", status: "No connections" },
-      { icon: Gamepad2, name: "Minimax (China)", status: "No connections" },
-      { icon: Braces, name: "Alibaba", status: "No connections" },
-      { icon: Braces, name: "Alibaba Intl", status: "No connections" },
-      { icon: Bot, name: "Xiaomi MiMo", status: "No connections" },
-    ],
-    title: "API Key Providers",
-  },
-];
+const categoryTitles: Record<string, string> = {
+  api_key: "API Key Providers",
+  custom: "Custom Providers",
+  free_tier: "Free Tier Providers",
+  oauth: "OAuth Providers",
+};
 
 export function ProvidersPage() {
+  const navigate = useNavigate();
+  const providersQuery = useQuery({
+    queryFn: listProviders,
+    queryKey: providersQueryKey,
+  });
+
+  const providers = providersQuery.data ?? [];
+  const sections = buildProviderSections(providers);
+
   return (
     <section className="space-y-6 pb-6">
-      <h1 className="sr-only">Provider registry</h1>
-      <div className="space-y-8">
-        {sections.map((section) => (
-          <section className="space-y-4" key={section.title}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <h2 className="text-[1rem] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)]">
-                {section.title}
-              </h2>
-              {section.action}
-            </div>
+      <PageHeader
+        description="Browse provider categories, inspect connection readiness, and open each provider for detailed connection management."
+        eyebrow="Providers"
+        title="Provider registry"
+      >
+        <StatusBadge tone="info">Live admin data</StatusBadge>
+      </PageHeader>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {section.providers.map((provider) => (
-                <ProviderCard key={provider.name} provider={provider} />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+      {providersQuery.isPending ? (
+        <SectionCard
+          description="Loading the latest provider catalog and connection groups."
+          title="Loading providers"
+          tone="solid"
+        >
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                className="border-border/85 bg-bg-primary/72 min-h-[126px] animate-pulse rounded-[22px] border"
+                key={index}
+              />
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {providersQuery.isError ? (
+        <SectionCard
+          description="The provider registry could not be loaded from the admin API."
+          title="Provider catalog unavailable"
+          tone="solid"
+        >
+          <div className="space-y-4">
+            <p className="text-sm leading-6 text-rose-700" role="alert">
+              {providersQuery.error instanceof Error
+                ? providersQuery.error.message
+                : "Request failed"}
+            </p>
+            <Button onClick={() => providersQuery.refetch()} tone="secondary">
+              Retry request
+            </Button>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {!providersQuery.isPending &&
+      !providersQuery.isError &&
+      sections.length === 0 ? (
+        <SectionCard
+          description="No providers were returned by the admin API."
+          title="Provider catalog is empty"
+          tone="solid"
+        >
+          <p className="text-fg-secondary text-sm leading-6">
+            Add providers to the system catalog before using the registry UI.
+          </p>
+        </SectionCard>
+      ) : null}
+
+      {!providersQuery.isPending && !providersQuery.isError ? (
+        <div className="space-y-8">
+          {sections.map((section) => (
+            <section className="space-y-4" key={section.key}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <h2 className="text-[1rem] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)]">
+                  {section.title}
+                </h2>
+                <p className="text-[13px] text-[var(--dashboard-muted-soft)]">
+                  {section.items.length} provider
+                  {section.items.length === 1 ? "" : "s"}
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {section.items.map((provider) => (
+                  <ProviderCard
+                    key={provider.id}
+                    onOpen={() => navigate(`/providers/${provider.id}`)}
+                    provider={provider}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function ProviderCard({ provider }: { provider: ProviderItem }) {
-  const Icon = provider.icon;
+function ProviderCard({
+  onOpen,
+  provider,
+}: {
+  onOpen: () => void;
+  provider: ProviderItem;
+}) {
+  const [logoMissing, setLogoMissing] = useState(false);
+  const logoPath = `/images/providers/${provider.id}.png`;
 
   return (
-    <article className="dashboard-panel dashboard-panel-hover group flex min-h-[68px] items-center gap-3 rounded-[16px] border px-3.5 py-3 shadow-[var(--shadow-sm)] transition-colors duration-150">
-      <div className="dashboard-icon-surface flex size-10 shrink-0 items-center justify-center rounded-[14px] border">
-        {provider.label ? (
-          <span className="text-[13px] font-semibold tracking-[-0.02em]">
-            {provider.label}
-          </span>
-        ) : (
-          <Icon className="size-[17px]" />
-        )}
+    <button
+      className="dashboard-panel dashboard-panel-hover group flex min-h-[74px] w-full cursor-pointer items-center justify-start gap-3 rounded-[20px] border px-3.5 py-2.5 text-left shadow-[var(--shadow-sm)] transition-colors duration-150"
+      onClick={onOpen}
+      type="button"
+    >
+      <div className="dashboard-icon-surface flex size-[46px] shrink-0 items-center justify-center overflow-hidden rounded-[13px] border bg-[#080808]">
+        {!logoMissing ? (
+          <img
+            alt=""
+            className="h-full w-full object-cover"
+            onError={() => setLogoMissing(true)}
+            src={logoPath}
+          />
+        ) : null}
+        {logoMissing ? (
+          <div className="flex h-full w-full items-center justify-center bg-[#080808] text-white">
+            <ProviderLogoFallback provider={provider} />
+          </div>
+        ) : null}
       </div>
 
-      <div className="min-w-0">
-        <h3 className="truncate text-[15px] font-semibold tracking-[-0.025em] text-[var(--dashboard-title)]">
+      <div className="min-w-0 space-y-1">
+        <h3 className="truncate text-[14px] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)]">
           {provider.name}
         </h3>
-        <div className="mt-1">
-          {provider.tone === "success" ? (
-            <StatusBadge size="sm" tone="success">
-              {provider.status}
-            </StatusBadge>
-          ) : (
-            <p className="text-[13px] text-[var(--dashboard-muted-soft)]">
-              {provider.status}
-            </p>
-          )}
-        </div>
+        <ConnectionStatusPill count={provider.connection_count} />
       </div>
-    </article>
+    </button>
   );
+}
+
+function buildProviderSections(providers: ProviderItem[]) {
+  const groupedSections = new Map<string, ProviderItem[]>();
+
+  for (const provider of providers) {
+    const category = provider.category || "uncategorized";
+    const sectionProviders = groupedSections.get(category) ?? [];
+    sectionProviders.push(provider);
+    groupedSections.set(category, sectionProviders);
+  }
+
+  const sections: ProviderSection[] = [];
+  for (const [key, items] of groupedSections.entries()) {
+    sections.push({
+      items,
+      key,
+      title: categoryTitles[key] ?? humanizeCategory(key),
+    });
+  }
+
+  return sections;
+}
+
+function buildConnectionStatus(count: number) {
+  if (count === 0) {
+    return "No connections";
+  }
+  if (count === 1) {
+    return "1 Connected";
+  }
+
+  return `${count} Connected`;
+}
+
+function ConnectionStatusPill({ count }: { count: number }) {
+  const connected = count > 0;
+
+  return (
+    <div
+      className={
+        connected
+          ? "inline-flex items-center gap-1.5 rounded-full bg-emerald-500/14 px-2.5 py-1 text-[10px] font-semibold text-emerald-500"
+          : "inline-flex items-center gap-1.5 rounded-full bg-white/6 px-2.5 py-1 text-[10px] font-semibold text-[var(--dashboard-muted-soft)]"
+      }
+    >
+      <span
+        className={
+          connected
+            ? "size-2 rounded-full bg-emerald-500"
+            : "size-2 rounded-full bg-[var(--dashboard-muted-soft)]/70"
+        }
+      />
+      <span>{buildConnectionStatus(count)}</span>
+    </div>
+  );
+}
+
+function resolveProviderIcon(provider: ProviderItem): LucideIcon {
+  switch (provider.id) {
+    case "openai":
+      return KeyRound;
+    case "cx":
+      return Sparkles;
+  }
+
+  if (provider.category === "oauth") {
+    return Bot;
+  }
+  if (provider.category === "api_key") {
+    return Braces;
+  }
+  if (provider.category === "free_tier") {
+    return Cloud;
+  }
+  if (provider.category === "custom") {
+    return Layers3;
+  }
+
+  const fallbackIcons: LucideIcon[] = [
+    Bot,
+    Code2,
+    Cpu,
+    Gamepad2,
+    Gem,
+    Shield,
+    Sparkles,
+    Star,
+  ];
+  const hash = provider.id
+    .split("")
+    .reduce((total, character) => total + character.charCodeAt(0), 0);
+
+  return fallbackIcons[hash % fallbackIcons.length];
+}
+
+function ProviderLogoFallback({ provider }: { provider: ProviderItem }) {
+  switch (provider.id) {
+    case "openai":
+      return <KeyRound className="size-5" />;
+    case "cx":
+      return <Sparkles className="size-5" />;
+  }
+
+  if (provider.category === "oauth") {
+    return <Bot className="size-5" />;
+  }
+  if (provider.category === "api_key") {
+    return <Braces className="size-5" />;
+  }
+  if (provider.category === "free_tier") {
+    return <Cloud className="size-5" />;
+  }
+  if (provider.category === "custom") {
+    return <Layers3 className="size-5" />;
+  }
+
+  return <Code2 className="size-5" />;
+}
+
+function humanizeCategory(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

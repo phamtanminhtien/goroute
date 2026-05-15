@@ -19,8 +19,8 @@ import (
 func testCatalog() provider.Catalog {
 	return provider.Catalog{
 		Providers: []provider.Provider{
-			{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"},
-			{ID: "opena", Name: "OpenAI", DefaultModel: "opena/gpt-4.1"},
+			{ID: "cx", Name: "Codex", AuthType: "oauth", Category: "oauth", DefaultModel: "cx/gpt-5.4"},
+			{ID: "opena", Name: "OpenAI", AuthType: "api_key", Category: "api_key", DefaultModel: "opena/gpt-4.1"},
 		},
 	}
 }
@@ -305,6 +305,60 @@ func TestConnectionsListReturnsRedactedItems(t *testing.T) {
 	}
 }
 
+func TestProvidersListReturnsCatalogWithGroupedConnections(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/providers", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID              string                    `json:"id"`
+			Category        string                    `json:"category"`
+			ConnectionCount int                       `json:"connection_count"`
+			Connections     []connectionsusecase.Item `json:"connections"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.Object != "list" {
+		t.Fatalf("expected list object, got %q", response.Object)
+	}
+	if len(response.Data) != 2 {
+		t.Fatalf("expected 2 providers, got %d", len(response.Data))
+	}
+	if response.Data[0].ID != "cx" || response.Data[0].Category != "oauth" {
+		t.Fatalf("expected codex provider metadata, got %#v", response.Data[0])
+	}
+	if response.Data[0].ConnectionCount != 1 {
+		t.Fatalf("expected codex connection count, got %#v", response.Data[0])
+	}
+	if len(response.Data[0].Connections) != 1 || response.Data[0].Connections[0].ID != "codex-1" {
+		t.Fatalf("expected codex connection to be grouped, got %#v", response.Data[0].Connections)
+	}
+	if response.Data[1].ID != "opena" || response.Data[1].Category != "api_key" {
+		t.Fatalf("expected openai provider metadata, got %#v", response.Data[1])
+	}
+	if response.Data[1].ConnectionCount != 0 {
+		t.Fatalf("expected openai connection count, got %#v", response.Data[1])
+	}
+	if len(response.Data[1].Connections) != 0 {
+		t.Fatalf("expected openai provider to return empty connections, got %#v", response.Data[1].Connections)
+	}
+	if strings.Contains(rec.Body.String(), "secret-token") {
+		t.Fatalf("expected grouped provider response to keep secrets redacted, got body=%s", rec.Body.String())
+	}
+}
+
 func TestConnectionsCreatePersistsConnection(t *testing.T) {
 	handler := testServer(t, &testProvider{})
 	body := []byte(`{"id":"openai-1","provider_id":"opena","name":"openai-user","api_key":"sk-test"}`)
@@ -328,6 +382,32 @@ func TestConnectionsCreatePersistsConnection(t *testing.T) {
 	}
 	if strings.Contains(listRec.Body.String(), "sk-test") {
 		t.Fatalf("expected created secret to stay redacted, got body=%s", listRec.Body.String())
+	}
+}
+
+func TestConnectionsUpdatePreservesSecretsWhenOmitted(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	body := []byte(`{"id":"codex-1","provider_id":"cx","name":"renamed-user"}`)
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/connections/codex-1", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/connections", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+
+	if !strings.Contains(listRec.Body.String(), `"has_access_token":true`) {
+		t.Fatalf("expected access token to remain configured, got body=%s", listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"name":"renamed-user"`) {
+		t.Fatalf("expected updated name in list, got body=%s", listRec.Body.String())
 	}
 }
 

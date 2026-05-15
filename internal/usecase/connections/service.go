@@ -100,9 +100,11 @@ func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error)
 	input = normalizeConnection(input)
 
 	index := -1
+	var existing config.ConnectionConfig
 	for i, connection := range s.config.Connections {
 		if connection.ID == id {
 			index = i
+			existing = connection
 			continue
 		}
 		if connection.ID == input.ID {
@@ -112,6 +114,8 @@ func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error)
 	if index < 0 {
 		return Item{}, ErrNotFound{ConnectionID: id}
 	}
+
+	input = preserveExistingSecrets(existing, input)
 
 	nextConnections := append([]config.ConnectionConfig(nil), s.config.Connections...)
 	nextConnections[index] = input
@@ -127,6 +131,10 @@ func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error)
 func (s *Service) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if len(s.config.Connections) == 1 {
+		return fmt.Errorf("at least one connection must remain configured")
+	}
 
 	index := -1
 	for i, connection := range s.config.Connections {
@@ -197,6 +205,23 @@ func redactConnection(connection config.ConnectionConfig) Item {
 		Status:          status,
 		Problems:        problems,
 	}
+}
+
+func preserveExistingSecrets(
+	existing config.ConnectionConfig,
+	next config.ConnectionConfig,
+) config.ConnectionConfig {
+	if next.APIKey == "" {
+		next.APIKey = existing.APIKey
+	}
+	if next.AccessToken == "" {
+		next.AccessToken = existing.AccessToken
+	}
+	if next.RefreshToken == "" {
+		next.RefreshToken = existing.RefreshToken
+	}
+
+	return next
 }
 
 func connectionProblems(connection config.ConnectionConfig) []string {

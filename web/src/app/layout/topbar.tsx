@@ -10,6 +10,10 @@ const topbarMeta = {
     eyebrow: "Providers",
     title: "Manage your AI provider connections",
   },
+  "/providers/detail": {
+    eyebrow: "Providers",
+    title: "Inspect provider capabilities and manage credentials",
+  },
   "/settings": {
     eyebrow: "Runtime",
     title: "Review ingress, auth, and default routing behavior",
@@ -22,9 +26,7 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
   const theme = useUIStore((state) => state.theme);
   const toggleTheme = useUIStore((state) => state.toggleTheme);
 
-  const pageMeta =
-    topbarMeta[location.pathname as keyof typeof topbarMeta] ??
-    topbarMeta["/providers"];
+  const pageMeta = resolveTopbarMeta(location.pathname);
 
   return (
     <header className="admin-topbar dashboard-topbar-shell z-20 shrink-0 border-b backdrop-blur-[14px]">
@@ -80,5 +82,15 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function resolveTopbarMeta(pathname: string) {
+  if (pathname.startsWith("/providers/")) {
+    return topbarMeta["/providers/detail"];
+  }
+
+  return (
+    topbarMeta[pathname as keyof typeof topbarMeta] ?? topbarMeta["/providers"]
   );
 }

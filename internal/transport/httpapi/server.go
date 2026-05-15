@@ -14,6 +14,7 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 	mux.Handle("/healthz", health.Handler())
 	mux.Handle("/v1/models", modelsHandler(catalog))
 	mux.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry))
+	mux.Handle("/admin/api/providers", authMiddleware(adminAuthToken, providersHandler(catalog, connectionService)))
 	mux.Handle("/admin/api/connections", authMiddleware(adminAuthToken, connectionsHandler(connectionService)))
 	mux.Handle("/admin/api/connections/", authMiddleware(adminAuthToken, connectionByIDHandler(connectionService)))
 	mux.Handle("/debug/requests", authMiddleware(adminAuthToken, requestHistoryHandler(connectionRegistry)))
