@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
@@ -40,7 +41,7 @@ func connectionsHandler(service *connectionsusecase.Service) http.Handler {
 
 func connectionByIDHandler(service *connectionsusecase.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/admin/api/connections/")
+		id := chi.URLParam(r, "id")
 		if id == "" || strings.Contains(id, "/") {
 			writeError(r, w, http.StatusNotFound, "not_found", "connection not found")
 			return
