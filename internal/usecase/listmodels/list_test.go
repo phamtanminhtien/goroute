@@ -3,19 +3,18 @@ package listmodels
 import (
 	"testing"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 )
 
-func TestExecuteIncludesDriverMetadataAndDefaultFallback(t *testing.T) {
-	catalog := driver.Catalog{
-		Drivers: []driver.Driver{
+func TestExecuteIncludesProviderMetadataAndDefaultFallback(t *testing.T) {
+	catalog := provider.Catalog{
+		Providers: []provider.Provider{
 			{
 				ID:           "cx",
 				Name:         "Codex",
-				Provider:     "codex",
 				AuthType:     "oauth",
 				DefaultModel: "cx/gpt-5.4",
-				Models: []driver.Model{{
+				Models: []provider.Model{{
 					ID:          "cx/gpt-5.4",
 					Name:        "GPT-5.4",
 					Description: "Primary Codex model",
@@ -24,7 +23,6 @@ func TestExecuteIncludesDriverMetadataAndDefaultFallback(t *testing.T) {
 			{
 				ID:           "fallback",
 				Name:         "Fallback",
-				Provider:     "openai",
 				AuthType:     "api_key",
 				DefaultModel: "fallback/gpt-4.1",
 			},
@@ -35,8 +33,8 @@ func TestExecuteIncludesDriverMetadataAndDefaultFallback(t *testing.T) {
 	if len(models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(models))
 	}
-	if models[0].Metadata["driver_id"] != "cx" {
-		t.Fatalf("expected driver metadata, got %#v", models[0].Metadata)
+	if models[0].Metadata["provider_id"] != "cx" {
+		t.Fatalf("expected provider metadata, got %#v", models[0].Metadata)
 	}
 	if models[0].Metadata["is_default"] != "true" {
 		t.Fatalf("expected default flag for first model, got %#v", models[0].Metadata)
@@ -44,7 +42,7 @@ func TestExecuteIncludesDriverMetadataAndDefaultFallback(t *testing.T) {
 	if models[1].ID != "fallback/gpt-4.1" {
 		t.Fatalf("expected fallback model from default model, got %#v", models[1])
 	}
-	if models[1].Metadata["provider_type"] != "openai" {
+	if models[1].Metadata["provider_name"] != "Fallback" {
 		t.Fatalf("expected provider metadata, got %#v", models[1].Metadata)
 	}
 }

@@ -1,6 +1,6 @@
 package listmodels
 
-import "github.com/phamtanminhtien/goroute/internal/domain/driver"
+import "github.com/phamtanminhtien/goroute/internal/domain/provider"
 
 type ModelView struct {
 	ID       string
@@ -11,37 +11,36 @@ type ModelView struct {
 	Metadata map[string]string
 }
 
-func Execute(catalog driver.Catalog) []ModelView {
+func Execute(catalog provider.Catalog) []ModelView {
 	models := make([]ModelView, 0)
-	for _, drv := range catalog.Drivers {
-		if len(drv.Models) == 0 && drv.DefaultModel != "" {
-			models = append(models, buildModelView(drv, driver.Model{ID: drv.DefaultModel}))
+	for _, resolvedProvider := range catalog.Providers {
+		if len(resolvedProvider.Models) == 0 && resolvedProvider.DefaultModel != "" {
+			models = append(models, buildModelView(resolvedProvider, provider.Model{ID: resolvedProvider.DefaultModel}))
 			continue
 		}
-		for _, model := range drv.Models {
-			models = append(models, buildModelView(drv, model))
+		for _, model := range resolvedProvider.Models {
+			models = append(models, buildModelView(resolvedProvider, model))
 		}
 	}
 
 	return models
 }
 
-func buildModelView(drv driver.Driver, model driver.Model) ModelView {
+func buildModelView(resolvedProvider provider.Provider, model provider.Model) ModelView {
 	metadata := map[string]string{
-		"driver_id":     drv.ID,
-		"driver_name":   drv.Name,
-		"provider_type": drv.Provider,
-		"auth_type":     drv.AuthType,
-		"is_default":    boolString(model.ID == drv.DefaultModel),
+		"provider_id":   resolvedProvider.ID,
+		"provider_name": resolvedProvider.Name,
+		"auth_type":     resolvedProvider.AuthType,
+		"is_default":    boolString(model.ID == resolvedProvider.DefaultModel),
 		"display_name":  model.Name,
 		"description":   model.Description,
-		"default_model": drv.DefaultModel,
+		"default_model": resolvedProvider.DefaultModel,
 	}
 
 	return ModelView{
 		ID:       model.ID,
 		Object:   "model",
-		OwnedBy:  drv.Provider,
+		OwnedBy:  resolvedProvider.ID,
 		Root:     model.ID,
 		Parent:   "",
 		Metadata: metadata,

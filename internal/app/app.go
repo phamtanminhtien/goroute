@@ -14,7 +14,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
-	"github.com/phamtanminhtien/goroute/internal/usecase/providers"
+	"github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
 
 type App struct {
@@ -32,22 +32,22 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
 
-	catalog, err := systemdata.LoadFile(filepath.Join("data", "system-drivers.json"))
+	catalog, err := systemdata.LoadFile(filepath.Join("data", "system-providers.json"))
 	if err != nil {
-		return nil, fmt.Errorf("load system driver data: %w", err)
+		return nil, fmt.Errorf("load system provider data: %w", err)
 	}
 
-	providerRegistry, err := buildProviderRegistry(cfg.Providers)
+	connectionRegistry, err := buildConnectionRegistry(cfg.Connections)
 	if err != nil {
 		return nil, err
 	}
 
-	providerService := providers.NewService(configPath, cfg, &providerRuntime{
-		registry: providerRegistry,
+	connectionService := connections.NewService(configPath, cfg, &connectionRuntime{
+		registry: connectionRegistry,
 		logger:   log.Default(),
 	}, log.Default())
 
-	handler := httpapi.NewServer(catalog, providerRegistry, providerService, cfg.Server.AuthToken)
+	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,
@@ -57,61 +57,62 @@ func New() (*App, error) {
 	return &App{server: server}, nil
 }
 
-func buildProviderRegistry(providerConfigs []config.ProviderConfig) (*chatcompletion.ProviderRegistry, error) {
-	return buildProviderRegistryWithLogger(providerConfigs, log.Default())
+func buildConnectionRegistry(connectionConfigs []config.ConnectionConfig) (*chatcompletion.ConnectionRegistry, error) {
+	return buildConnectionRegistryWithLogger(connectionConfigs, log.Default())
 }
 
-func buildProviderRegistryWithLogger(providerConfigs []config.ProviderConfig, logger *log.Logger) (*chatcompletion.ProviderRegistry, error) {
-	entries, err := buildProviderEntries(providerConfigs, logger)
+func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConfig, logger *log.Logger) (*chatcompletion.ConnectionRegistry, error) {
+	entries, err := buildConnectionEntries(connectionConfigs, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	registry := chatcompletion.NewProviderRegistryWithEntries(entries, logger)
+	registry := chatcompletion.NewConnectionRegistryWithEntries(entries, logger)
 	return &registry, nil
 }
 
-func buildProviderEntries(providerConfigs []config.ProviderConfig, logger *log.Logger) (map[string][]chatcompletion.ProviderEntry, error) {
-	providersByType := make(map[string][]chatcompletion.ProviderEntry, len(providerConfigs))
-	for _, providerConfig := range providerConfigs {
-		logProviderDiagnostic(logger, providerConfig)
+func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, logger *log.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
+	connectionsByProvider := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
+	for _, connectionConfig := range connectionConfigs {
+		logConnectionDiagnostic(logger, connectionConfig)
 
-		var provider chatcompletion.Provider
-		switch providerConfig.Type {
-		case "codex":
-			provider = providercodex.NewClient(providerConfig)
+		var connection chatcompletion.Connection
+		switch connectionConfig.ProviderID {
+		case "cx":
+			connection = providercodex.NewClient(connectionConfig)
 		case "openai":
-			provider = provideropenai.NewClient(nil, providerConfig)
+			connection = provideropenai.NewClient(nil, connectionConfig)
 		default:
-			return nil, fmt.Errorf("unsupported provider type %q", providerConfig.Type)
+			return nil, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
 		}
-		providersByType[providerConfig.Type] = append(providersByType[providerConfig.Type], chatcompletion.ProviderEntry{
-			ID:       providerConfig.ID,
-			Name:     providerConfig.Name,
-			Provider: provider,
+		connectionsByProvider[connectionConfig.ProviderID] = append(connectionsByProvider[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
+			ID:         connectionConfig.ID,
+			Name:       connectionConfig.Name,
+			ProviderID: connectionConfig.ProviderID,
+			Connection: connection,
 		})
 	}
 
-	return providersByType, nil
+	return connectionsByProvider, nil
 }
 
-func logProviderDiagnostic(logger *log.Logger, provider config.ProviderConfig) {
+func logConnectionDiagnostic(logger *log.Logger, connection config.ConnectionConfig) {
 	if logger == nil {
 		return
 	}
 
 	problems := make([]string, 0, 2)
-	switch provider.Type {
-	case "codex":
-		if strings.TrimSpace(provider.AccessToken) == "" && strings.TrimSpace(provider.APIKey) == "" {
+	switch connection.ProviderID {
+	case "cx":
+		if strings.TrimSpace(connection.AccessToken) == "" && strings.TrimSpace(connection.APIKey) == "" {
 			problems = append(problems, "missing access_token or api_key")
 		}
 	case "openai":
-		if strings.TrimSpace(provider.APIKey) == "" && strings.TrimSpace(provider.AccessToken) == "" {
+		if strings.TrimSpace(connection.APIKey) == "" && strings.TrimSpace(connection.AccessToken) == "" {
 			problems = append(problems, "missing api_key or access_token")
 		}
 	default:
-		problems = append(problems, "unsupported provider type")
+		problems = append(problems, "unsupported provider")
 	}
 
 	status := "ready"
@@ -120,26 +121,26 @@ func logProviderDiagnostic(logger *log.Logger, provider config.ProviderConfig) {
 	}
 
 	logger.Printf(
-		"provider_diagnostic provider_id=%q provider_name=%q provider_type=%q status=%q problems=%q",
-		provider.ID,
-		provider.Name,
-		provider.Type,
+		"connection_diagnostic connection_id=%q provider_id=%q connection_name=%q status=%q problems=%q",
+		connection.ID,
+		connection.ProviderID,
+		connection.Name,
 		status,
 		strings.Join(problems, ", "),
 	)
 }
 
-type providerRuntime struct {
-	registry *chatcompletion.ProviderRegistry
+type connectionRuntime struct {
+	registry *chatcompletion.ConnectionRegistry
 	logger   *log.Logger
 }
 
-func (r *providerRuntime) ReplaceProviders(providerConfigs []config.ProviderConfig) error {
-	entries, err := buildProviderEntries(providerConfigs, r.logger)
+func (r *connectionRuntime) ReplaceConnections(connectionConfigs []config.ConnectionConfig) error {
+	entries, err := buildConnectionEntries(connectionConfigs, r.logger)
 	if err != nil {
 		return err
 	}
 
-	r.registry.ReplaceProviders(entries)
+	r.registry.ReplaceConnections(entries)
 	return nil
 }

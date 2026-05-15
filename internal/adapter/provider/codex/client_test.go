@@ -22,15 +22,15 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestClientRequiresCredential(t *testing.T) {
-	client := NewClient(config.ProviderConfig{Type: "codex", Name: "codex-user"})
+	client := NewClient(config.ConnectionConfig{ProviderID: "cx", Name: "codex-user"})
 
-	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderType: "codex", RequestedModel: "gpt-5.4"})
+	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4"})
 	if err == nil {
 		t.Fatal("expected credential error")
 	}
-	var configErr chatcompletion.ProviderConfigurationError
+	var configErr chatcompletion.ConnectionConfigurationError
 	if !errors.As(err, &configErr) {
-		t.Fatalf("expected provider configuration error, got %v", err)
+		t.Fatalf("expected connection configuration error, got %v", err)
 	}
 }
 
@@ -72,7 +72,7 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, config.ProviderConfig{Type: "codex", Name: "codex-user", AccessToken: "token"})
+	client := NewClientWithHTTPClient(httpClient, config.ConnectionConfig{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model: "cx/gpt-5.3-codex",
@@ -81,7 +81,7 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 			{Role: "user", Content: "Hello"},
 		},
 		Stream: true,
-	}, routing.Target{ProviderType: "codex", RequestedModel: "gpt-5.3-codex"})
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
 	if err != nil {
 		t.Fatalf("chat completions: %v", err)
 	}
@@ -118,13 +118,13 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, config.ProviderConfig{Type: "codex", Name: "codex-user", AccessToken: "token"})
+	client := NewClientWithHTTPClient(httpClient, config.ConnectionConfig{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "cx/gpt-5.3-codex",
 		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "Hello"}},
 		Stream:   true,
-	}, routing.Target{ProviderType: "codex", RequestedModel: "gpt-5.3-codex"})
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
 	if err != nil {
 		t.Fatalf("stream completions: %v", err)
 	}

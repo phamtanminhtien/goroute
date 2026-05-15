@@ -1,8 +1,8 @@
 package config
 
 type Config struct {
-	Server    ServerConfig     `json:"server"`
-	Providers []ProviderConfig `json:"providers"`
+	Server      ServerConfig       `json:"server"`
+	Connections []ConnectionConfig `json:"connections"`
 }
 
 type ServerConfig struct {
@@ -10,9 +10,9 @@ type ServerConfig struct {
 	AuthToken string `json:"auth_token"`
 }
 
-type ProviderConfig struct {
+type ConnectionConfig struct {
 	ID           string `json:"id"`
-	Type         string `json:"type"`
+	ProviderID   string `json:"provider_id"`
 	APIKey       string `json:"api_key,omitempty"`
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`

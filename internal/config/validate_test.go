@@ -8,8 +8,8 @@ func TestValidateRequiresServerAuthToken(t *testing.T) {
 			Listen:    ":2232",
 			AuthToken: "   ",
 		},
-		Providers: []ProviderConfig{
-			{ID: "provider-1", Type: "openai", Name: "user@example.com"},
+		Connections: []ConnectionConfig{
+			{ID: "connection-1", ProviderID: "openai", Name: "user@example.com"},
 		},
 	})
 	if err == nil {

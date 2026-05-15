@@ -1,10 +1,9 @@
 {
-  "driver_auth_types": ["oauth", "api_key"],
-  "drivers": [
+  "provider_auth_types": ["oauth", "api_key"],
+  "providers": [
     {
       "id": "cx",
       "name": "Codex",
-      "provider": "codex",
       "auth_type": "oauth",
       "default_model": "cx/gpt-5.4",
       "models": [
@@ -18,7 +17,6 @@
     {
       "id": "openai",
       "name": "OpenAI",
-      "provider": "openai",
       "auth_type": "api_key",
       "default_model": "openai/gpt-4.1",
       "models": [

@@ -48,7 +48,7 @@ func TestClientChatCompletionsPassesCommonOpenAIFields(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClient(httpClient, config.ProviderConfig{Type: "openai", Name: "openai-user", APIKey: "token"})
+	client := NewClient(httpClient, config.ConnectionConfig{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
 
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:       "opena/gpt-4.1",
@@ -68,7 +68,7 @@ func TestClientChatCompletionsPassesCommonOpenAIFields(t *testing.T) {
 				"name": "lookup_weather",
 			},
 		},
-	}, routing.Target{ProviderType: "openai", RequestedModel: "gpt-4.1"})
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
 	if err != nil {
 		t.Fatalf("chat completions: %v", err)
 	}
@@ -113,12 +113,12 @@ func TestClientStreamsOpenAIResponses(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClient(httpClient, config.ProviderConfig{Type: "openai", Name: "openai-user", APIKey: "token"})
+	client := NewClient(httpClient, config.ConnectionConfig{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "opena/gpt-4.1",
 		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "hello"}},
-	}, routing.Target{ProviderType: "openai", RequestedModel: "gpt-4.1"})
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
 	if err != nil {
 		t.Fatalf("stream completions: %v", err)
 	}
@@ -137,14 +137,14 @@ func TestClientStreamsOpenAIResponses(t *testing.T) {
 }
 
 func TestClientRequiresCredential(t *testing.T) {
-	client := NewClient(nil, config.ProviderConfig{Type: "openai", Name: "openai-user"})
+	client := NewClient(nil, config.ConnectionConfig{ProviderID: "openai", Name: "openai-user"})
 
-	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderType: "openai", RequestedModel: "gpt-4.1"})
+	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
 	if err == nil {
 		t.Fatal("expected credential error")
 	}
-	var configErr chatcompletion.ProviderConfigurationError
+	var configErr chatcompletion.ConnectionConfigurationError
 	if !errors.As(err, &configErr) {
-		t.Fatalf("expected provider configuration error, got %v", err)
+		t.Fatalf("expected connection configuration error, got %v", err)
 	}
 }

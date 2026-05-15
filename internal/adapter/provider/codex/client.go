@@ -32,23 +32,23 @@ const (
 
 type Client struct {
 	httpClient *http.Client
-	provider   config.ProviderConfig
+	connection config.ConnectionConfig
 	baseURL    string
 	sessions   *sessionStore
 }
 
-func NewClient(provider config.ProviderConfig) *Client {
-	return NewClientWithHTTPClient(nil, provider)
+func NewClient(connection config.ConnectionConfig) *Client {
+	return NewClientWithHTTPClient(nil, connection)
 }
 
-func NewClientWithHTTPClient(httpClient *http.Client, provider config.ProviderConfig) *Client {
+func NewClientWithHTTPClient(httpClient *http.Client, connection config.ConnectionConfig) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 
 	return &Client{
 		httpClient: httpClient,
-		provider:   provider,
+		connection: connection,
 		baseURL:    defaultBaseURL,
 		sessions:   newSessionStore(),
 	}
@@ -90,19 +90,15 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 }
 
 func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	if target.ProviderType != c.provider.Type {
-		return nil, fmt.Errorf("codex executor cannot handle provider type %q", target.ProviderType)
-	}
-
-	credential := strings.TrimSpace(c.provider.AccessToken)
+	credential := strings.TrimSpace(c.connection.AccessToken)
 	if credential == "" {
-		credential = strings.TrimSpace(c.provider.APIKey)
+		credential = strings.TrimSpace(c.connection.APIKey)
 	}
 	if credential == "" {
-		return nil, chatcompletion.ProviderConfigurationError{
-			ProviderID:   c.provider.ID,
-			ProviderName: c.provider.Name,
-			Message:      "missing access_token or api_key",
+		return nil, chatcompletion.ConnectionConfigurationError{
+			ConnectionID:   c.connection.ID,
+			ConnectionName: c.connection.Name,
+			Message:        "missing access_token or api_key",
 		}
 	}
 

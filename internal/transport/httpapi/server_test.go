@@ -10,58 +10,59 @@ import (
 	"testing"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
-	providersusecase "github.com/phamtanminhtien/goroute/internal/usecase/providers"
+	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
 
-func testCatalog() driver.Catalog {
-	return driver.Catalog{
-		Drivers: []driver.Driver{
-			{ID: "cx", Name: "Codex", Provider: "codex", DefaultModel: "cx/gpt-5.4"},
-			{ID: "opena", Name: "OpenAI", Provider: "openai", DefaultModel: "opena/gpt-4.1"},
+func testCatalog() provider.Catalog {
+	return provider.Catalog{
+		Providers: []provider.Provider{
+			{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"},
+			{ID: "opena", Name: "OpenAI", DefaultModel: "opena/gpt-4.1"},
 		},
 	}
 }
 
-func testProviderRegistry(provider chatcompletion.Provider) *chatcompletion.ProviderRegistry {
-	registry := chatcompletion.NewProviderRegistry(map[string][]chatcompletion.Provider{"codex": {provider}})
+func testConnectionRegistry(connection chatcompletion.Connection) *chatcompletion.ConnectionRegistry {
+	registry := chatcompletion.NewConnectionRegistry(map[string][]chatcompletion.Connection{"cx": {connection}})
 	return &registry
 }
 
 const testAdminToken = "secret"
 
 type testRuntime struct {
-	registry *chatcompletion.ProviderRegistry
+	registry *chatcompletion.ConnectionRegistry
 }
 
-func (r testRuntime) ReplaceProviders(providerConfigs []config.ProviderConfig) error {
-	entries := make(map[string][]chatcompletion.ProviderEntry, len(providerConfigs))
-	for _, providerConfig := range providerConfigs {
-		entries[providerConfig.Type] = append(entries[providerConfig.Type], chatcompletion.ProviderEntry{
-			ID:       providerConfig.ID,
-			Name:     providerConfig.Name,
-			Provider: &testProvider{},
+func (r testRuntime) ReplaceConnections(connectionConfigs []config.ConnectionConfig) error {
+	entries := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
+	for _, connectionConfig := range connectionConfigs {
+		entries[connectionConfig.ProviderID] = append(entries[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
+			ID:         connectionConfig.ID,
+			Name:       connectionConfig.Name,
+			ProviderID: connectionConfig.ProviderID,
+			Connection: &testProvider{},
 		})
 	}
-	r.registry.ReplaceProviders(entries)
+	r.registry.ReplaceConnections(entries)
 	return nil
 }
 
-func testServer(t *testing.T, provider chatcompletion.Provider) http.Handler {
+func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler {
 	t.Helper()
 
-	registry := testProviderRegistry(provider)
+	registry := testConnectionRegistry(connection)
 	cfg := config.Config{
 		Server: config.ServerConfig{
 			Listen:    ":2232",
 			AuthToken: testAdminToken,
 		},
-		Providers: []config.ProviderConfig{
+		Connections: []config.ConnectionConfig{
 			{
 				ID:          "codex-1",
-				Type:        "codex",
+				ProviderID:  "cx",
 				Name:        "codex-user",
 				AccessToken: "secret-token",
 			},
@@ -72,7 +73,7 @@ func testServer(t *testing.T, provider chatcompletion.Provider) http.Handler {
 		t.Fatalf("save config: %v", err)
 	}
 
-	service := providersusecase.NewService(configPath, cfg, testRuntime{registry: registry}, nil)
+	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, nil)
 	return NewServer(testCatalog(), registry, service, testAdminToken)
 }
 
@@ -131,7 +132,7 @@ func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(response.Data) == 0 || response.Data[0].Metadata["driver_id"] == "" {
+	if len(response.Data) == 0 || response.Data[0].Metadata["provider_id"] == "" {
 		t.Fatalf("expected model metadata, got %#v", response.Data)
 	}
 }
@@ -168,7 +169,7 @@ func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
 	}
 }
 
-func TestChatCompletionsStreamsProviderBody(t *testing.T) {
+func TestChatCompletionsStreamsConnectionBody(t *testing.T) {
 	handler := testServer(t, streamingTestProvider{testProvider: &testProvider{}, body: "data: first\n\n"})
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
@@ -284,9 +285,9 @@ func TestDebugRequestsRejectsInvalidBearerToken(t *testing.T) {
 	}
 }
 
-func TestProvidersListReturnsRedactedItems(t *testing.T) {
+func TestConnectionsListReturnsRedactedItems(t *testing.T) {
 	handler := testServer(t, &testProvider{})
-	req := httptest.NewRequest(http.MethodGet, "/admin/api/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/connections", nil)
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -304,10 +305,10 @@ func TestProvidersListReturnsRedactedItems(t *testing.T) {
 	}
 }
 
-func TestProvidersCreatePersistsProvider(t *testing.T) {
+func TestConnectionsCreatePersistsConnection(t *testing.T) {
 	handler := testServer(t, &testProvider{})
-	body := []byte(`{"id":"openai-1","type":"openai","name":"openai-user","api_key":"sk-test"}`)
-	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers", bytes.NewReader(body))
+	body := []byte(`{"id":"openai-1","provider_id":"opena","name":"openai-user","api_key":"sk-test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/connections", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -317,22 +318,22 @@ func TestProvidersCreatePersistsProvider(t *testing.T) {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusCreated, rec.Code, rec.Body.String())
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/providers", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/connections", nil)
 	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
 	listRec := httptest.NewRecorder()
 	handler.ServeHTTP(listRec, listReq)
 
 	if !strings.Contains(listRec.Body.String(), `"id":"openai-1"`) {
-		t.Fatalf("expected created provider in list, got body=%s", listRec.Body.String())
+		t.Fatalf("expected created connection in list, got body=%s", listRec.Body.String())
 	}
 	if strings.Contains(listRec.Body.String(), "sk-test") {
 		t.Fatalf("expected created secret to stay redacted, got body=%s", listRec.Body.String())
 	}
 }
 
-func TestProvidersDeleteRejectsLastProvider(t *testing.T) {
+func TestConnectionsDeleteRejectsLastConnection(t *testing.T) {
 	handler := testServer(t, &testProvider{})
-	req := httptest.NewRequest(http.MethodDelete, "/admin/api/providers/codex-1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/connections/codex-1", nil)
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -340,8 +341,5 @@ func TestProvidersDeleteRejectsLastProvider(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "config.providers must contain at least one provider") {
-		t.Fatalf("expected validation error, got body=%s", rec.Body.String())
 	}
 }

@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-func TestProviderConfigJSONShapeMatchesConfigFile(t *testing.T) {
-	bytes, err := json.Marshal(ProviderConfig{
-		ID:           "provider-1",
-		Type:         "codex",
+func TestConnectionConfigJSONShapeMatchesConfigFile(t *testing.T) {
+	bytes, err := json.Marshal(ConnectionConfig{
+		ID:           "connection-1",
+		ProviderID:   "cx",
 		AccessToken:  "access-token",
 		RefreshToken: "refresh-token",
 		Name:         "user@example.com",
@@ -17,7 +17,7 @@ func TestProviderConfigJSONShapeMatchesConfigFile(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	const want = `{"id":"provider-1","type":"codex","access_token":"access-token","refresh_token":"refresh-token","name":"user@example.com"}`
+	const want = `{"id":"connection-1","provider_id":"cx","access_token":"access-token","refresh_token":"refresh-token","name":"user@example.com"}`
 	if string(bytes) != want {
 		t.Fatalf("expected JSON shape %s, got %s", want, string(bytes))
 	}

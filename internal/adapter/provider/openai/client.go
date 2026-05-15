@@ -11,6 +11,6 @@ type Client struct {
 	*upstreamopenai.Client
 }
 
-func NewClient(httpClient *http.Client, provider config.ProviderConfig) *Client {
-	return &Client{Client: upstreamopenai.NewClient(httpClient, provider)}
+func NewClient(httpClient *http.Client, connection config.ConnectionConfig) *Client {
+	return &Client{Client: upstreamopenai.NewClient(httpClient, connection)}
 }

@@ -3,12 +3,12 @@
 ## Configuration
 
 The user config file is loaded from `~/.goroute/config.json`.
-It configures local runtime behavior and credentials only; it does not define drivers, model namespaces, or model catalogs.
+It configures local runtime behavior and credentials only; it does not define providers, model namespaces, or model catalogs.
 
 The current schema has two top-level domains:
 
 - server
-- providers
+- connections
 
 Example `~/.goroute/config.json`:
 
@@ -18,17 +18,17 @@ Example `~/.goroute/config.json`:
     "listen": ":2232",
     "auth_token": "change-me"
   },
-  "providers": [
+  "connections": [
     {
       "id": "codex-1",
-      "type": "codex",
+      "provider_id": "cx",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
       "name": "user@example.com"
     },
     {
       "id": "openai-1",
-      "type": "openai",
+      "provider_id": "openai",
       "api_key": "${OPENAI_API_KEY}",
       "name": "user@example.com"
     }
@@ -36,12 +36,12 @@ Example `~/.goroute/config.json`:
 }
 ```
 
-Current validation requires every provider to have `id`, `type`, and `name`.
+Current validation requires every connection to have `id`, `provider_id`, and `name`.
 `server.listen` defaults to `:2232` when omitted.
 `server.auth_token` is required and is used to protect admin-only HTTP routes.
-Provider credentials are validated lazily by the selected provider adapter during request execution.
+Connection credentials are validated lazily by the selected adapter during request execution.
 
-Current provider credential behavior:
+Current connection credential behavior:
 
 - `codex` uses `access_token`, falling back to `api_key` if present.
 - `openai` uses `api_key`, falling back to `access_token` if present.
@@ -49,8 +49,8 @@ Current provider credential behavior:
 
 ## Custom OpenAI-Compatible Base URL Direction
 
-The current implementation uses the built-in OpenAI base URL (`https://api.openai.com`) for `type: "openai"` providers.
-There is no config field yet for overriding this per provider.
+The current implementation uses the built-in OpenAI base URL (`https://api.openai.com`) for connections with `provider_id: "openai"`.
+There is no config field yet for overriding this per connection.
 
 That is an intentional bootstrap constraint for now:
 
@@ -58,26 +58,27 @@ That is an intentional bootstrap constraint for now:
 - avoid introducing an underspecified field before fallback and observability are in place
 - leave room for other OpenAI-compatible upstreams without prematurely hard-coding policy
 
-The likely future direction is a per-provider optional field such as `base_url` on OpenAI-compatible providers, rather than a global setting.
-That would preserve the existing provider-centric config shape and allow multiple OpenAI-compatible accounts or vendors side by side.
+The likely future direction is a per-connection optional field such as `base_url` on OpenAI-compatible connections, rather than a global setting.
+That would preserve the existing connection-centric config shape and allow multiple OpenAI-compatible accounts or vendors side by side.
 
-Until that lands, `type: "openai"` should be read as “the standard OpenAI upstream” rather than “any OpenAI-compatible endpoint.”
+Until that lands, `provider_id: "openai"` should be read as “the standard OpenAI upstream” rather than “any OpenAI-compatible endpoint.”
 
 ## System Data
 
-System data currently lives in `data/system-drivers.json`.
+System data currently lives in `data/system-providers.json`.
 
 Current shape:
 
 ```json
 {
-  "driver_auth_types": ["oauth", "api_key"],
-  "drivers": [
+  "provider_auth_types": ["oauth", "api_key"],
+  "provider_categories": ["oauth"],
+  "providers": [
     {
       "id": "cx",
       "name": "Codex",
-      "provider": "codex",
       "auth_type": "oauth",
+      "category": "oauth",
       "default_model": "cx/gpt-5.4",
       "models": [
         {
@@ -90,9 +91,9 @@ Current shape:
     {
       "id": "openai",
       "name": "OpenAI",
-      "provider": "openai",
       "auth_type": "api_key",
       "default_model": "openai/gpt-4.1",
+      "category": "api_key",
       "models": [
         {
           "id": "openai/gpt-4.1",
@@ -107,24 +108,23 @@ Current shape:
 
 ## Data Model
 
-### Provider config
+### Connection config
 
 Implemented fields:
 
 - id
-- type
+- provider_id
 - name
 - api_key
 - access_token
 - refresh_token
 
-### System driver definition
+### System provider definition
 
 Implemented fields:
 
-- driver ID / client-facing prefix, such as `cx`
+- provider ID / client-facing prefix, such as `cx`
 - display name
-- provider, such as `codex` or `openai`
 - auth type, such as `oauth` or `api_key`
 - default model
 - supported models
@@ -136,8 +136,7 @@ At request time, routing produces:
 
 - client-facing prefix
 - requested upstream model
-- driver ID and name
-- provider type
+- provider ID and name
 
-Provider selection and fallback currently happen in the provider registry after resolution.
+Connection selection and fallback currently happen in the connection registry after resolution.
 Fallback attempt index and request-scoped timeout metadata are not yet represented in the resolved target.

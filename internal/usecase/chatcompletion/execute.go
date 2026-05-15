@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 )
 
-func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry *ProviderRegistry, input Input) (Output, error) {
+func Execute(ctx context.Context, catalog provider.Catalog, connectionRegistry *ConnectionRegistry, input Input) (Output, error) {
 	target, err := routing.ResolveModel(catalog, input.Request.Model)
 	if err != nil {
 		return Output{}, err
@@ -18,7 +18,7 @@ func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry *Prov
 		return Output{}, fmt.Errorf("messages must contain at least one item")
 	}
 
-	response, err := providerRegistry.ChatCompletions(ctx, input.Request, target)
+	response, err := connectionRegistry.ChatCompletions(ctx, input.Request, target)
 	if err != nil {
 		return Output{}, err
 	}
@@ -28,7 +28,7 @@ func Execute(ctx context.Context, catalog driver.Catalog, providerRegistry *Prov
 	return Output{Response: response}, nil
 }
 
-func ExecuteStream(ctx context.Context, catalog driver.Catalog, providerRegistry *ProviderRegistry, input Input) (StreamOutput, error) {
+func ExecuteStream(ctx context.Context, catalog provider.Catalog, connectionRegistry *ConnectionRegistry, input Input) (StreamOutput, error) {
 	target, err := routing.ResolveModel(catalog, input.Request.Model)
 	if err != nil {
 		return StreamOutput{}, err
@@ -38,7 +38,7 @@ func ExecuteStream(ctx context.Context, catalog driver.Catalog, providerRegistry
 		return StreamOutput{}, fmt.Errorf("messages must contain at least one item")
 	}
 
-	body, err := providerRegistry.ChatCompletionsStream(ctx, input.Request, target)
+	body, err := connectionRegistry.ChatCompletionsStream(ctx, input.Request, target)
 	if err != nil {
 		return StreamOutput{}, err
 	}

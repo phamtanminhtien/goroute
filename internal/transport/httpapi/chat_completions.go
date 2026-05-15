@@ -7,12 +7,12 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
-func chatCompletionsHandler(catalog driver.Catalog, providerRegistry *chatcompletion.ProviderRegistry) http.Handler {
+func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -28,7 +28,7 @@ func chatCompletionsHandler(catalog driver.Catalog, providerRegistry *chatcomple
 		}
 
 		if request.Stream {
-			output, err := chatcompletion.ExecuteStream(r.Context(), catalog, providerRegistry, chatcompletion.Input{Request: request})
+			output, err := chatcompletion.ExecuteStream(r.Context(), catalog, connectionRegistry, chatcompletion.Input{Request: request})
 			if err != nil {
 				var upstreamErr chatcompletion.UpstreamError
 				switch {
@@ -50,7 +50,7 @@ func chatCompletionsHandler(catalog driver.Catalog, providerRegistry *chatcomple
 			return
 		}
 
-		output, err := chatcompletion.Execute(r.Context(), catalog, providerRegistry, chatcompletion.Input{Request: request})
+		output, err := chatcompletion.Execute(r.Context(), catalog, connectionRegistry, chatcompletion.Input{Request: request})
 		if err != nil {
 			var upstreamErr chatcompletion.UpstreamError
 			switch {

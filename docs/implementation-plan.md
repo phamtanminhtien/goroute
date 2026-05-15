@@ -5,7 +5,7 @@
 The implementation should keep the request path easy to follow:
 
 ```text
-HTTP ingress -> application use case -> routing/domain policy -> provider adapter -> upstream
+HTTP ingress -> application use case -> routing/domain policy -> connection adapter -> upstream
 ```
 
 Proposed Go layout:
@@ -33,12 +33,12 @@ internal/usecase/chatcompletion/
 internal/usecase/listmodels/
   list.go                         # client-facing model listing
 
-internal/domain/driver/
-  driver.go                       # system-defined driver model
-  catalog.go                      # driver catalog lookup
+internal/domain/provider/
+  provider.go                     # system-defined provider model
+  catalog.go                      # provider catalog lookup
 
 internal/domain/routing/
-  resolve.go                      # model prefix -> driver/model resolution
+  resolve.go                      # model prefix -> provider/model resolution
   policy.go                       # fallback/retry policy
   target.go                       # resolved execution target
 
@@ -57,7 +57,7 @@ internal/adapter/provider/codex/
   errors.go
 
 internal/adapter/systemdata/
-  embedded.go                     # embedded system driver data
+  embedded.go                     # embedded system provider data
   json.go                         # JSON decoder/validator for system data
 
 internal/config/
@@ -82,7 +82,7 @@ internal/testutil/
   config.go                       # test config builders
 
 data/
-  system-drivers.json             # packaged system-defined drivers/models
+  system-providers.json           # packaged system-defined providers/models
 
 web/
   package.json                    # React UI package
@@ -93,8 +93,8 @@ web/
       app.tsx                     # top-level dashboard app
       routes.tsx                  # route definitions
     features/
-      providers/                  # provider config screens
-      routing/                    # driver/model route visibility
+      connections/                # connection config screens
+      routing/                    # provider/model route visibility
       requests/                   # request logs / recent attempts
       settings/                   # local server settings
     shared/
@@ -109,14 +109,14 @@ The exact file names can move as implementation reveals better package shapes, b
 
 ### Layer ownership
 
-- `cmd/goroute` owns process startup only. It should not contain routing, provider, or HTTP handler logic.
+- `cmd/goroute` owns process startup only. It should not contain routing, connection, or HTTP handler logic.
 - `internal/app` wires dependencies together. It may know concrete implementations, but it should not implement business behavior.
 - `internal/transport/httpapi` owns HTTP concerns: routing, auth, request IDs, body parsing, status codes, and response rendering.
 - `internal/usecase/*` owns application workflows. A handler should call a use case and then render its result.
-- `internal/domain/*` owns durable routing concepts: drivers, provider capabilities, resolved targets, fallback policy, and error categories.
-- `internal/adapter/*` owns outside-world details: upstream HTTP calls, embedded/JSON system data, provider-specific request mapping, and provider-specific error normalization.
+- `internal/domain/*` owns durable routing concepts: providers, connection capabilities, resolved targets, fallback policy, and error categories.
+- `internal/adapter/*` owns outside-world details: upstream HTTP calls, embedded/JSON system data, connection-specific request mapping, and connection-specific error normalization.
 - `internal/openaiwire` owns compatibility structs for the OpenAI-shaped public API. Domain/usecase packages should avoid depending on raw HTTP handlers.
-- `internal/config` owns user configuration only. System-defined drivers and model namespaces belong in `data/` plus `internal/adapter/systemdata`.
+- `internal/config` owns user configuration only. System-defined providers and model namespaces belong in `data/` plus `internal/adapter/systemdata`.
 - `web` owns the optional React UI. It should talk to the backend through explicit HTTP APIs and should not duplicate backend routing policy.
 
 ### Dependency direction
@@ -141,18 +141,18 @@ web -> backend HTTP API only
 Practical rules:
 
 - HTTP layer should not own routing policy
-- provider adapters should not own config loading
+- connection adapters should not own config loading
 - fallback logic should live in the chat completion use case and routing policy, not spread across handlers
-- domain packages should not import provider adapter packages
+- domain packages should not import connection adapter packages
 - wire structs should be converted at the edge of the system, not leaked everywhere
-- system driver data should not be mixed into the user config schema
-- React state should reflect backend state; it should not become a second source of truth for providers, drivers, or route policy
+- system provider data should not be mixed into the user config schema
+- React state should reflect backend state; it should not become a second source of truth for connections, providers, or route policy
 
 ### Package naming guidance
 
 - Prefer feature/use-case packages over broad utility buckets.
 - Avoid names like `service`, `manager`, or `common` unless the responsibility is genuinely narrow.
-- Keep provider adapters grouped by upstream protocol/provider so adding a new provider is mostly additive.
+- Keep connection adapters grouped by upstream protocol/provider so adding a new provider is mostly additive.
 - Keep tests near the behavior they verify; reserve `internal/testutil` for reusable server/config fixtures.
 - Use kebab-case for React file names, such as `provider-list.tsx`, `route-timeline.tsx`, and `settings-form.tsx`.
 
@@ -165,7 +165,7 @@ Recommended first UI scope:
 
 - provider list and credential status, with secrets redacted
 - configured server settings
-- system driver/model catalog
+- system provider/model catalog
 - recent request attempts and fallback decisions
 - health/readiness status
 
@@ -174,7 +174,7 @@ Recommended backend additions:
 ```text
 internal/transport/httpapi/admin/
   providers.go                    # GET/PUT provider config views
-  drivers.go                      # GET system driver/model catalog
+  providers.go                    # GET system provider/model catalog
   requests.go                     # GET recent request logs or attempts
   settings.go                     # GET/PUT editable local settings
 ```
@@ -218,10 +218,10 @@ And resolution might produce something like:
 ```go
 type ResolvedTarget struct {
     Prefix       string
-    DriverName   string
-    ProviderName string
-    Model        string
-    Attempt      int
+    ProviderName   string
+    ConnectionName string
+    Model          string
+    Attempt        int
 }
 ```
 
@@ -298,7 +298,7 @@ A local client might be configured with:
 
 `goroute` then resolves `cx/gpt-5.4` as:
 
-- `cx` -> system driver named `Codex`
+- `cx` -> system provider named `Codex`
 - `gpt-5.4` -> the model passed to user-configured providers with `"type": "codex"`
 
 The client remains unchanged while routing policy evolves server-side.
