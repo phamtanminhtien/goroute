@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -21,8 +22,8 @@ import (
 func testCatalog() provider.Catalog {
 	return provider.Catalog{
 		Providers: []provider.Provider{
-			{ID: "cx", Name: "Codex", AuthType: "oauth", Category: "oauth", DefaultModel: "cx/gpt-5.4"},
-			{ID: "opena", Name: "OpenAI", AuthType: "api_key", Category: "api_key", DefaultModel: "opena/gpt-4.1"},
+			{ID: "cx", Name: "Codex", AuthType: provider.AuthTypeOAuth, Category: "oauth", DefaultModel: "cx/gpt-5.4"},
+			{ID: "opena", Name: "OpenAI", AuthType: provider.AuthTypeAPIKey, Category: "api_key", DefaultModel: "opena/gpt-4.1"},
 		},
 	}
 }
@@ -81,6 +82,32 @@ func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
 			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
 				return &testProvider{}, nil
+			},
+			GenerateOAuthURL: func(config.ConnectionConfig) (string, error) {
+				return "https://auth.openai.com/oauth/authorize?provider=cx", nil
+			},
+			StartOAuth: func(connection config.ConnectionConfig) (providerregistry.OAuthSession, error) {
+				return providerregistry.OAuthSession{
+					AuthorizationURL: "https://auth.openai.com/oauth/authorize?provider=cx&flow=start",
+					Pending: map[string]string{
+						"state":         "test-state",
+						"code_verifier": "test-verifier",
+						"redirect_uri":  "http://localhost:1455/auth/callback",
+					},
+				}, nil
+			},
+			CompleteOAuth: func(connection config.ConnectionConfig, pending map[string]string, callbackURL string) (providerregistry.OAuthResult, error) {
+				if pending["state"] != "test-state" {
+					return providerregistry.OAuthResult{}, errors.New("state mismatch")
+				}
+				if !strings.Contains(callbackURL, "state=test-state") {
+					return providerregistry.OAuthResult{}, errors.New("state mismatch")
+				}
+				return providerregistry.OAuthResult{
+					AccessToken:  "oauth-access-token",
+					RefreshToken: "oauth-refresh-token",
+					Name:         "oauth-user@example.com",
+				}, nil
 			},
 			ValidateConnection: func(connection config.ConnectionConfig) []string {
 				if connection.AccessToken == "" && connection.APIKey == "" {
@@ -161,6 +188,44 @@ func TestModelsReturnsConfiguredPrefixes(t *testing.T) {
 	}
 	if len(response.Data) == 0 || response.Data[0].Metadata["provider_id"] == "" {
 		t.Fatalf("expected model metadata, got %#v", response.Data)
+	}
+}
+
+func TestProviderOAuthURLReturnsGeneratedURL(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/oauth-url", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"provider_id":"cx"`) {
+		t.Fatalf("expected provider id in body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"session_id":"`) {
+		t.Fatalf("expected oauth session id in body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"url":"https://auth.openai.com/oauth/authorize?provider=cx\u0026flow=start"`) {
+		t.Fatalf("expected started oauth url in body=%s", rec.Body.String())
+	}
+}
+
+func TestProviderOAuthURLRejectsUnsupportedProvider(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers/opena/oauth-url", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `does not support oauth start`) {
+		t.Fatalf("expected unsupported oauth error in body=%s", rec.Body.String())
 	}
 }
 
@@ -435,6 +500,60 @@ func TestConnectionsUpdatePreservesSecretsWhenOmitted(t *testing.T) {
 	}
 	if !strings.Contains(listRec.Body.String(), `"name":"renamed-user"`) {
 		t.Fatalf("expected updated name in list, got body=%s", listRec.Body.String())
+	}
+}
+
+func TestConnectionsOAuthCompletionCreatesConnection(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+
+	startReq := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/oauth-url", nil)
+	startReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	startRec := httptest.NewRecorder()
+	handler.ServeHTTP(startRec, startReq)
+
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, startRec.Code, startRec.Body.String())
+	}
+
+	var startResponse struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(startRec.Body.Bytes(), &startResponse); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if startResponse.SessionID == "" {
+		t.Fatalf("expected non-empty session id in body=%s", startRec.Body.String())
+	}
+
+	completeBody := []byte(`{"session_id":"` + startResponse.SessionID + `","callback_url":"http://localhost:1455/auth/callback?code=abc123&state=test-state"}`)
+	completeReq := httptest.NewRequest(http.MethodPost, "/admin/api/connections/oauth", bytes.NewReader(completeBody))
+	completeReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	completeRec := httptest.NewRecorder()
+	handler.ServeHTTP(completeRec, completeReq)
+
+	if completeRec.Code != http.StatusCreated {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusCreated, completeRec.Code, completeRec.Body.String())
+	}
+	if !strings.Contains(completeRec.Body.String(), `"id":"codex-2"`) {
+		t.Fatalf("expected created oauth connection, got body=%s", completeRec.Body.String())
+	}
+	if !strings.Contains(completeRec.Body.String(), `"name":"oauth-user@example.com"`) {
+		t.Fatalf("expected email-backed connection name, got body=%s", completeRec.Body.String())
+	}
+	if strings.Contains(completeRec.Body.String(), "oauth-access-token") {
+		t.Fatalf("expected oauth access token to stay redacted, got body=%s", completeRec.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/connections", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+
+	if !strings.Contains(listRec.Body.String(), `"id":"codex-2"`) {
+		t.Fatalf("expected oauth connection in list, got body=%s", listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"has_access_token":true`) || !strings.Contains(listRec.Body.String(), `"has_refresh_token":true`) {
+		t.Fatalf("expected oauth tokens to be persisted, got body=%s", listRec.Body.String())
 	}
 }
 

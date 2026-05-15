@@ -1,11 +1,15 @@
 package connections
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/rs/zerolog"
 )
 
@@ -13,31 +17,46 @@ type Runtime interface {
 	ReplaceConnections([]config.ConnectionConfig) error
 }
 
-type ProviderValidator interface {
+type ProviderRegistry interface {
 	ValidateConnection(config.ConnectionConfig) []string
+	GenerateOAuthURL(config.ConnectionConfig) (string, error)
+	StartOAuth(config.ConnectionConfig) (providerregistry.OAuthSession, error)
+	CompleteOAuth(config.ConnectionConfig, map[string]string, string) (providerregistry.OAuthResult, error)
 }
 
 type Service struct {
-	mu         sync.RWMutex
-	configPath string
-	config     config.Config
-	runtime    Runtime
-	providers  ProviderValidator
-	logger     *zerolog.Logger
+	mu           sync.RWMutex
+	configPath   string
+	config       config.Config
+	pendingOAuth map[string]pendingOAuthConnection
+	runtime      Runtime
+	providers    ProviderRegistry
+	logger       *zerolog.Logger
 }
 
-func NewService(configPath string, cfg config.Config, runtime Runtime, providers ProviderValidator, logger *zerolog.Logger) *Service {
+type pendingOAuthConnection struct {
+	ProviderID string
+	Pending    map[string]string
+}
+
+type OAuthStartResult struct {
+	SessionID        string `json:"session_id"`
+	AuthorizationURL string `json:"url"`
+}
+
+func NewService(configPath string, cfg config.Config, runtime Runtime, providers ProviderRegistry, logger *zerolog.Logger) *Service {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
 	}
 
 	return &Service{
-		configPath: configPath,
-		config:     cfg,
-		runtime:    runtime,
-		providers:  providers,
-		logger:     logger,
+		configPath:   configPath,
+		config:       cfg,
+		pendingOAuth: make(map[string]pendingOAuthConnection),
+		runtime:      runtime,
+		providers:    providers,
+		logger:       logger,
 	}
 }
 
@@ -80,6 +99,10 @@ func (s *Service) Get(id string) (Item, bool) {
 	return Item{}, false
 }
 
+func (s *Service) Providers() ProviderRegistry {
+	return s.providers
+}
+
 func (s *Service) Create(input config.ConnectionConfig) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,6 +125,87 @@ func (s *Service) Create(input config.ConnectionConfig) (Item, error) {
 		Str("provider_id", input.ProviderID).
 		Str("connection_name", input.Name).
 		Msg("connection_create")
+
+	return s.redactConnection(input), nil
+}
+
+func (s *Service) StartOAuth(providerID string) (OAuthStartResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return OAuthStartResult{}, fmt.Errorf("provider id is required")
+	}
+
+	session, err := s.providers.StartOAuth(config.ConnectionConfig{
+		ProviderID: providerID,
+	})
+	if err != nil {
+		return OAuthStartResult{}, err
+	}
+
+	sessionID, err := randomBase64URL(24)
+	if err != nil {
+		return OAuthStartResult{}, err
+	}
+
+	s.pendingOAuth[sessionID] = pendingOAuthConnection{
+		ProviderID: providerID,
+		Pending:    clonePending(session.Pending),
+	}
+
+	return OAuthStartResult{
+		SessionID:        sessionID,
+		AuthorizationURL: session.AuthorizationURL,
+	}, nil
+}
+
+func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return Item{}, fmt.Errorf("oauth session id is required")
+	}
+
+	pending, ok := s.pendingOAuth[sessionID]
+	if !ok {
+		return Item{}, fmt.Errorf("oauth session %q not found", sessionID)
+	}
+	connectionID := s.nextOAuthConnectionID(pending.ProviderID)
+
+	result, err := s.providers.CompleteOAuth(
+		config.ConnectionConfig{ID: connectionID, ProviderID: pending.ProviderID},
+		clonePending(pending.Pending),
+		strings.TrimSpace(callbackURL),
+	)
+	if err != nil {
+		return Item{}, err
+	}
+
+	input := normalizeConnection(config.ConnectionConfig{
+		ID:           connectionID,
+		ProviderID:   pending.ProviderID,
+		Name:         defaultString(strings.TrimSpace(result.Name), connectionID),
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+	})
+
+	nextConfig := s.config
+	nextConfig.Connections = append(append([]config.ConnectionConfig(nil), s.config.Connections...), input)
+	if err := s.persist(nextConfig); err != nil {
+		return Item{}, err
+	}
+
+	delete(s.pendingOAuth, sessionID)
+
+	s.logger.Info().
+		Str("connection_id", input.ID).
+		Str("provider_id", input.ProviderID).
+		Str("connection_name", input.Name).
+		Msg("connection_create_oauth")
 
 	return s.redactConnection(input), nil
 }
@@ -260,10 +364,76 @@ func preserveExistingSecrets(
 	return next
 }
 
-func connectionProblems(providers ProviderValidator, connection config.ConnectionConfig) []string {
+func connectionProblems(providers ProviderRegistry, connection config.ConnectionConfig) []string {
 	if providers == nil {
 		return nil
 	}
 
 	return providers.ValidateConnection(connection)
+}
+
+func clonePending(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func (s *Service) nextOAuthConnectionID(providerID string) string {
+	prefix := providerID
+	maxSuffix := 0
+	for _, connection := range s.config.Connections {
+		if connection.ProviderID != providerID {
+			continue
+		}
+
+		nextPrefix, suffix, ok := splitNumericConnectionID(connection.ID)
+		if !ok {
+			continue
+		}
+
+		if prefix == providerID {
+			prefix = nextPrefix
+		}
+		if nextPrefix == prefix && suffix > maxSuffix {
+			maxSuffix = suffix
+		}
+	}
+
+	return fmt.Sprintf("%s-%d", prefix, maxSuffix+1)
+}
+
+func randomBase64URL(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func splitNumericConnectionID(connectionID string) (string, int, bool) {
+	index := strings.LastIndex(connectionID, "-")
+	if index <= 0 || index == len(connectionID)-1 {
+		return "", 0, false
+	}
+
+	suffix, err := strconv.Atoi(connectionID[index+1:])
+	if err != nil {
+		return "", 0, false
+	}
+
+	return connectionID[:index], suffix, true
 }

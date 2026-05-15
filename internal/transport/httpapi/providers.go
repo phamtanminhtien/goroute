@@ -81,6 +81,34 @@ func connectionByIDHandler(service *connectionsusecase.Service) http.Handler {
 	})
 }
 
+type completeConnectionOAuthRequest struct {
+	SessionID   string `json:"session_id"`
+	CallbackURL string `json:"callback_url"`
+}
+
+func connectionOAuthHandler(service *connectionsusecase.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		var input completeConnectionOAuthRequest
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+			return
+		}
+
+		item, err := service.CompleteOAuth(input.SessionID, input.CallbackURL)
+		if err != nil {
+			writeConnectionMutationError(r, w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, item)
+	})
+}
+
 func writeConnectionMutationError(r *http.Request, w http.ResponseWriter, err error) {
 	var notFound connectionsusecase.ErrNotFound
 	switch {

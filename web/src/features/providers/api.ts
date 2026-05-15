@@ -30,6 +30,17 @@ export type ProviderItem = {
   name: string;
 };
 
+type ProviderOAuthURLResponse = {
+  provider_id: string;
+  session_id: string;
+  url: string;
+};
+
+type ProviderOAuthStart = {
+  sessionID: string;
+  url: string;
+};
+
 type RawProviderItem = Omit<ProviderItem, "connections" | "models"> & {
   connections: ProviderConnection[] | null;
   models: ProviderModel[] | null;
@@ -73,6 +84,30 @@ export async function updateConnection(id: string, payload: ConnectionPayload) {
 
 export async function deleteConnection(id: string) {
   await apiClient.delete(`/connections/${id}`);
+}
+
+export async function generateProviderOAuthURL(providerID: string) {
+  const response = await apiClient.post<ProviderOAuthURLResponse>(
+    `/providers/${providerID}/oauth-url`,
+  );
+  return {
+    sessionID: response.data.session_id,
+    url: response.data.url,
+  } satisfies ProviderOAuthStart;
+}
+
+export async function completeOAuthConnection(
+  sessionID: string,
+  callbackURL: string,
+) {
+  const response = await apiClient.post<ProviderConnection>(
+    "/connections/oauth",
+    {
+      callback_url: callbackURL,
+      session_id: sessionID,
+    },
+  );
+  return response.data;
 }
 
 function normalizeProvider(provider: RawProviderItem): ProviderItem {

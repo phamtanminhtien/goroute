@@ -6,23 +6,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/routes";
 import { useAuthStore } from "@/features/auth/auth-store";
 import {
+  completeOAuthConnection,
   createConnection,
   deleteConnection,
+  generateProviderOAuthURL,
   listProviders,
   updateConnection,
 } from "@/features/providers/api";
 import { renderWithQueryClient } from "@/test/test-utils";
 
 vi.mock("@/features/providers/api", () => ({
+  completeOAuthConnection: vi.fn(),
   createConnection: vi.fn(),
   deleteConnection: vi.fn(),
+  generateProviderOAuthURL: vi.fn(),
   listProviders: vi.fn(),
   providersQueryKey: ["providers"],
   updateConnection: vi.fn(),
 }));
 
+const completeOAuthConnectionMock = vi.mocked(completeOAuthConnection);
 const createConnectionMock = vi.mocked(createConnection);
 const deleteConnectionMock = vi.mocked(deleteConnection);
+const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
 const listProvidersMock = vi.mocked(listProviders);
 const updateConnectionMock = vi.mocked(updateConnection);
 
@@ -70,9 +76,16 @@ describe("providers pages", () => {
     });
     vi.restoreAllMocks();
     listProvidersMock.mockResolvedValue(baseProviders);
+    completeOAuthConnectionMock.mockResolvedValue(
+      baseProviders[0].connections[0],
+    );
     createConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
     updateConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
     deleteConnectionMock.mockResolvedValue(undefined);
+    generateProviderOAuthURLMock.mockResolvedValue({
+      sessionID: "oauth-session-1",
+      url: "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+    });
   });
 
   it("groups providers by category and computes connection status text", async () => {
@@ -157,8 +170,11 @@ describe("providers pages", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^copy$/i })).toBeInTheDocument();
     expect(
-      screen.getByDisplayValue("https://auth.openai.com/oauth/authorize"),
+      screen.getByDisplayValue(
+        "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+      ),
     ).toBeInTheDocument();
+    expect(generateProviderOAuthURLMock).toHaveBeenCalledWith("cx");
     expect(
       screen.getByPlaceholderText(/localhost:20128\/callback\?code=/i),
     ).toBeInTheDocument();
@@ -173,14 +189,9 @@ describe("providers pages", () => {
     );
 
     await waitFor(() => {
-      expect(createConnectionMock).toHaveBeenNthCalledWith(
-        1,
-        {
-          id: "codex-codex-2",
-          name: "Codex codex-2",
-          provider_id: "cx",
-        },
-        expect.any(Object),
+      expect(completeOAuthConnectionMock).toHaveBeenCalledWith(
+        "oauth-session-1",
+        "http://localhost:20128/callback?code=codex-2",
       );
     });
     await waitFor(() => {

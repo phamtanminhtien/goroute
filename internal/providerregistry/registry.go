@@ -12,6 +12,20 @@ type Registration struct {
 	Descriptor         provider.Provider
 	BuildConnection    func(config.ConnectionConfig) (chatcompletion.Connection, error)
 	ValidateConnection func(config.ConnectionConfig) []string
+	GenerateOAuthURL   func(config.ConnectionConfig) (string, error)
+	StartOAuth         func(config.ConnectionConfig) (OAuthSession, error)
+	CompleteOAuth      func(config.ConnectionConfig, map[string]string, string) (OAuthResult, error)
+}
+
+type OAuthSession struct {
+	AuthorizationURL string
+	Pending          map[string]string
+}
+
+type OAuthResult struct {
+	AccessToken  string
+	RefreshToken string
+	Name         string
 }
 
 type Registry struct {
@@ -73,4 +87,40 @@ func (r Registry) ValidateConnection(connectionConfig config.ConnectionConfig) [
 
 	problems := registration.ValidateConnection(connectionConfig)
 	return append([]string(nil), problems...)
+}
+
+func (r Registry) GenerateOAuthURL(connectionConfig config.ConnectionConfig) (string, error) {
+	registration, ok := r.byID[connectionConfig.ProviderID]
+	if !ok {
+		return "", fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+	}
+	if registration.GenerateOAuthURL == nil {
+		return "", fmt.Errorf("provider %q does not support oauth authorization url generation", connectionConfig.ProviderID)
+	}
+
+	return registration.GenerateOAuthURL(connectionConfig)
+}
+
+func (r Registry) StartOAuth(connectionConfig config.ConnectionConfig) (OAuthSession, error) {
+	registration, ok := r.byID[connectionConfig.ProviderID]
+	if !ok {
+		return OAuthSession{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+	}
+	if registration.StartOAuth == nil {
+		return OAuthSession{}, fmt.Errorf("provider %q does not support oauth start", connectionConfig.ProviderID)
+	}
+
+	return registration.StartOAuth(connectionConfig)
+}
+
+func (r Registry) CompleteOAuth(connectionConfig config.ConnectionConfig, pending map[string]string, callbackURL string) (OAuthResult, error) {
+	registration, ok := r.byID[connectionConfig.ProviderID]
+	if !ok {
+		return OAuthResult{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+	}
+	if registration.CompleteOAuth == nil {
+		return OAuthResult{}, fmt.Errorf("provider %q does not support oauth completion", connectionConfig.ProviderID)
+	}
+
+	return registration.CompleteOAuth(connectionConfig, pending, callbackURL)
 }

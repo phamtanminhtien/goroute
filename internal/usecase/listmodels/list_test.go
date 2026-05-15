@@ -12,7 +12,7 @@ func TestExecuteIncludesProviderMetadataAndDefaultFallback(t *testing.T) {
 			{
 				ID:           "cx",
 				Name:         "Codex",
-				AuthType:     "oauth",
+				AuthType:     provider.AuthTypeOAuth,
 				DefaultModel: "cx/gpt-5.4",
 				Models: []provider.Model{{
 					ID:          "cx/gpt-5.4",
@@ -23,7 +23,7 @@ func TestExecuteIncludesProviderMetadataAndDefaultFallback(t *testing.T) {
 			{
 				ID:           "fallback",
 				Name:         "Fallback",
-				AuthType:     "api_key",
+				AuthType:     provider.AuthTypeAPIKey,
 				DefaultModel: "fallback/gpt-4.1",
 			},
 		},

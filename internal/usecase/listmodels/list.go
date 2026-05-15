@@ -30,7 +30,7 @@ func buildModelView(resolvedProvider provider.Provider, model provider.Model) Mo
 	metadata := map[string]string{
 		"provider_id":   resolvedProvider.ID,
 		"provider_name": resolvedProvider.Name,
-		"auth_type":     resolvedProvider.AuthType,
+		"auth_type":     string(resolvedProvider.AuthType),
 		"is_default":    boolString(model.ID == resolvedProvider.DefaultModel),
 		"display_name":  model.Name,
 		"description":   model.Description,

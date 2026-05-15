@@ -1,6 +1,7 @@
 import { Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { generateProviderOAuthURL } from "@/features/providers/api";
 import {
   buildDefaultCreateMeta,
   buildDefaultEditMeta,
@@ -8,7 +9,6 @@ import {
   FormFeedback,
 } from "@/features/providers/registry/shared";
 import type {
-  ConnectionFormValues,
   CreateConnectionFormRenderProps,
   EditConnectionFormRenderProps,
   ProviderConnectionFormRegistryEntry,
@@ -19,26 +19,74 @@ import { Field } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
 
-const codexAuthorizationURL = "https://auth.openai.com/oauth/authorize";
-
 function CodexCreateConnectionForm({
   busy,
   feedback,
   onCancel,
   onSubmit,
 }: CreateConnectionFormRenderProps) {
+  const [authorizationURL, setAuthorizationURL] = useState("");
+  const [oauthSessionID, setOAuthSessionID] = useState("");
+  const [authorizationError, setAuthorizationError] = useState<string | null>(
+    null,
+  );
+  const [authorizationLoading, setAuthorizationLoading] = useState(true);
   const [callbackURL, setCallbackURL] = useState("");
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAuthorizationURL() {
+      setAuthorizationLoading(true);
+      setAuthorizationError(null);
+
+      try {
+        const nextAuthorization = await generateProviderOAuthURL("cx");
+        if (cancelled) {
+          return;
+        }
+
+        setAuthorizationURL(nextAuthorization.url);
+        setOAuthSessionID(nextAuthorization.sessionID);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        setAuthorizationURL("");
+        setOAuthSessionID("");
+        setAuthorizationError(
+          "Could not generate the Codex authorization URL right now.",
+        );
+      } finally {
+        if (!cancelled) {
+          setAuthorizationLoading(false);
+        }
+      }
+    }
+
+    void loadAuthorizationURL();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleCopyAuthorizationURL() {
     try {
+      if (!authorizationURL) {
+        setCopyFeedback("Authorization URL is not ready yet.");
+        return;
+      }
+
       if (!navigator?.clipboard?.writeText) {
         setCopyFeedback("Copy is not available in this browser.");
         return;
       }
 
-      await navigator.clipboard.writeText(codexAuthorizationURL);
+      await navigator.clipboard.writeText(authorizationURL);
       setCopyFeedback("Authorization URL copied.");
     } catch {
       setCopyFeedback("Copy failed. Please copy the URL manually.");
@@ -51,19 +99,27 @@ function CodexCreateConnectionForm({
       onSubmit={async (event) => {
         event.preventDefault();
 
+        if (!authorizationURL) {
+          setFormError("Authorization URL is not ready yet.");
+          return;
+        }
+
         if (!callbackURL.trim()) {
           setFormError("Callback URL is required.");
           return;
         }
 
-        const derivedValues = buildCodexValuesFromCallbackURL(callbackURL);
-        if (!derivedValues) {
-          setFormError("Callback URL is invalid.");
+        if (!oauthSessionID) {
+          setFormError("OAuth session is not ready yet.");
           return;
         }
 
         setFormError(null);
-        await onSubmit(derivedValues);
+        await onSubmit({
+          ...emptyConnectionFormValues,
+          callbackURL: callbackURL.trim(),
+          oauthSessionID,
+        });
       }}
     >
       <div className="border-border/80 bg-bg-secondary/55 flex items-center gap-3 rounded-[20px] border px-4 py-4">
@@ -96,7 +152,11 @@ function CodexCreateConnectionForm({
           <Input
             aria-label="Codex authorization URL"
             readOnly
-            value={codexAuthorizationURL}
+            value={
+              authorizationLoading
+                ? "Generating authorization URL..."
+                : authorizationURL
+            }
             disabled
           />
 
@@ -105,10 +165,17 @@ function CodexCreateConnectionForm({
             onClick={handleCopyAuthorizationURL}
             tone="secondary"
             type="button"
+            disabled={authorizationLoading || !authorizationURL}
           >
             Copy
           </Button>
         </div>
+
+        {authorizationError ? (
+          <p className="text-danger-600 text-sm leading-6" role="alert">
+            {authorizationError}
+          </p>
+        ) : null}
 
         {copyFeedback ? (
           <p className="text-fg-muted text-sm leading-6" role="status">
@@ -137,7 +204,7 @@ function CodexCreateConnectionForm({
 
       <FormFeedback feedback={feedback} formError={formError} />
       <ConnectionFormActions
-        busy={busy}
+        busy={busy || authorizationLoading}
         onCancel={onCancel}
         submitLabel="Create connection"
       />
@@ -242,26 +309,3 @@ export const codexProviderConnectionFormEntry: ProviderConnectionFormRegistryEnt
     renderCreate: (props) => <CodexCreateConnectionForm {...props} />,
     renderEdit: (props) => <CodexEditConnectionForm {...props} />,
   };
-
-function buildCodexValuesFromCallbackURL(
-  callbackURL: string,
-): ConnectionFormValues | null {
-  try {
-    const parsedURL = new URL(callbackURL);
-    const code =
-      parsedURL.searchParams.get("code")?.trim() ||
-      parsedURL.searchParams.get("state")?.trim() ||
-      parsedURL.pathname.split("/").filter(Boolean).at(-1) ||
-      "connection";
-    const normalizedCode = code.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const suffix = normalizedCode.replace(/^-+|-+$/g, "") || "connection";
-
-    return {
-      ...emptyConnectionFormValues,
-      id: `codex-${suffix}`,
-      name: `Codex ${suffix}`,
-    };
-  } catch {
-    return null;
-  }
-}

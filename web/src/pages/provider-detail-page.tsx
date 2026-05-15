@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
+  completeOAuthConnection,
   type ConnectionPayload,
   createConnection,
   deleteConnection,
@@ -75,7 +76,16 @@ export function ProviderDetailPage() {
     : null;
 
   const createConnectionMutation = useMutation({
-    mutationFn: createConnection,
+    mutationFn: async (values: ConnectionFormValues) => {
+      if (values.oauthSessionID && values.callbackURL) {
+        return completeOAuthConnection(
+          values.oauthSessionID,
+          values.callbackURL,
+        );
+      }
+
+      return createConnection(buildConnectionPayload(providerId ?? "", values));
+    },
     onError: (error) => {
       setFeedback({
         text: error instanceof Error ? error.message : "Request failed",
@@ -132,9 +142,7 @@ export function ProviderDetailPage() {
           onCancel: () => setModalState({ kind: "closed" }),
           onCreate: async (values) => {
             setFeedback(null);
-            await createConnectionMutation.mutateAsync(
-              buildConnectionPayload(provider.id, values),
-            );
+            await createConnectionMutation.mutateAsync(values);
           },
           onEdit: async (values) => {
             if (!editingConnection) {

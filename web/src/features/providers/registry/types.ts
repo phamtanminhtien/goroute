@@ -13,16 +13,20 @@ export type ConnectionFormFeedback = {
 export type ConnectionFormValues = {
   accessToken: string;
   apiKey: string;
+  callbackURL?: string;
   id: string;
   name: string;
+  oauthSessionID?: string;
   refreshToken: string;
 };
 
 export const emptyConnectionFormValues: ConnectionFormValues = {
   accessToken: "",
   apiKey: "",
+  callbackURL: "",
   id: "",
   name: "",
+  oauthSessionID: "",
   refreshToken: "",
 };
 

@@ -14,7 +14,7 @@ func Registration() providerregistry.Registration {
 		Descriptor: provider.Provider{
 			ID:           "openai",
 			Name:         "OpenAI",
-			AuthType:     "api_key",
+			AuthType:     provider.AuthTypeAPIKey,
 			Category:     "api_key",
 			DefaultModel: "openai/gpt-4.1",
 			Models: []provider.Model{{
