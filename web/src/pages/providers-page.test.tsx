@@ -144,16 +144,30 @@ describe("providers pages", () => {
       ]);
 
     renderWithQueryClient(
-      <MemoryRouter initialEntries={["/providers/cx?mode=create"]}>
+      <MemoryRouter initialEntries={["/providers/cx"]}>
         <AppRoutes />
       </MemoryRouter>,
     );
 
     await screen.findByRole("heading", { level: 2, name: /connections/i });
+    await user.click(screen.getByRole("button", { name: /add connection/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(
+      screen.getByText(/waiting for popup authorization/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^copy$/i })).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("https://auth.openai.com/oauth/authorize"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/localhost:20128\/callback\?code=/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^connection details$/i)).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/connection id/i), "codex-2");
-    await user.type(screen.getByLabelText(/display name/i), "new-user");
-    await user.type(screen.getByLabelText(/access token/i), "new-token");
+    await user.type(
+      screen.getByPlaceholderText(/localhost:20128\/callback\?code=/i),
+      "http://localhost:20128/callback?code=codex-2",
+    );
     await user.click(
       screen.getByRole("button", { name: /create connection/i }),
     );
@@ -162,13 +176,15 @@ describe("providers pages", () => {
       expect(createConnectionMock).toHaveBeenNthCalledWith(
         1,
         {
-          access_token: "new-token",
-          id: "codex-2",
-          name: "new-user",
+          id: "codex-codex-2",
+          name: "Codex codex-2",
           provider_id: "cx",
         },
         expect.any(Object),
       );
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     await screen.findByText(/connection saved/i);
     expect(screen.getByText("1 Connected")).toBeInTheDocument();
@@ -186,6 +202,7 @@ describe("providers pages", () => {
     await screen.findByText(/codex-user/i);
 
     await user.click(screen.getByRole("button", { name: /edit connection/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
     const displayNameInput = screen.getByLabelText(/display name/i);
     await user.clear(displayNameInput);
     await user.type(displayNameInput, "renamed-user");
@@ -198,6 +215,59 @@ describe("providers pages", () => {
         provider_id: "cx",
       });
     });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows callback-only fields for cx create form", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /connections/i });
+    await user.click(screen.getByRole("button", { name: /add connection/i }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/localhost:20128\/callback\?code=/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/connection id/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/display name/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/enter a new access token/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/enter a new refresh token/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows only api key field for openai forms", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/openai"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /connections/i });
+    await user.click(screen.getByRole("button", { name: /add connection/i }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/enter a new api key/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/enter a new access token/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/enter a new refresh token/i),
+    ).not.toBeInTheDocument();
   });
 
   it("deletes a connection and refetches providers", async () => {

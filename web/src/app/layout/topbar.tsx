@@ -29,7 +29,7 @@ export function Topbar({ onOpenNavigation }: { onOpenNavigation: () => void }) {
   const pageMeta = resolveTopbarMeta(location.pathname);
 
   return (
-    <header className="admin-topbar dashboard-topbar-shell z-20 shrink-0 border-b backdrop-blur-[14px]">
+    <header className="admin-topbar dashboard-topbar-frame z-20 shrink-0 border-b backdrop-blur-[14px]">
       <div className="flex min-h-[60px] items-center justify-between gap-3 px-4 sm:px-5 lg:px-7">
         <div className="flex min-w-0 items-center gap-2.5">
           <Button

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import {
   type ConnectionPayload,
@@ -13,6 +13,12 @@ import {
   providersQueryKey,
   updateConnection,
 } from "@/features/providers/api";
+import {
+  type ConnectionFormFeedback,
+  type ConnectionFormValues,
+  emptyConnectionFormValues,
+  getProviderConnectionFormEntry,
+} from "@/features/providers/connection-form-registry";
 import {
   AlertDialog,
   AlertDialogActionButton,
@@ -27,45 +33,27 @@ import {
 import { Button } from "@/shared/ui/button";
 import { CardActionRow } from "@/shared/ui/card-action-row";
 import { EmptyState } from "@/shared/ui/empty-state";
-import { Field } from "@/shared/ui/field";
 import { InlineAlert } from "@/shared/ui/inline-alert";
-import { Input } from "@/shared/ui/input";
+import { Modal, ModalContent, ModalPanel } from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 
-type FeedbackState = {
-  text: string;
-  tone: "error" | "success";
-} | null;
+type FeedbackState = ConnectionFormFeedback;
 
-type ConnectionFormValues = {
-  accessToken: string;
-  apiKey: string;
-  id: string;
-  name: string;
-  refreshToken: string;
-};
-
-const emptyFormValues: ConnectionFormValues = {
-  accessToken: "",
-  apiKey: "",
-  id: "",
-  name: "",
-  refreshToken: "",
-};
+type ConnectionModalState =
+  | { kind: "closed" }
+  | { kind: "create"; providerId: string }
+  | { connectionId: string; kind: "edit"; providerId: string };
 
 export function ProviderDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { providerId } = useParams<{ providerId: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const mode = searchParams.get("mode");
-  const [editingConnectionID, setEditingConnectionID] = useState<string | null>(
-    null,
-  );
-  const [isCreating, setIsCreating] = useState(() => mode === "create");
+  const [modalState, setModalState] = useState<ConnectionModalState>({
+    kind: "closed",
+  });
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const providersQuery = useQuery({
@@ -77,8 +65,14 @@ export function ProviderDetailPage() {
     (item) => item.id === providerId,
   );
   const editingConnection =
-    provider?.connections.find((item) => item.id === editingConnectionID) ??
-    null;
+    modalState.kind === "edit" && provider?.id === modalState.providerId
+      ? (provider.connections.find(
+          (item) => item.id === modalState.connectionId,
+        ) ?? null)
+      : null;
+  const formRegistryEntry = provider
+    ? getProviderConnectionFormEntry(provider.id)
+    : null;
 
   const createConnectionMutation = useMutation({
     mutationFn: createConnection,
@@ -91,8 +85,7 @@ export function ProviderDetailPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setFeedback({ text: "Connection saved.", tone: "success" });
-      setIsCreating(false);
-      clearModeParam(setSearchParams);
+      setModalState({ kind: "closed" });
     },
   });
 
@@ -108,7 +101,7 @@ export function ProviderDetailPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setFeedback({ text: "Connection saved.", tone: "success" });
-      setEditingConnectionID(null);
+      setModalState({ kind: "closed" });
     },
   });
 
@@ -123,9 +116,40 @@ export function ProviderDetailPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setFeedback({ text: "Connection deleted.", tone: "success" });
-      setEditingConnectionID(null);
+      setModalState({ kind: "closed" });
     },
   });
+
+  const activeModal =
+    provider && formRegistryEntry
+      ? buildConnectionModal({
+          createBusy: createConnectionMutation.isPending,
+          editBusy: updateConnectionMutation.isPending,
+          editingConnection,
+          entry: formRegistryEntry,
+          feedback,
+          modalState,
+          onCancel: () => setModalState({ kind: "closed" }),
+          onCreate: async (values) => {
+            setFeedback(null);
+            await createConnectionMutation.mutateAsync(
+              buildConnectionPayload(provider.id, values),
+            );
+          },
+          onEdit: async (values) => {
+            if (!editingConnection) {
+              return;
+            }
+
+            setFeedback(null);
+            await updateConnectionMutation.mutateAsync({
+              id: editingConnection.id,
+              payload: buildConnectionPayload(provider.id, values),
+            });
+          },
+          provider,
+        })
+      : null;
 
   return (
     <section className="space-y-6 pb-6">
@@ -193,9 +217,7 @@ export function ProviderDetailPage() {
                 leadingIcon={<Plus className="size-[15px]" />}
                 onClick={() => {
                   setFeedback(null);
-                  setEditingConnectionID(null);
-                  setIsCreating(true);
-                  setSearchParams({ mode: "create" });
+                  setModalState({ kind: "create", providerId: provider.id });
                 }}
               >
                 Add connection
@@ -236,7 +258,10 @@ export function ProviderDetailPage() {
                         deleteConnectionMutation.variables === connection.id
                       }
                       connection={connection}
-                      isEditing={editingConnectionID === connection.id}
+                      isEditing={
+                        modalState.kind === "edit" &&
+                        modalState.connectionId === connection.id
+                      }
                       key={connection.id}
                       onDelete={async () => {
                         setFeedback(null);
@@ -245,66 +270,17 @@ export function ProviderDetailPage() {
                         );
                       }}
                       onEdit={() => {
-                        clearModeParam(setSearchParams);
                         setFeedback(null);
-                        setIsCreating(false);
-                        setEditingConnectionID(connection.id);
+                        setModalState({
+                          connectionId: connection.id,
+                          kind: "edit",
+                          providerId: provider.id,
+                        });
                       }}
                     />
                   ))}
                 </div>
               )}
-
-              {isCreating ? (
-                <ConnectionForm
-                  busy={createConnectionMutation.isPending}
-                  key="create-connection"
-                  mode="create"
-                  onCancel={() => {
-                    setIsCreating(false);
-                    clearModeParam(setSearchParams);
-                  }}
-                  onSubmit={async (values) => {
-                    if (!provider) {
-                      return;
-                    }
-
-                    setFeedback(null);
-                    await createConnectionMutation.mutateAsync(
-                      buildConnectionPayload(provider.id, values),
-                    );
-                  }}
-                  provider={provider}
-                />
-              ) : null}
-
-              {editingConnection ? (
-                <ConnectionForm
-                  busy={updateConnectionMutation.isPending}
-                  initialValues={{
-                    accessToken: "",
-                    apiKey: "",
-                    id: editingConnection.id,
-                    name: editingConnection.name,
-                    refreshToken: "",
-                  }}
-                  key={editingConnection.id}
-                  mode="edit"
-                  onCancel={() => setEditingConnectionID(null)}
-                  onSubmit={async (values) => {
-                    if (!provider) {
-                      return;
-                    }
-
-                    setFeedback(null);
-                    await updateConnectionMutation.mutateAsync({
-                      id: editingConnection.id,
-                      payload: buildConnectionPayload(provider.id, values),
-                    });
-                  }}
-                  provider={provider}
-                />
-              ) : null}
             </div>
           </SectionCard>
 
@@ -332,6 +308,26 @@ export function ProviderDetailPage() {
           </SectionCard>
         </div>
       ) : null}
+
+      <Modal
+        onOpenChange={(open) => {
+          if (!open) {
+            setModalState({ kind: "closed" });
+          }
+        }}
+        open={activeModal !== null}
+      >
+        {activeModal ? (
+          <ModalContent>
+            <ModalPanel
+              description={activeModal.description}
+              title={activeModal.title}
+            >
+              {activeModal.content}
+            </ModalPanel>
+          </ModalContent>
+        ) : null}
+      </Modal>
     </section>
   );
 }
@@ -407,161 +403,6 @@ function ConnectionCard({
     />
   );
 }
-
-function ConnectionForm({
-  busy,
-  initialValues = emptyFormValues,
-  mode,
-  onCancel,
-  onSubmit,
-  provider,
-}: {
-  busy: boolean;
-  initialValues?: ConnectionFormValues;
-  mode: "create" | "edit";
-  onCancel: () => void;
-  onSubmit: (values: ConnectionFormValues) => void | Promise<void>;
-  provider: ProviderItem;
-}) {
-  const [values, setValues] = useState(initialValues);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  return (
-    <div className="border-border/85 bg-bg-primary/72 space-y-4 rounded-[20px] border px-4 py-4">
-      <div className="space-y-1">
-        <h3 className="text-fg-primary text-base font-semibold">
-          {mode === "create" ? "Add connection" : "Edit connection"}
-        </h3>
-        <p className="text-fg-secondary text-sm leading-6">
-          Secrets stay blank on edit. Enter only the values you want to replace.
-        </p>
-      </div>
-
-      <form
-        className="grid gap-4"
-        onSubmit={async (event) => {
-          event.preventDefault();
-
-          if (!values.id.trim() || !values.name.trim()) {
-            setFormError("Connection ID and display name are required.");
-            return;
-          }
-
-          setFormError(null);
-          await onSubmit(values);
-        }}
-      >
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Connection ID" required>
-            <Input
-              onChange={(event) =>
-                setValues((current) => ({ ...current, id: event.target.value }))
-              }
-              placeholder="openai-1"
-              value={values.id}
-            />
-          </Field>
-          <Field label="Display name" required>
-            <Input
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))
-              }
-              placeholder="user@example.com"
-              value={values.name}
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field
-            help={
-              provider.auth_type === "oauth"
-                ? "Primary credential for OAuth-style providers."
-                : "Optional token fallback for providers that accept bearer credentials."
-            }
-            label="Access token"
-          >
-            <Input
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  accessToken: event.target.value,
-                }))
-              }
-              placeholder="Enter a new access token"
-              type="password"
-              value={values.accessToken}
-            />
-          </Field>
-          <Field
-            help={
-              provider.auth_type === "api_key"
-                ? "Primary credential for API key providers."
-                : "Optional fallback key if this provider supports it."
-            }
-            label="API key"
-          >
-            <Input
-              onChange={(event) =>
-                setValues((current) => ({
-                  ...current,
-                  apiKey: event.target.value,
-                }))
-              }
-              placeholder="Enter a new API key"
-              type="password"
-              value={values.apiKey}
-            />
-          </Field>
-        </div>
-
-        <Field
-          help="Only needed when the provider uses token refresh."
-          label="Refresh token"
-        >
-          <Input
-            onChange={(event) =>
-              setValues((current) => ({
-                ...current,
-                refreshToken: event.target.value,
-              }))
-            }
-            placeholder="Enter a new refresh token"
-            type="password"
-            value={values.refreshToken}
-          />
-        </Field>
-
-        {formError ? (
-          <p className="text-sm leading-6 text-rose-700" role="alert">
-            {formError}
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={busy} type="submit">
-            {busy
-              ? "Saving..."
-              : mode === "create"
-                ? "Create connection"
-                : "Save changes"}
-          </Button>
-          <Button
-            disabled={busy}
-            onClick={onCancel}
-            tone="secondary"
-            type="button"
-          >
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </div>
-  );
-}
 function buildConnectionPayload(
   providerID: string,
   values: ConnectionFormValues,
@@ -627,12 +468,78 @@ function ModelChip({
   );
 }
 
-function clearModeParam(
-  setSearchParams: ReturnType<typeof useSearchParams>[1],
-) {
-  setSearchParams((current) => {
-    const nextParams = new URLSearchParams(current);
-    nextParams.delete("mode");
-    return nextParams;
-  });
+function buildConnectionModal({
+  createBusy,
+  editBusy,
+  editingConnection,
+  entry,
+  feedback,
+  modalState,
+  onCancel,
+  onCreate,
+  onEdit,
+  provider,
+}: {
+  createBusy: boolean;
+  editBusy: boolean;
+  editingConnection: ProviderConnection | null;
+  entry: ReturnType<typeof getProviderConnectionFormEntry>;
+  feedback: FeedbackState;
+  modalState: ConnectionModalState;
+  onCancel: () => void;
+  onCreate: (values: ConnectionFormValues) => void | Promise<void>;
+  onEdit: (values: ConnectionFormValues) => void | Promise<void>;
+  provider: ProviderItem;
+}) {
+  if (modalState.kind === "create" && modalState.providerId === provider.id) {
+    const meta = entry.getCreateMeta?.(provider) ?? {
+      description:
+        "Add a new provider connection and store credentials securely.",
+      title: "Add connection",
+    };
+
+    return {
+      content: entry.renderCreate({
+        busy: createBusy,
+        feedback,
+        onCancel,
+        onSubmit: onCreate,
+        provider,
+      }),
+      description: meta.description,
+      title: meta.title,
+    };
+  }
+
+  if (
+    modalState.kind === "edit" &&
+    modalState.providerId === provider.id &&
+    editingConnection
+  ) {
+    const meta = entry.getEditMeta?.(provider, editingConnection) ?? {
+      description:
+        "Secrets stay blank on edit. Enter only the values you want to replace.",
+      title: "Edit connection",
+    };
+
+    return {
+      content: entry.renderEdit({
+        busy: editBusy,
+        connection: editingConnection,
+        feedback,
+        initialValues: {
+          ...emptyConnectionFormValues,
+          id: editingConnection.id,
+          name: editingConnection.name,
+        },
+        onCancel,
+        onSubmit: onEdit,
+        provider,
+      }),
+      description: meta.description,
+      title: meta.title,
+    };
+  }
+
+  return null;
 }

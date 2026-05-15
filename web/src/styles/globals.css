@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-manrope);
-  --font-manrope: "Manrope", sans-serif;
+  --font-sans: var(--font-inter);
+  --font-inter: "Inter", sans-serif;
 
   --color-primary: var(--primary);
   --color-secondary: var(--secondary);
@@ -22,7 +22,7 @@
 }
 
 :root {
-  --font-manrope: "Manrope", sans-serif;
+  --font-inter: "Inter", sans-serif;
 
   /* Spacing */
   --space-1: 0.25rem;
@@ -279,13 +279,13 @@
     box-shadow: 0 1px 0 rgba(34, 29, 26, 0.04);
   }
 
-  .dashboard-sidebar-shell {
+  .dashboard-sidebar-frame {
     border-color: var(--dashboard-sidebar-border);
     background: var(--dashboard-sidebar-bg);
     color: var(--dashboard-title);
   }
 
-  .dashboard-topbar-shell {
+  .dashboard-topbar-frame {
     border-color: var(--dashboard-sidebar-border);
     background: var(--dashboard-topbar-bg);
   }

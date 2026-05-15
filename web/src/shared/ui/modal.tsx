@@ -116,7 +116,7 @@ export function ModalFooter({
   );
 }
 
-export function ModalShell({
+export function ModalPanel({
   children,
   description,
   title,

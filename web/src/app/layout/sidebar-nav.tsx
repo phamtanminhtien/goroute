@@ -71,7 +71,7 @@ function SidebarNavContent({
   onNavigate?: () => void;
 }) {
   return (
-    <div className="dashboard-sidebar-shell flex h-full flex-col border-r">
+    <div className="dashboard-sidebar-frame flex h-full flex-col border-r">
       <div className="flex min-h-[60px] items-center justify-between gap-3 border-b border-[var(--dashboard-sidebar-border)] px-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="bg-primary flex size-8 shrink-0 items-center justify-center rounded-[14px] text-white shadow-[var(--shadow-button)]">
