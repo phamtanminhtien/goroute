@@ -14,7 +14,7 @@ The repository has the first request path in place:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
-- model prefix resolution from `data/system-providers.json`
+- model prefix resolution from built-in provider packages
 - configured connection registry for `codex` and `openai`
 - OpenAI-compatible upstream execution for non-streaming chat completions
 - Codex responses execution for non-streaming and streaming chat completions
@@ -70,7 +70,7 @@ The client remains unchanged while routing policy evolves server-side.
 ## Configuration Direction
 
 The user config file is loaded from `~/.goroute/config.json`.
-It configures local runtime behavior and credentials only; it does not define system providers, model namespaces, or model catalogs.
+It configures local runtime behavior and credentials only; system providers, model namespaces, and model catalogs are compiled into the binary.
 
 Current implemented shape:
 

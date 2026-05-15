@@ -13,6 +13,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
@@ -75,7 +76,31 @@ func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler
 	}
 
 	logger := logging.NewWithWriter("prod", &bytes.Buffer{})
-	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, &logger)
+	providers, err := providerregistry.New(
+		providerregistry.Registration{
+			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
+			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+				return &testProvider{}, nil
+			},
+			ValidateConnection: func(connection config.ConnectionConfig) []string {
+				if connection.AccessToken == "" && connection.APIKey == "" {
+					return []string{"missing access_token or api_key"}
+				}
+
+				return nil
+			},
+		},
+		providerregistry.Registration{
+			Descriptor: provider.Provider{ID: "opena", Name: "OpenAI"},
+			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+				return &testProvider{}, nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("build provider registry: %v", err)
+	}
+	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, providers, &logger)
 	return NewServer(testCatalog(), registry, service, testAdminToken, &logger)
 }
 

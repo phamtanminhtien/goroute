@@ -12,7 +12,7 @@ Implemented now:
 - `GET /healthz`
 - bearer-token auth middleware reserved for future admin APIs
 - request ID and request logging middleware
-- system provider catalog loading from `data/system-providers.json`
+- system provider catalog loading from built-in provider packages
 - model prefix resolution such as `cx/gpt-5.4`
 - default model resolution when the client sends only a provider prefix
 - connection execution interface near `internal/usecase/chatcompletion`

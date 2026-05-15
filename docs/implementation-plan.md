@@ -56,7 +56,7 @@ internal/adapter/provider/codex/
   mapper.go
   errors.go
 
-internal/adapter/systemdata/
+internal/providerregistry/
   embedded.go                     # embedded system provider data
   json.go                         # JSON decoder/validator for system data
 
@@ -82,7 +82,7 @@ internal/testutil/
   config.go                       # test config builders
 
 data/
-  system-providers.json           # packaged system-defined providers/models
+  internal/adapter/provider/      # packaged system-defined providers/models
 
 web/
   package.json                    # React UI package
@@ -116,7 +116,7 @@ The exact file names can move as implementation reveals better package shapes, b
 - `internal/domain/*` owns durable routing concepts: providers, connection capabilities, resolved targets, fallback policy, and error categories.
 - `internal/adapter/*` owns outside-world details: upstream HTTP calls, embedded/JSON system data, connection-specific request mapping, and connection-specific error normalization.
 - `internal/openaiwire` owns compatibility structs for the OpenAI-shaped public API. Domain/usecase packages should avoid depending on raw HTTP handlers.
-- `internal/config` owns user configuration only. System-defined providers and model namespaces belong in `data/` plus `internal/adapter/systemdata`.
+- `internal/config` owns user configuration only. System-defined providers and model namespaces belong in provider packages plus the provider registry.
 - `web` owns the optional React UI. It should talk to the backend through explicit HTTP APIs and should not duplicate backend routing policy.
 
 ### Dependency direction
@@ -133,7 +133,7 @@ cmd
 
 transport/httpapi -> usecase -> domain
 adapter/provider  -> domain + openaiwire
-adapter/systemdata -> domain
+providerregistry -> domain
 config -> no domain policy
 web -> backend HTTP API only
 ```

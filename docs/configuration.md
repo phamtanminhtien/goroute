@@ -3,7 +3,7 @@
 ## Configuration
 
 The user config file is loaded from `~/.goroute/config.json`.
-It configures local runtime behavior and credentials only; it does not define providers, model namespaces, or model catalogs.
+It configures local runtime behavior and credentials only; providers, model namespaces, and model catalogs are compiled into the binary.
 
 The current schema has two top-level domains:
 
@@ -73,48 +73,14 @@ That would preserve the existing connection-centric config shape and allow multi
 
 Until that lands, `provider_id: "openai"` should be read as “the standard OpenAI upstream” rather than “any OpenAI-compatible endpoint.”
 
-## System Data
+## System Providers
 
-System data currently lives in `data/system-providers.json`.
+System providers are compiled into the binary as provider packages.
 
-Current shape:
+Current built-in providers:
 
-```json
-{
-  "provider_auth_types": ["oauth", "api_key"],
-  "provider_categories": ["oauth"],
-  "providers": [
-    {
-      "id": "cx",
-      "name": "Codex",
-      "auth_type": "oauth",
-      "category": "oauth",
-      "default_model": "cx/gpt-5.4",
-      "models": [
-        {
-          "id": "cx/gpt-5.4",
-          "name": "GPT-5.4",
-          "description": ""
-        }
-      ]
-    },
-    {
-      "id": "openai",
-      "name": "OpenAI",
-      "auth_type": "api_key",
-      "default_model": "openai/gpt-4.1",
-      "category": "api_key",
-      "models": [
-        {
-          "id": "openai/gpt-4.1",
-          "name": "GPT-4.1",
-          "description": ""
-        }
-      ]
-    }
-  ]
-}
-```
+- `cx`
+- `openai`
 
 ## Data Model
 

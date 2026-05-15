@@ -13,15 +13,20 @@ type Runtime interface {
 	ReplaceConnections([]config.ConnectionConfig) error
 }
 
+type ProviderValidator interface {
+	ValidateConnection(config.ConnectionConfig) []string
+}
+
 type Service struct {
 	mu         sync.RWMutex
 	configPath string
 	config     config.Config
 	runtime    Runtime
+	providers  ProviderValidator
 	logger     *zerolog.Logger
 }
 
-func NewService(configPath string, cfg config.Config, runtime Runtime, logger *zerolog.Logger) *Service {
+func NewService(configPath string, cfg config.Config, runtime Runtime, providers ProviderValidator, logger *zerolog.Logger) *Service {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -31,6 +36,7 @@ func NewService(configPath string, cfg config.Config, runtime Runtime, logger *z
 		configPath: configPath,
 		config:     cfg,
 		runtime:    runtime,
+		providers:  providers,
 		logger:     logger,
 	}
 }
@@ -55,7 +61,7 @@ func (s *Service) List() []Item {
 
 	items := make([]Item, 0, len(s.config.Connections))
 	for _, connection := range s.config.Connections {
-		items = append(items, redactConnection(connection))
+		items = append(items, s.redactConnection(connection))
 	}
 
 	return items
@@ -67,7 +73,7 @@ func (s *Service) Get(id string) (Item, bool) {
 
 	for _, connection := range s.config.Connections {
 		if connection.ID == id {
-			return redactConnection(connection), true
+			return s.redactConnection(connection), true
 		}
 	}
 
@@ -97,7 +103,7 @@ func (s *Service) Create(input config.ConnectionConfig) (Item, error) {
 		Str("connection_name", input.Name).
 		Msg("connection_create")
 
-	return redactConnection(input), nil
+	return s.redactConnection(input), nil
 }
 
 func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error) {
@@ -138,7 +144,7 @@ func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error)
 		Str("connection_name", input.Name).
 		Msg("connection_update")
 
-	return redactConnection(input), nil
+	return s.redactConnection(input), nil
 }
 
 func (s *Service) Delete(id string) error {
@@ -218,8 +224,8 @@ func normalizeConnection(connection config.ConnectionConfig) config.ConnectionCo
 	return connection
 }
 
-func redactConnection(connection config.ConnectionConfig) Item {
-	problems := connectionProblems(connection)
+func (s *Service) redactConnection(connection config.ConnectionConfig) Item {
+	problems := connectionProblems(s.providers, connection)
 	status := "ready"
 	if len(problems) > 0 {
 		status = "misconfigured"
@@ -254,21 +260,10 @@ func preserveExistingSecrets(
 	return next
 }
 
-func connectionProblems(connection config.ConnectionConfig) []string {
-	problems := make([]string, 0, 2)
-
-	switch connection.ProviderID {
-	case "cx":
-		if strings.TrimSpace(connection.AccessToken) == "" && strings.TrimSpace(connection.APIKey) == "" {
-			problems = append(problems, "missing access_token or api_key")
-		}
-	case "openai":
-		if strings.TrimSpace(connection.APIKey) == "" && strings.TrimSpace(connection.AccessToken) == "" {
-			problems = append(problems, "missing api_key or access_token")
-		}
-	default:
-		problems = append(problems, "unsupported provider")
+func connectionProblems(providers ProviderValidator, connection config.ConnectionConfig) []string {
+	if providers == nil {
+		return nil
 	}
 
-	return problems
+	return providers.ValidateConnection(connection)
 }

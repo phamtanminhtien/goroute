@@ -12,11 +12,15 @@ import (
 func TestBuildConnectionRegistryLogsDiagnostics(t *testing.T) {
 	var logs bytes.Buffer
 	logger := logging.NewWithWriter("prod", &logs)
+	providers, err := buildProviderRegistry()
+	if err != nil {
+		t.Fatalf("buildProviderRegistry returned error: %v", err)
+	}
 
-	_, err := buildConnectionRegistryWithLogger([]config.ConnectionConfig{
+	_, err = buildConnectionRegistryWithLogger([]config.ConnectionConfig{
 		{ID: "codex-1", ProviderID: "cx", Name: "codex-user"},
 		{ID: "openai-1", ProviderID: "openai", Name: "openai-user", APIKey: "token"},
-	}, &logger)
+	}, providers, &logger)
 	if err != nil {
 		t.Fatalf("buildConnectionRegistryWithLogger returned error: %v", err)
 	}

@@ -3,14 +3,12 @@ package app
 import (
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"time"
 
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
 	provideropenai "github.com/phamtanminhtien/goroute/internal/adapter/provider/openai"
-	"github.com/phamtanminhtien/goroute/internal/adapter/systemdata"
 	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/phamtanminhtien/goroute/internal/usecase/connections"
@@ -33,25 +31,27 @@ func New(logger zerolog.Logger) (*App, error) {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
 
-	catalog, err := systemdata.LoadFile(filepath.Join("data", "system-providers.json"))
+	providers, err := buildProviderRegistry()
 	if err != nil {
-		return nil, fmt.Errorf("load system provider data: %w", err)
+		return nil, fmt.Errorf("build provider registry: %w", err)
 	}
+	catalog := providers.Catalog()
 
 	appLogger := logger.With().Str("component", "app").Logger()
 	connectionRegistryLogger := logger.With().Str("component", "connection_registry").Logger()
 	connectionServiceLogger := logger.With().Str("component", "connections_service").Logger()
 	httpLogger := logger.With().Str("component", "http").Logger()
 
-	connectionRegistry, err := buildConnectionRegistryWithLogger(cfg.Connections, &connectionRegistryLogger)
+	connectionRegistry, err := buildConnectionRegistryWithLogger(cfg.Connections, providers, &connectionRegistryLogger)
 	if err != nil {
 		return nil, err
 	}
 
 	connectionService := connections.NewService(configPath, cfg, &connectionRuntime{
-		registry: connectionRegistry,
-		logger:   &connectionRegistryLogger,
-	}, &connectionServiceLogger)
+		providers: providers,
+		registry:  connectionRegistry,
+		logger:    &connectionRegistryLogger,
+	}, providers, &connectionServiceLogger)
 
 	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken, &httpLogger)
 	server := &http.Server{
@@ -63,8 +63,15 @@ func New(logger zerolog.Logger) (*App, error) {
 	return &App{server: server, logger: appLogger}, nil
 }
 
-func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConfig, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
-	entries, err := buildConnectionEntries(connectionConfigs, logger)
+func buildProviderRegistry() (providerregistry.Registry, error) {
+	return providerregistry.New(
+		providercodex.Registration(),
+		provideropenai.Registration(),
+	)
+}
+
+func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConfig, providers providerregistry.Registry, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
+	entries, err := buildConnectionEntries(connectionConfigs, providers, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -73,19 +80,14 @@ func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConf
 	return &registry, nil
 }
 
-func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
+func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, providers providerregistry.Registry, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
 	connectionsByProvider := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
-		logConnectionDiagnostic(logger, connectionConfig)
+		logConnectionDiagnostic(logger, providers, connectionConfig)
 
-		var connection chatcompletion.Connection
-		switch connectionConfig.ProviderID {
-		case "cx":
-			connection = providercodex.NewClient(connectionConfig)
-		case "openai":
-			connection = provideropenai.NewClient(nil, connectionConfig)
-		default:
-			return nil, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+		connection, err := providers.BuildConnection(connectionConfig)
+		if err != nil {
+			return nil, err
 		}
 		connectionsByProvider[connectionConfig.ProviderID] = append(connectionsByProvider[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
 			ID:         connectionConfig.ID,
@@ -98,25 +100,12 @@ func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, logger 
 	return connectionsByProvider, nil
 }
 
-func logConnectionDiagnostic(logger *zerolog.Logger, connection config.ConnectionConfig) {
+func logConnectionDiagnostic(logger *zerolog.Logger, providers providerregistry.Registry, connection config.ConnectionConfig) {
 	if logger == nil {
 		return
 	}
 
-	problems := make([]string, 0, 2)
-	switch connection.ProviderID {
-	case "cx":
-		if strings.TrimSpace(connection.AccessToken) == "" && strings.TrimSpace(connection.APIKey) == "" {
-			problems = append(problems, "missing access_token or api_key")
-		}
-	case "openai":
-		if strings.TrimSpace(connection.APIKey) == "" && strings.TrimSpace(connection.AccessToken) == "" {
-			problems = append(problems, "missing api_key or access_token")
-		}
-	default:
-		problems = append(problems, "unsupported provider")
-	}
-
+	problems := providers.ValidateConnection(connection)
 	status := "ready"
 	if len(problems) > 0 {
 		status = "misconfigured"
@@ -132,12 +121,13 @@ func logConnectionDiagnostic(logger *zerolog.Logger, connection config.Connectio
 }
 
 type connectionRuntime struct {
-	registry *chatcompletion.ConnectionRegistry
-	logger   *zerolog.Logger
+	providers providerregistry.Registry
+	registry  *chatcompletion.ConnectionRegistry
+	logger    *zerolog.Logger
 }
 
 func (r *connectionRuntime) ReplaceConnections(connectionConfigs []config.ConnectionConfig) error {
-	entries, err := buildConnectionEntries(connectionConfigs, r.logger)
+	entries, err := buildConnectionEntries(connectionConfigs, r.providers, r.logger)
 	if err != nil {
 		return err
 	}
