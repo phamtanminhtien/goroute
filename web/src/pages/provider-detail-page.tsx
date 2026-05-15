@@ -13,11 +13,26 @@ import {
   providersQueryKey,
   updateConnection,
 } from "@/features/providers/api";
+import {
+  AlertDialog,
+  AlertDialogActionButton,
+  AlertDialogCancelButton,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/shared/ui/alert-dialog";
 import { Button } from "@/shared/ui/button";
+import { CardActionRow } from "@/shared/ui/card-action-row";
+import { EmptyState } from "@/shared/ui/empty-state";
 import { Field } from "@/shared/ui/field";
+import { InlineAlert } from "@/shared/ui/inline-alert";
 import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 
 type FeedbackState = {
@@ -134,7 +149,7 @@ export function ProviderDetailPage() {
           title="Loading provider"
           tone="solid"
         >
-          <div className="border-border/85 bg-bg-primary/72 min-h-[220px] animate-pulse rounded-[22px] border" />
+          <Skeleton className="min-h-[220px]" />
         </SectionCard>
       ) : null}
 
@@ -145,11 +160,11 @@ export function ProviderDetailPage() {
           tone="solid"
         >
           <div className="space-y-4">
-            <p className="text-sm leading-6 text-rose-700" role="alert">
+            <InlineAlert tone="error">
               {providersQuery.error instanceof Error
                 ? providersQuery.error.message
                 : "Request failed"}
-            </p>
+            </InlineAlert>
             <Button onClick={() => providersQuery.refetch()} tone="secondary">
               Retry request
             </Button>
@@ -200,7 +215,11 @@ export function ProviderDetailPage() {
               </div>
 
               {feedback ? (
-                <FeedbackBanner text={feedback.text} tone={feedback.tone} />
+                <InlineAlert
+                  tone={feedback.tone === "success" ? "success" : "error"}
+                >
+                  {feedback.text}
+                </InlineAlert>
               ) : null}
 
               {provider.connection_count === 0 ? (
@@ -220,14 +239,6 @@ export function ProviderDetailPage() {
                       isEditing={editingConnectionID === connection.id}
                       key={connection.id}
                       onDelete={async () => {
-                        if (
-                          !window.confirm(
-                            `Delete connection "${connection.name}"?`,
-                          )
-                        ) {
-                          return;
-                        }
-
                         setFeedback(null);
                         await deleteConnectionMutation.mutateAsync(
                           connection.id,
@@ -339,13 +350,47 @@ function ConnectionCard({
   onEdit: () => void;
 }) {
   return (
-    <div className="border-border/85 bg-bg-primary/72 rounded-[20px] border px-4 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-fg-primary text-sm font-semibold">
-            {connection.name}
-          </p>
-        </div>
+    <CardActionRow
+      actions={
+        <>
+          <Button
+            leadingIcon={<Pencil className="size-[15px]" />}
+            onClick={onEdit}
+            tone={isEditing ? "primary" : "secondary"}
+          >
+            Edit connection
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                disabled={busy}
+                leadingIcon={<Trash2 className="size-[15px]" />}
+                tone="ghost"
+              >
+                {busy ? "Deleting..." : "Delete"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete connection?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Delete connection "{connection.name}" from this provider. This
+                  removes the stored credential reference and cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancelButton>
+                  Keep connection
+                </AlertDialogCancelButton>
+                <AlertDialogActionButton onClick={onDelete} tone="primary">
+                  Confirm delete
+                </AlertDialogActionButton>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      }
+      description={
         <div className="flex flex-wrap gap-2">
           {connection.has_access_token ? (
             <StatusBadge tone="success">Access token</StatusBadge>
@@ -357,26 +402,9 @@ function ConnectionCard({
             <StatusBadge tone="info">Refresh token</StatusBadge>
           ) : null}
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Button
-          leadingIcon={<Pencil className="size-[15px]" />}
-          onClick={onEdit}
-          tone={isEditing ? "primary" : "secondary"}
-        >
-          Edit connection
-        </Button>
-        <Button
-          disabled={busy}
-          leadingIcon={<Trash2 className="size-[15px]" />}
-          onClick={onDelete}
-          tone="ghost"
-        >
-          {busy ? "Deleting..." : "Delete"}
-        </Button>
-      </div>
-    </div>
+      }
+      title={connection.name}
+    />
   );
 }
 
@@ -534,37 +562,6 @@ function ConnectionForm({
     </div>
   );
 }
-
-function EmptyState({ body, title }: { body: string; title: string }) {
-  return (
-    <div className="border-border/85 bg-bg-primary/72 space-y-2 rounded-[20px] border px-4 py-4">
-      <h3 className="text-fg-primary text-sm font-semibold">{title}</h3>
-      <p className="text-fg-secondary text-sm leading-6">{body}</p>
-    </div>
-  );
-}
-
-function FeedbackBanner({
-  text,
-  tone,
-}: {
-  text: string;
-  tone: "error" | "success";
-}) {
-  return (
-    <div
-      className={
-        tone === "success"
-          ? "rounded-[20px] border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
-          : "rounded-[20px] border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-700"
-      }
-      role={tone === "error" ? "alert" : "status"}
-    >
-      {text}
-    </div>
-  );
-}
-
 function buildConnectionPayload(
   providerID: string,
   values: ConnectionFormValues,
