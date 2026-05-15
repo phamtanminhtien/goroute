@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/rs/zerolog"
 )
 
 type ConnectionEntry struct {
@@ -22,7 +22,7 @@ type ConnectionEntry struct {
 type ConnectionRegistry struct {
 	mu          sync.RWMutex
 	connections map[string][]ConnectionEntry
-	logger      *log.Logger
+	logger      *zerolog.Logger
 	history     *requestHistoryStore
 }
 
@@ -39,12 +39,13 @@ func NewConnectionRegistry(connections map[string][]Connection) ConnectionRegist
 		}
 	}
 
-	return NewConnectionRegistryWithEntries(entries, log.Default())
+	return NewConnectionRegistryWithEntries(entries, nil)
 }
 
-func NewConnectionRegistryWithEntries(connections map[string][]ConnectionEntry, logger *log.Logger) ConnectionRegistry {
+func NewConnectionRegistryWithEntries(connections map[string][]ConnectionEntry, logger *zerolog.Logger) ConnectionRegistry {
 	if logger == nil {
-		logger = log.Default()
+		noop := zerolog.Nop()
+		logger = &noop
 	}
 
 	return ConnectionRegistry{
@@ -69,6 +70,7 @@ func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire
 		Stream:         false,
 		StartedAt:      time.Now().UTC(),
 	}
+	requestID := RequestID(ctx)
 	defer func() {
 		record.CompletedAt = time.Now().UTC()
 		r.history.add(record)
@@ -81,7 +83,7 @@ func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire
 		response, err := connection.Connection.ChatCompletions(ctx, req, target)
 		latency := time.Since(started)
 		if err == nil {
-			r.logAttempt(req.Model, target, connection, i, latency, "success", "none", false)
+			r.logAttempt(requestID, req.Model, target, connection, i, latency, "success", "none", false)
 			record.Attempts = append(record.Attempts, RequestAttempt{
 				ConnectionID:   connection.ID,
 				ConnectionName: connection.Name,
@@ -95,7 +97,7 @@ func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire
 		}
 
 		policy := ClassifyError(err)
-		r.logAttempt(req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		r.logAttempt(requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
 		record.Attempts = append(record.Attempts, RequestAttempt{
 			ConnectionID:   connection.ID,
 			ConnectionName: connection.Name,
@@ -107,7 +109,7 @@ func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
-			r.logFinalFailure(req.Model, target, policy.Category)
+			r.logFinalFailure(requestID, req.Model, target, policy.Category)
 			record.FinalStatus = "error"
 			record.FinalErrorCategory = policy.Category
 			return openaiwire.ChatCompletionsResponse{}, err
@@ -115,7 +117,7 @@ func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire
 	}
 
 	if lastErr != nil {
-		r.logFinalFailure(req.Model, target, lastPolicy.Category)
+		r.logFinalFailure(requestID, req.Model, target, lastPolicy.Category)
 		record.FinalStatus = "error"
 		record.FinalErrorCategory = lastPolicy.Category
 	}
@@ -138,6 +140,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 		Stream:         true,
 		StartedAt:      time.Now().UTC(),
 	}
+	requestID := RequestID(ctx)
 	defer func() {
 		record.CompletedAt = time.Now().UTC()
 		r.history.add(record)
@@ -154,7 +157,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 				Category:      "streaming_unsupported",
 				AllowFallback: true,
 			}
-			r.logAttempt(req.Model, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+			r.logAttempt(requestID, req.Model, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
 			record.Attempts = append(record.Attempts, RequestAttempt{
 				ConnectionID:   connection.ID,
 				ConnectionName: connection.Name,
@@ -169,7 +172,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 		body, err := streamingConnection.ChatCompletionsStream(ctx, req, target)
 		latency := time.Since(started)
 		if err == nil {
-			r.logAttempt(req.Model, target, connection, i, latency, "success", "none", false)
+			r.logAttempt(requestID, req.Model, target, connection, i, latency, "success", "none", false)
 			record.Attempts = append(record.Attempts, RequestAttempt{
 				ConnectionID:   connection.ID,
 				ConnectionName: connection.Name,
@@ -183,7 +186,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 		}
 
 		policy := ClassifyError(err)
-		r.logAttempt(req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		r.logAttempt(requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
 		record.Attempts = append(record.Attempts, RequestAttempt{
 			ConnectionID:   connection.ID,
 			ConnectionName: connection.Name,
@@ -195,7 +198,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
-			r.logFinalFailure(req.Model, target, policy.Category)
+			r.logFinalFailure(requestID, req.Model, target, policy.Category)
 			record.FinalStatus = "error"
 			record.FinalErrorCategory = policy.Category
 			return nil, err
@@ -203,7 +206,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 	}
 
 	if lastErr != nil {
-		r.logFinalFailure(req.Model, target, lastPolicy.Category)
+		r.logFinalFailure(requestID, req.Model, target, lastPolicy.Category)
 		record.FinalStatus = "error"
 		record.FinalErrorCategory = lastPolicy.Category
 	}
@@ -240,30 +243,30 @@ func (r *ConnectionRegistry) connectionsForProvider(providerID string) []Connect
 	return cloned
 }
 
-func (r *ConnectionRegistry) logAttempt(requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
-	r.logger.Printf(
-		"chat_completion_attempt requested_model=%q resolved_target=%q provider_id=%q provider_name=%q connection_id=%q connection_name=%q attempt_index=%d outcome=%q latency=%s error_category=%q will_fallback=%t",
-		requestedModel,
-		target.Prefix+"/"+target.RequestedModel,
-		target.ProviderID,
-		target.ProviderName,
-		connection.ID,
-		connection.Name,
-		attempt,
-		outcome,
-		latency,
-		errorCategory,
-		willFallback,
-	)
+func (r *ConnectionRegistry) logAttempt(requestID string, requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
+	r.logger.Info().
+		Str("request_id", requestID).
+		Str("requested_model", requestedModel).
+		Str("resolved_target", target.Prefix+"/"+target.RequestedModel).
+		Str("provider_id", target.ProviderID).
+		Str("provider_name", target.ProviderName).
+		Str("connection_id", connection.ID).
+		Str("connection_name", connection.Name).
+		Int("attempt_index", attempt).
+		Str("outcome", outcome).
+		Int64("latency_ms", latency.Milliseconds()).
+		Str("error_category", errorCategory).
+		Bool("will_fallback", willFallback).
+		Msg("chat_completion_attempt")
 }
 
-func (r *ConnectionRegistry) logFinalFailure(requestedModel string, target routing.Target, finalCategory string) {
-	r.logger.Printf(
-		"chat_completion_result requested_model=%q resolved_target=%q provider_id=%q provider_name=%q final_error_category=%q",
-		requestedModel,
-		target.Prefix+"/"+target.RequestedModel,
-		target.ProviderID,
-		target.ProviderName,
-		finalCategory,
-	)
+func (r *ConnectionRegistry) logFinalFailure(requestID string, requestedModel string, target routing.Target, finalCategory string) {
+	r.logger.Warn().
+		Str("request_id", requestID).
+		Str("requested_model", requestedModel).
+		Str("resolved_target", target.Prefix+"/"+target.RequestedModel).
+		Str("provider_id", target.ProviderID).
+		Str("provider_name", target.ProviderName).
+		Str("final_error_category", finalCategory).
+		Msg("chat_completion_result")
 }

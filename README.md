@@ -103,6 +103,15 @@ The current loader validates `id`, `provider_id`, and `name` for every connectio
 
 Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
 
+## Logging
+
+`goroute` now uses structured `zerolog` logs.
+
+- `GOROUTE_ENV=prod` or `GOROUTE_ENV=production` emits JSON logs
+- any other value, including empty, emits pretty console logs for local development
+
+Logs include request routing and fallback metadata such as `request_id`, provider/connection fields, latency, and HTTP response status. Secrets such as bearer tokens, API keys, and request bodies are not logged.
+
 See [Configuration and data model](./docs/configuration.md) for the fuller contract and rationale.
 
 ## Documentation

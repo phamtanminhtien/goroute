@@ -11,6 +11,7 @@ import (
 
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
+	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
@@ -73,8 +74,9 @@ func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler
 		t.Fatalf("save config: %v", err)
 	}
 
-	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, nil)
-	return NewServer(testCatalog(), registry, service, testAdminToken)
+	logger := logging.NewWithWriter("prod", &bytes.Buffer{})
+	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, &logger)
+	return NewServer(testCatalog(), registry, service, testAdminToken, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {

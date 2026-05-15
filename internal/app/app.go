@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -15,13 +14,15 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/phamtanminhtien/goroute/internal/usecase/connections"
+	"github.com/rs/zerolog"
 )
 
 type App struct {
 	server *http.Server
+	logger zerolog.Logger
 }
 
-func New() (*App, error) {
+func New(logger zerolog.Logger) (*App, error) {
 	configPath, err := config.ResolvePath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve user config path: %w", err)
@@ -37,31 +38,32 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("load system provider data: %w", err)
 	}
 
-	connectionRegistry, err := buildConnectionRegistry(cfg.Connections)
+	appLogger := logger.With().Str("component", "app").Logger()
+	connectionRegistryLogger := logger.With().Str("component", "connection_registry").Logger()
+	connectionServiceLogger := logger.With().Str("component", "connections_service").Logger()
+	httpLogger := logger.With().Str("component", "http").Logger()
+
+	connectionRegistry, err := buildConnectionRegistryWithLogger(cfg.Connections, &connectionRegistryLogger)
 	if err != nil {
 		return nil, err
 	}
 
 	connectionService := connections.NewService(configPath, cfg, &connectionRuntime{
 		registry: connectionRegistry,
-		logger:   log.Default(),
-	}, log.Default())
+		logger:   &connectionRegistryLogger,
+	}, &connectionServiceLogger)
 
-	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken)
+	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken, &httpLogger)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	return &App{server: server}, nil
+	return &App{server: server, logger: appLogger}, nil
 }
 
-func buildConnectionRegistry(connectionConfigs []config.ConnectionConfig) (*chatcompletion.ConnectionRegistry, error) {
-	return buildConnectionRegistryWithLogger(connectionConfigs, log.Default())
-}
-
-func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConfig, logger *log.Logger) (*chatcompletion.ConnectionRegistry, error) {
+func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConfig, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
 	entries, err := buildConnectionEntries(connectionConfigs, logger)
 	if err != nil {
 		return nil, err
@@ -71,7 +73,7 @@ func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConf
 	return &registry, nil
 }
 
-func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, logger *log.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
+func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
 	connectionsByProvider := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
 		logConnectionDiagnostic(logger, connectionConfig)
@@ -96,7 +98,7 @@ func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, logger 
 	return connectionsByProvider, nil
 }
 
-func logConnectionDiagnostic(logger *log.Logger, connection config.ConnectionConfig) {
+func logConnectionDiagnostic(logger *zerolog.Logger, connection config.ConnectionConfig) {
 	if logger == nil {
 		return
 	}
@@ -120,19 +122,18 @@ func logConnectionDiagnostic(logger *log.Logger, connection config.ConnectionCon
 		status = "misconfigured"
 	}
 
-	logger.Printf(
-		"connection_diagnostic connection_id=%q provider_id=%q connection_name=%q status=%q problems=%q",
-		connection.ID,
-		connection.ProviderID,
-		connection.Name,
-		status,
-		strings.Join(problems, ", "),
-	)
+	logger.Info().
+		Str("connection_id", connection.ID).
+		Str("provider_id", connection.ProviderID).
+		Str("connection_name", connection.Name).
+		Str("status", status).
+		Strs("problems", problems).
+		Msg("connection_diagnostic")
 }
 
 type connectionRuntime struct {
 	registry *chatcompletion.ConnectionRegistry
-	logger   *log.Logger
+	logger   *zerolog.Logger
 }
 
 func (r *connectionRuntime) ReplaceConnections(connectionConfigs []config.ConnectionConfig) error {

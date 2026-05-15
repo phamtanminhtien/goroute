@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"testing"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
+	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/rs/zerolog"
 )
 
 func TestConnectionRegistryDispatchesByTargetProviderID(t *testing.T) {
@@ -85,9 +86,10 @@ func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 			ProviderID: "cx",
 			Connection: recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}},
 		}},
-	}, log.New(&logs, "", 0))
+	}, loggerPtr(logging.NewWithWriter("prod", &logs)))
 
-	_, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{Model: "cx/gpt-5.4"}, routing.Target{
+	ctx := WithRequestID(context.Background(), "req-1")
+	_, err := registry.ChatCompletions(ctx, openaiwire.ChatCompletionsRequest{Model: "cx/gpt-5.4"}, routing.Target{
 		Prefix:         "cx",
 		RequestedModel: "gpt-5.4",
 		ProviderID:     "cx",
@@ -98,19 +100,22 @@ func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 	}
 
 	output := logs.String()
-	if !strings.Contains(output, `provider_id="cx"`) {
+	if !strings.Contains(output, `"provider_id":"cx"`) {
 		t.Fatalf("expected logs to include provider metadata, got %s", output)
 	}
-	if !strings.Contains(output, `connection_id="codex-secondary"`) {
+	if !strings.Contains(output, `"connection_id":"codex-secondary"`) {
 		t.Fatalf("expected logs to include second connection metadata, got %s", output)
 	}
-	if !strings.Contains(output, `outcome="success"`) {
+	if !strings.Contains(output, `"outcome":"success"`) {
 		t.Fatalf("expected logs to include success outcome, got %s", output)
+	}
+	if !strings.Contains(output, `"request_id":"req-1"`) {
+		t.Fatalf("expected logs to include request_id, got %s", output)
 	}
 }
 
 func newTestRegistry(connections map[string][]Connection) ConnectionRegistry {
-	return NewConnectionRegistryWithEntries(wrapConnections(connections), log.New(&bytes.Buffer{}, "", 0))
+	return NewConnectionRegistryWithEntries(wrapConnections(connections), loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})))
 }
 
 func wrapConnections(connections map[string][]Connection) map[string][]ConnectionEntry {
@@ -144,4 +149,8 @@ func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCom
 	}
 
 	return c.response, nil
+}
+
+func loggerPtr(logger zerolog.Logger) *zerolog.Logger {
+	return &logger
 }

@@ -41,6 +41,16 @@ Current validation requires every connection to have `id`, `provider_id`, and `n
 `server.auth_token` is required and is used to protect admin-only HTTP routes.
 Connection credentials are validated lazily by the selected adapter during request execution.
 
+## Logging Environment
+
+Logging format is controlled by the runtime environment variable `GOROUTE_ENV`.
+
+- `GOROUTE_ENV=prod` or `GOROUTE_ENV=production` emits JSON logs
+- `GOROUTE_ENV=dev`, `GOROUTE_ENV=local`, empty, or any other value emits pretty console logs
+
+Structured logs include request, routing, connection fallback, and admin connection-management metadata.
+Sensitive values such as `api_key`, `access_token`, `refresh_token`, bearer tokens, and request bodies are not logged.
+
 Current connection credential behavior:
 
 - `codex` uses `access_token`, falling back to `api_key` if present.

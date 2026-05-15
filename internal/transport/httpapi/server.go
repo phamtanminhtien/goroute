@@ -8,11 +8,12 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/health"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
+	"github.com/rs/zerolog"
 )
 
-func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, adminAuthToken string) http.Handler {
+func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, adminAuthToken string, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
-	router.Use(requestIDMiddleware, loggingMiddleware)
+	router.Use(requestIDMiddleware, loggingMiddleware(logger))
 
 	router.Handle("/healthz", health.Handler())
 	router.Handle("/v1/models", modelsHandler(catalog))

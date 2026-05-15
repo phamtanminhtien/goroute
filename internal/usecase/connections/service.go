@@ -2,11 +2,11 @@ package connections
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/rs/zerolog"
 )
 
 type Runtime interface {
@@ -18,12 +18,13 @@ type Service struct {
 	configPath string
 	config     config.Config
 	runtime    Runtime
-	logger     *log.Logger
+	logger     *zerolog.Logger
 }
 
-func NewService(configPath string, cfg config.Config, runtime Runtime, logger *log.Logger) *Service {
+func NewService(configPath string, cfg config.Config, runtime Runtime, logger *zerolog.Logger) *Service {
 	if logger == nil {
-		logger = log.Default()
+		noop := zerolog.Nop()
+		logger = &noop
 	}
 
 	return &Service{
@@ -90,6 +91,12 @@ func (s *Service) Create(input config.ConnectionConfig) (Item, error) {
 		return Item{}, err
 	}
 
+	s.logger.Info().
+		Str("connection_id", input.ID).
+		Str("provider_id", input.ProviderID).
+		Str("connection_name", input.Name).
+		Msg("connection_create")
+
 	return redactConnection(input), nil
 }
 
@@ -125,6 +132,12 @@ func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error)
 		return Item{}, err
 	}
 
+	s.logger.Info().
+		Str("connection_id", input.ID).
+		Str("provider_id", input.ProviderID).
+		Str("connection_name", input.Name).
+		Msg("connection_update")
+
 	return redactConnection(input), nil
 }
 
@@ -137,9 +150,11 @@ func (s *Service) Delete(id string) error {
 	}
 
 	index := -1
+	var deleted config.ConnectionConfig
 	for i, connection := range s.config.Connections {
 		if connection.ID == id {
 			index = i
+			deleted = connection
 			break
 		}
 	}
@@ -151,18 +166,33 @@ func (s *Service) Delete(id string) error {
 	nextConnections = append(nextConnections, s.config.Connections[index+1:]...)
 	nextConfig := s.config
 	nextConfig.Connections = nextConnections
-	return s.persist(nextConfig)
+	if err := s.persist(nextConfig); err != nil {
+		return err
+	}
+
+	s.logger.Info().
+		Str("connection_id", deleted.ID).
+		Str("provider_id", deleted.ProviderID).
+		Str("connection_name", deleted.Name).
+		Msg("connection_delete")
+
+	return nil
 }
 
 func (s *Service) persist(nextConfig config.Config) error {
 	if err := config.Validate(nextConfig); err != nil {
+		s.logger.Error().Err(err).Msg("persist_failed")
 		return err
 	}
 	if err := s.runtime.ReplaceConnections(nextConfig.Connections); err != nil {
+		s.logger.Error().Err(err).Msg("runtime_reload_failed")
 		return err
 	}
 	if err := config.SavePath(s.configPath, nextConfig); err != nil {
-		_ = s.runtime.ReplaceConnections(s.config.Connections)
+		s.logger.Error().Err(err).Msg("persist_failed")
+		if rollbackErr := s.runtime.ReplaceConnections(s.config.Connections); rollbackErr != nil {
+			s.logger.Error().Err(rollbackErr).Msg("runtime_reload_rollback_failed")
+		}
 		return err
 	}
 
