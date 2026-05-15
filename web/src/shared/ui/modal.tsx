@@ -1,5 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -15,14 +16,23 @@ export function ModalOverlay({
   className,
   ...props
 }: ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
-    <DialogPrimitive.Overlay
-      className={cn(
-        "fixed inset-0 z-50 bg-black/58 backdrop-blur-[3px]",
-        className,
-      )}
-      {...props}
-    />
+    <DialogPrimitive.Overlay asChild {...props}>
+      <motion.div
+        animate={{ opacity: 1 }}
+        className={cn(
+          "fixed inset-0 z-50 bg-black/58 backdrop-blur-[3px]",
+          className,
+        )}
+        initial={{ opacity: 0 }}
+        transition={{
+          duration: prefersReducedMotion ? 0.12 : 0.18,
+          ease: "easeOut",
+        }}
+      />
+    </DialogPrimitive.Overlay>
   );
 }
 
@@ -34,30 +44,54 @@ export function ModalContent({
 }: ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   showClose?: boolean;
 }) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
     <ModalPortal>
       <ModalOverlay />
-      <DialogPrimitive.Content
-        className={cn(
-          overlayPanelClassName,
-          "fixed top-1/2 left-1/2 z-50 w-[min(92vw,640px)] -translate-x-1/2 -translate-y-1/2 p-6 outline-none",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        {showClose ? (
-          <DialogPrimitive.Close asChild>
-            <Button
-              aria-label="Close dialog"
-              className="border-border/80 text-fg-secondary absolute top-4 right-4 h-9 bg-transparent shadow-none hover:bg-white/[0.05]"
-              iconOnly
-              leadingIcon={<X className="size-4" />}
-              ripple={false}
-              tone="secondary"
-            />
-          </DialogPrimitive.Close>
-        ) : null}
+      <DialogPrimitive.Content asChild {...props}>
+        <motion.div
+          animate={{
+            opacity: 1,
+            scale: 1,
+            x: "-50%",
+            y: "-50%",
+          }}
+          className={cn(
+            overlayPanelClassName,
+            "fixed top-1/2 left-1/2 z-50 w-[min(92vw,640px)] p-6 outline-none",
+            className,
+          )}
+          initial={
+            prefersReducedMotion
+              ? { opacity: 0, scale: 1, x: "-50%", y: "-50%" }
+              : { opacity: 0, scale: 0.97, x: "-50%", y: "calc(-50% + 14px)" }
+          }
+          transition={
+            prefersReducedMotion
+              ? { duration: 0.14, ease: "easeOut" }
+              : {
+                  damping: 28,
+                  mass: 0.96,
+                  stiffness: 360,
+                  type: "spring",
+                }
+          }
+        >
+          {children}
+          {showClose ? (
+            <DialogPrimitive.Close asChild>
+              <Button
+                aria-label="Close dialog"
+                className="border-border/80 text-fg-secondary absolute top-4 right-4 h-9 bg-transparent shadow-none hover:bg-white/[0.05]"
+                iconOnly
+                leadingIcon={<X className="size-4" />}
+                ripple={false}
+                tone="secondary"
+              />
+            </DialogPrimitive.Close>
+          ) : null}
+        </motion.div>
       </DialogPrimitive.Content>
     </ModalPortal>
   );

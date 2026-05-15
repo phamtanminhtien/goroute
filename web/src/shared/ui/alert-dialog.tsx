@@ -1,4 +1,5 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
+import { motion, useReducedMotion } from "motion/react";
 import type { ComponentPropsWithoutRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -12,20 +13,57 @@ export const AlertDialogCancel = AlertDialogPrimitive.Cancel;
 export const AlertDialogAction = AlertDialogPrimitive.Action;
 
 export function AlertDialogContent({
+  children,
   className,
   ...props
 }: ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
     <AlertDialogPortal>
-      <AlertDialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/58 backdrop-blur-[3px]" />
-      <AlertDialogPrimitive.Content
-        className={cn(
-          overlayPanelClassName,
-          "fixed top-1/2 left-1/2 z-50 w-[min(92vw,540px)] -translate-x-1/2 -translate-y-1/2 p-6 outline-none",
-          className,
-        )}
-        {...props}
-      />
+      <AlertDialogPrimitive.Overlay asChild>
+        <motion.div
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-50 bg-black/58 backdrop-blur-[3px]"
+          initial={{ opacity: 0 }}
+          transition={{
+            duration: prefersReducedMotion ? 0.12 : 0.18,
+            ease: "easeOut",
+          }}
+        />
+      </AlertDialogPrimitive.Overlay>
+      <AlertDialogPrimitive.Content asChild {...props}>
+        <motion.div
+          animate={{
+            opacity: 1,
+            scale: 1,
+            x: "-50%",
+            y: "-50%",
+          }}
+          className={cn(
+            overlayPanelClassName,
+            "fixed top-1/2 left-1/2 z-50 w-[min(92vw,540px)] p-6 outline-none",
+            className,
+          )}
+          initial={
+            prefersReducedMotion
+              ? { opacity: 0, scale: 1, x: "-50%", y: "-50%" }
+              : { opacity: 0, scale: 0.97, x: "-50%", y: "calc(-50% + 10px)" }
+          }
+          transition={
+            prefersReducedMotion
+              ? { duration: 0.14, ease: "easeOut" }
+              : {
+                  damping: 30,
+                  mass: 0.92,
+                  stiffness: 380,
+                  type: "spring",
+                }
+          }
+        >
+          {children}
+        </motion.div>
+      </AlertDialogPrimitive.Content>
     </AlertDialogPortal>
   );
 }
