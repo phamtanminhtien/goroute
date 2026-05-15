@@ -12,19 +12,15 @@ func Validate(cfg Config) error {
 		return fmt.Errorf("config.server.auth_token is required")
 	}
 
-	if len(cfg.Providers) == 0 {
-		return fmt.Errorf("config.providers must contain at least one provider")
-	}
-
-	for i, provider := range cfg.Providers {
-		if provider.ID == "" {
-			return fmt.Errorf("config.providers[%d].id is required", i)
+	for i, connection := range cfg.Connections {
+		if connection.ID == "" {
+			return fmt.Errorf("config.connections[%d].id is required", i)
 		}
-		if provider.Type == "" {
-			return fmt.Errorf("config.providers[%d].type is required", i)
+		if connection.ProviderID == "" {
+			return fmt.Errorf("config.connections[%d].provider_id is required", i)
 		}
-		if provider.Name == "" {
-			return fmt.Errorf("config.providers[%d].name is required", i)
+		if connection.Name == "" {
+			return fmt.Errorf("config.connections[%d].name is required", i)
 		}
 	}
 

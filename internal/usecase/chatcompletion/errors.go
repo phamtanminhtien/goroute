@@ -20,22 +20,22 @@ func (e UpstreamError) Error() string {
 	return fmt.Sprintf("upstream returned status %d: %s", e.StatusCode, e.Message)
 }
 
-type ProviderConfigurationError struct {
-	ProviderID   string
-	ProviderName string
-	Message      string
+type ConnectionConfigurationError struct {
+	ConnectionID   string
+	ConnectionName string
+	Message        string
 }
 
-func (e ProviderConfigurationError) Error() string {
-	if e.ProviderName != "" {
-		return fmt.Sprintf("provider %q misconfigured: %s", e.ProviderName, e.Message)
+func (e ConnectionConfigurationError) Error() string {
+	if e.ConnectionName != "" {
+		return fmt.Sprintf("connection %q misconfigured: %s", e.ConnectionName, e.Message)
 	}
 
-	if e.ProviderID != "" {
-		return fmt.Sprintf("provider %q misconfigured: %s", e.ProviderID, e.Message)
+	if e.ConnectionID != "" {
+		return fmt.Sprintf("connection %q misconfigured: %s", e.ConnectionID, e.Message)
 	}
 
-	return fmt.Sprintf("provider misconfigured: %s", e.Message)
+	return fmt.Sprintf("connection misconfigured: %s", e.Message)
 }
 
 type FailureClass string
@@ -57,10 +57,10 @@ func ClassifyError(err error) FailurePolicy {
 	switch {
 	case errors.As(err, &upstreamErr):
 		return classifyUpstreamError(upstreamErr)
-	case errors.As(err, new(ProviderConfigurationError)):
+	case errors.As(err, new(ConnectionConfigurationError)):
 		return FailurePolicy{
 			Class:         FailureClassTerminal,
-			Category:      "provider_config_error",
+			Category:      "connection_config_error",
 			AllowFallback: false,
 		}
 	case errors.Is(err, context.Canceled):

@@ -3,12 +3,12 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/listmodels"
 )
 
-func modelsHandler(catalog driver.Catalog) http.Handler {
+func modelsHandler(catalog provider.Catalog) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

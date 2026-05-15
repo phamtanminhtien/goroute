@@ -4,30 +4,29 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 )
 
-func ResolveModel(catalog driver.Catalog, model string) (Target, error) {
+func ResolveModel(catalog provider.Catalog, model string) (Target, error) {
 	prefix, requestedModel, err := splitModel(model)
 	if err != nil {
 		return Target{}, err
 	}
 
-	drv, ok := catalog.FindByID(prefix)
+	resolvedProvider, ok := catalog.FindByID(prefix)
 	if !ok {
 		return Target{}, fmt.Errorf("unknown model prefix %q", prefix)
 	}
 
 	if requestedModel == "" {
-		requestedModel = strings.TrimPrefix(drv.DefaultModel, drv.ID+"/")
+		requestedModel = strings.TrimPrefix(resolvedProvider.DefaultModel, resolvedProvider.ID+"/")
 	}
 
 	return Target{
 		Prefix:         prefix,
 		RequestedModel: requestedModel,
-		DriverID:       drv.ID,
-		DriverName:     drv.Name,
-		ProviderType:   drv.Provider,
+		ProviderID:     resolvedProvider.ID,
+		ProviderName:   resolvedProvider.Name,
 	}, nil
 }
 

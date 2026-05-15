@@ -40,10 +40,10 @@ func TestClassifyError(t *testing.T) {
 			wantFallback: true,
 		},
 		{
-			name:         "provider config error is terminal",
-			err:          ProviderConfigurationError{ProviderID: "p1", Message: "missing token"},
+			name:         "connection config error is terminal",
+			err:          ConnectionConfigurationError{ConnectionID: "c1", Message: "missing token"},
 			wantClass:    FailureClassTerminal,
-			wantCategory: "provider_config_error",
+			wantCategory: "connection_config_error",
 		},
 		{
 			name:         "context cancellation is terminal",

@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
-	providersusecase "github.com/phamtanminhtien/goroute/internal/usecase/providers"
+	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
 
-func providersHandler(service *providersusecase.Service) http.Handler {
+func connectionsHandler(service *connectionsusecase.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -19,7 +19,7 @@ func providersHandler(service *providersusecase.Service) http.Handler {
 				"data":   service.List(),
 			})
 		case http.MethodPost:
-			var input config.ProviderConfig
+			var input config.ConnectionConfig
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 				return
@@ -27,7 +27,7 @@ func providersHandler(service *providersusecase.Service) http.Handler {
 
 			item, err := service.Create(input)
 			if err != nil {
-				writeProviderMutationError(r, w, err)
+				writeConnectionMutationError(r, w, err)
 				return
 			}
 
@@ -38,11 +38,11 @@ func providersHandler(service *providersusecase.Service) http.Handler {
 	})
 }
 
-func providerByIDHandler(service *providersusecase.Service) http.Handler {
+func connectionByIDHandler(service *connectionsusecase.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/admin/api/providers/")
+		id := strings.TrimPrefix(r.URL.Path, "/admin/api/connections/")
 		if id == "" || strings.Contains(id, "/") {
-			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			writeError(r, w, http.StatusNotFound, "not_found", "connection not found")
 			return
 		}
 
@@ -50,12 +50,12 @@ func providerByIDHandler(service *providersusecase.Service) http.Handler {
 		case http.MethodGet:
 			item, ok := service.Get(id)
 			if !ok {
-				writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+				writeError(r, w, http.StatusNotFound, "not_found", "connection not found")
 				return
 			}
 			writeJSON(w, http.StatusOK, item)
 		case http.MethodPut:
-			var input config.ProviderConfig
+			var input config.ConnectionConfig
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 				return
@@ -63,14 +63,14 @@ func providerByIDHandler(service *providersusecase.Service) http.Handler {
 
 			item, err := service.Update(id, input)
 			if err != nil {
-				writeProviderMutationError(r, w, err)
+				writeConnectionMutationError(r, w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, item)
 		case http.MethodDelete:
 			if err := service.Delete(id); err != nil {
-				writeProviderMutationError(r, w, err)
+				writeConnectionMutationError(r, w, err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -80,8 +80,8 @@ func providerByIDHandler(service *providersusecase.Service) http.Handler {
 	})
 }
 
-func writeProviderMutationError(r *http.Request, w http.ResponseWriter, err error) {
-	var notFound providersusecase.ErrNotFound
+func writeConnectionMutationError(r *http.Request, w http.ResponseWriter, err error) {
+	var notFound connectionsusecase.ErrNotFound
 	switch {
 	case errors.As(err, &notFound):
 		writeError(r, w, http.StatusNotFound, "not_found", err.Error())

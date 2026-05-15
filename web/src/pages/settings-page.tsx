@@ -59,7 +59,7 @@ export function SettingsPage() {
               description="Routing stays server-side so clients do not carry provider-specific logic."
               icon={<ArrowRightLeft className="size-4" />}
               label="Request routing"
-              value="Driver-resolved upstream selection"
+              value="Provider-resolved upstream selection"
             />
             <RuntimePanel
               description="No mutable admin API writes are available in this frontend pass."
@@ -103,7 +103,7 @@ export function SettingsPage() {
             {[
               {
                 label: "Model targeting",
-                text: "Use explicit driver prefixes like cx/... or opena/... to keep upstream intent obvious.",
+                text: "Use explicit provider prefixes like cx/... or opena/... to keep upstream intent obvious.",
               },
               {
                 label: "Fallback boundary",

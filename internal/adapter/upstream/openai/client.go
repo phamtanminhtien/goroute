@@ -19,28 +19,24 @@ const defaultBaseURL = "https://api.openai.com"
 
 type Client struct {
 	httpClient *http.Client
-	provider   config.ProviderConfig
+	connection config.ConnectionConfig
 }
 
-func NewClient(httpClient *http.Client, provider config.ProviderConfig) *Client {
+func NewClient(httpClient *http.Client, connection config.ConnectionConfig) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 
-	return &Client{httpClient: httpClient, provider: provider}
+	return &Client{httpClient: httpClient, connection: connection}
 }
 
 func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
-	if target.ProviderType != c.provider.Type {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("openai-compatible executor cannot handle provider type %q", target.ProviderType)
-	}
-
 	credential, err := c.credential()
 	if err != nil {
-		return openaiwire.ChatCompletionsResponse{}, chatcompletion.ProviderConfigurationError{
-			ProviderID:   c.provider.ID,
-			ProviderName: c.provider.Name,
-			Message:      "missing api_key or access_token",
+		return openaiwire.ChatCompletionsResponse{}, chatcompletion.ConnectionConfigurationError{
+			ConnectionID:   c.connection.ID,
+			ConnectionName: c.connection.Name,
+			Message:        "missing api_key or access_token",
 		}
 	}
 
@@ -72,16 +68,12 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 }
 
 func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	if target.ProviderType != c.provider.Type {
-		return nil, fmt.Errorf("openai-compatible executor cannot handle provider type %q", target.ProviderType)
-	}
-
 	credential, err := c.credential()
 	if err != nil {
-		return nil, chatcompletion.ProviderConfigurationError{
-			ProviderID:   c.provider.ID,
-			ProviderName: c.provider.Name,
-			Message:      "missing api_key or access_token",
+		return nil, chatcompletion.ConnectionConfigurationError{
+			ConnectionID:   c.connection.ID,
+			ConnectionName: c.connection.Name,
+			Message:        "missing api_key or access_token",
 		}
 	}
 
@@ -110,9 +102,9 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 }
 
 func (c *Client) credential() (string, error) {
-	credential := strings.TrimSpace(c.provider.APIKey)
+	credential := strings.TrimSpace(c.connection.APIKey)
 	if credential == "" {
-		credential = strings.TrimSpace(c.provider.AccessToken)
+		credential = strings.TrimSpace(c.connection.AccessToken)
 	}
 	if credential == "" {
 		return "", fmt.Errorf("missing credential")

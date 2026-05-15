@@ -3,10 +3,11 @@ import { Navigate, type RouteObject, useRoutes } from "react-router-dom";
 import { AdminLayout } from "@/app/layout/admin-layout";
 import { AuthGuard, PublicOnlyGuard } from "@/features/auth/auth-guard";
 import { LoginPage } from "@/pages/login-page";
+import { ProviderDetailPage } from "@/pages/provider-detail-page";
 import { ProvidersPage } from "@/pages/providers-page";
 import { SettingsPage } from "@/pages/settings-page";
 
-export const appRoutes: RouteObject[] = [
+const appRoutes: RouteObject[] = [
   {
     path: "/login",
     element: (
@@ -24,6 +25,7 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <Navigate to="/providers" replace /> },
           { path: "providers", element: <ProvidersPage /> },
+          { path: "providers/:providerId", element: <ProviderDetailPage /> },
           { path: "settings", element: <SettingsPage /> },
         ],
       },

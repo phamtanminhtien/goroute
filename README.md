@@ -2,9 +2,9 @@
 
 `goroute` is an OpenAI-compatible routing proxy written in Go.
 
-Its job is to accept requests from OpenAI-style clients, resolve a client-facing model prefix into a driver/provider path, forward the request to the selected provider, and return a normalized response.
+Its job is to accept requests from OpenAI-style clients, resolve a client-facing model prefix into a provider/connection path, forward the request to the selected upstream connection, and return a normalized response.
 
-This project is intended for environments where multiple upstream LLM providers need to be exposed behind one stable API surface.
+This project is intended for environments where multiple upstream LLM connections need to be exposed behind one stable API surface.
 
 ## Status
 
@@ -14,22 +14,22 @@ The repository has the first request path in place:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
-- model prefix resolution from `data/system-drivers.json`
-- configured provider registry for `codex` and `openai`
+- model prefix resolution from `data/system-providers.json`
+- configured connection registry for `codex` and `openai`
 - OpenAI-compatible upstream execution for non-streaming chat completions
 - Codex responses execution for non-streaming and streaming chat completions
 - request ID and request logging middleware
 
-The implementation is still intentionally small. Fallback is deterministic across configured providers of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Admin APIs, UI, request history, and broader OpenAI wire compatibility are still pending.
+The implementation is still intentionally small. Fallback is deterministic across configured connections of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Admin APIs, UI, request history, and broader OpenAI wire compatibility are still pending.
 
 ## Core Idea
 
-OpenAI-compatible clients are easy to integrate, but real deployments usually need more than a direct 1:1 connection to a single provider:
+OpenAI-compatible clients are easy to integrate, but real deployments usually need more than a direct 1:1 connection to a single upstream:
 
-- model names differ across providers
+- model names differ across upstreams
 - credentials and base URLs vary by upstream
 - fallback is often needed for reliability
-- clients should not need provider-specific configuration
+- clients should not need connection-specific configuration
 - routing policy should live server-side, not in every client
 
 `goroute` centralizes that logic in one HTTP service.
@@ -40,8 +40,8 @@ The first useful version should focus on:
 
 - OpenAI-compatible HTTP ingress
 - model prefix resolution
-- provider selection
-- driver/provider fallback chains
+- connection selection
+- provider/connection fallback chains
 - request/response passthrough with minimal normalization
 - structured logging and debuggable routing behavior
 
@@ -62,15 +62,15 @@ A local client might be configured with:
 
 `goroute` then resolves `cx/gpt-5.4` as:
 
-- `cx` -> system driver named `Codex`
-- `gpt-5.4` -> the model passed to user-configured providers with `"type": "codex"`
+- `cx` -> system provider named `Codex`
+- `gpt-5.4` -> the model passed to user-configured connections for provider `cx`
 
 The client remains unchanged while routing policy evolves server-side.
 
 ## Configuration Direction
 
 The user config file is loaded from `~/.goroute/config.json`.
-It configures local runtime behavior and credentials only; it does not define drivers, model namespaces, or model catalogs.
+It configures local runtime behavior and credentials only; it does not define system providers, model namespaces, or model catalogs.
 
 Current implemented shape:
 
@@ -80,17 +80,17 @@ Current implemented shape:
     "listen": ":2232",
     "auth_token": "change-me"
   },
-  "providers": [
+  "connections": [
     {
       "id": "codex-1",
-      "type": "codex",
+      "provider_id": "cx",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
       "name": "user@example.com"
     },
     {
       "id": "openai-1",
-      "type": "openai",
+      "provider_id": "openai",
       "api_key": "${OPENAI_API_KEY}",
       "name": "user@example.com"
     }
@@ -98,10 +98,10 @@ Current implemented shape:
 }
 ```
 
-The current loader validates `id`, `type`, and `name` for every provider. Credentials are checked by the provider adapter when a request is executed.
+The current loader validates `id`, `provider_id`, and `name` for every connection. Credentials are checked by the selected adapter when a request is executed.
 `server.auth_token` is required and protects admin-only backend routes such as request history.
 
-`type: "openai"` currently targets the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
+Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
 
 See [Configuration and data model](./docs/configuration.md) for the fuller contract and rationale.
 

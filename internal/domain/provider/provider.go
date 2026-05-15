@@ -1,10 +1,10 @@
-package driver
+package provider
 
-type Driver struct {
+type Provider struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
-	Provider     string  `json:"provider"`
 	AuthType     string  `json:"auth_type"`
+	Category     string  `json:"category"`
 	DefaultModel string  `json:"default_model"`
 	Models       []Model `json:"models"`
 }

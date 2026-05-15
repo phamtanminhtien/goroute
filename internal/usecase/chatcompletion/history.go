@@ -8,19 +8,20 @@ import (
 const defaultHistoryLimit = 100
 
 type RequestAttempt struct {
-	ProviderID    string `json:"provider_id"`
-	ProviderName  string `json:"provider_name"`
-	AttemptIndex  int    `json:"attempt_index"`
-	Outcome       string `json:"outcome"`
-	ErrorCategory string `json:"error_category"`
-	LatencyMillis int64  `json:"latency_ms"`
+	ConnectionID   string `json:"connection_id"`
+	ConnectionName string `json:"connection_name"`
+	AttemptIndex   int    `json:"attempt_index"`
+	Outcome        string `json:"outcome"`
+	ErrorCategory  string `json:"error_category"`
+	LatencyMillis  int64  `json:"latency_ms"`
 }
 
 type RequestAttemptHistory struct {
 	RequestID          string           `json:"request_id,omitempty"`
 	RequestedModel     string           `json:"requested_model"`
 	ResolvedTarget     string           `json:"resolved_target"`
-	ProviderType       string           `json:"provider_type"`
+	ProviderID         string           `json:"provider_id"`
+	ProviderName       string           `json:"provider_name"`
 	Stream             bool             `json:"stream"`
 	FinalStatus        string           `json:"final_status"`
 	FinalErrorCategory string           `json:"final_error_category,omitempty"`

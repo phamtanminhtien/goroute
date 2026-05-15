@@ -1,17 +1,38 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/routes";
 import { useAuthStore } from "@/features/auth/auth-store";
+import { listProviders } from "@/features/providers/api";
 import { useUIStore } from "@/shared/store/ui-store";
 import { renderWithQueryClient } from "@/test/test-utils";
+
+vi.mock("@/features/providers/api", () => ({
+  listProviders: vi.fn(),
+  providersQueryKey: ["providers"],
+}));
+
+const providersListMock = vi.mocked(listProviders);
+const defaultProviders = [
+  {
+    auth_type: "oauth",
+    category: "oauth",
+    connection_count: 0,
+    connections: [],
+    default_model: "cx/gpt-5.4",
+    id: "cx",
+    models: [{ description: "", id: "cx/gpt-5.4", name: "GPT-5.4" }],
+    name: "Codex",
+  },
+];
 
 describe("admin layout", () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset.theme = "light";
+    providersListMock.mockResolvedValue(defaultProviders);
     useAuthStore.setState({
       hydrated: true,
       isAuthenticated: true,

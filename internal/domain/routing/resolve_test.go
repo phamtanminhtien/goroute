@@ -3,13 +3,13 @@ package routing
 import (
 	"testing"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/driver"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 )
 
 func TestResolveModel(t *testing.T) {
-	catalog := driver.Catalog{
-		Drivers: []driver.Driver{
-			{ID: "cx", Name: "Codex", Provider: "codex", DefaultModel: "cx/gpt-5.4"},
+	catalog := provider.Catalog{
+		Providers: []provider.Provider{
+			{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"},
 		},
 	}
 
@@ -24,15 +24,15 @@ func TestResolveModel(t *testing.T) {
 	if target.RequestedModel != "gpt-5.4" {
 		t.Fatalf("expected requested model gpt-5.4, got %q", target.RequestedModel)
 	}
-	if target.ProviderType != "codex" {
-		t.Fatalf("expected provider type codex, got %q", target.ProviderType)
+	if target.ProviderID != "cx" {
+		t.Fatalf("expected provider id cx, got %q", target.ProviderID)
 	}
 }
 
-func TestResolveModelUsesDriverDefault(t *testing.T) {
-	catalog := driver.Catalog{
-		Drivers: []driver.Driver{
-			{ID: "cx", Name: "Codex", Provider: "codex", DefaultModel: "cx/gpt-5.4"},
+func TestResolveModelUsesProviderDefault(t *testing.T) {
+	catalog := provider.Catalog{
+		Providers: []provider.Provider{
+			{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"},
 		},
 	}
 
