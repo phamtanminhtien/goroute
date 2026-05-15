@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { DetailList, KeyValueRow } from "@/shared/ui/detail-list";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
 import { StatusBadge } from "@/shared/ui/status-badge";
@@ -75,21 +76,21 @@ export function SettingsPage() {
           title="Auth and session posture"
           tone="solid"
         >
-          <div className="space-y-3">
-            <AuthSummaryRow label="Admin auth mode" value="Bearer token" />
-            <AuthSummaryRow
+          <DetailList>
+            <KeyValueRow label="Admin auth mode" value="Bearer token" />
+            <KeyValueRow
               label="Session storage"
               value="Local browser storage"
             />
-            <AuthSummaryRow
+            <KeyValueRow
               label="Route protection"
               value="Frontend guard with redirect to /login"
             />
-            <AuthSummaryRow
+            <KeyValueRow
               label="Theme support"
               value="Light and dark console modes"
             />
-          </div>
+          </DetailList>
         </SectionCard>
       </div>
 
@@ -199,17 +200,6 @@ function RuntimePanel({
         {value}
       </p>
       <p className="text-fg-secondary mt-2 text-sm leading-6">{description}</p>
-    </div>
-  );
-}
-
-function AuthSummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border-border/85 bg-bg-primary/75 flex flex-col gap-2 rounded-[22px] border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-fg-muted text-[11px] font-semibold tracking-[0.2em] uppercase">
-        {label}
-      </p>
-      <p className="text-fg-primary text-sm font-medium">{value}</p>
     </div>
   );
 }

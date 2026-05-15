@@ -6,6 +6,8 @@ import { BrowserRouter, useNavigate } from "react-router-dom";
 import { authRedirectEvent } from "@/features/auth/auth-session";
 import { useAuthStore } from "@/features/auth/auth-store";
 import { useSyncTheme } from "@/shared/store/ui-store";
+import { ToastProvider, ToastViewport } from "@/shared/ui/toast";
+import { TooltipProvider } from "@/shared/ui/tooltip";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,9 +49,14 @@ export function AppProviders({ children }: PropsWithChildren) {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <ThemeBridge />
-        <AuthBridge />
-        {children}
+        <TooltipProvider delayDuration={120}>
+          <ToastProvider swipeDirection="right">
+            <ThemeBridge />
+            <AuthBridge />
+            {children}
+            <ToastViewport />
+          </ToastProvider>
+        </TooltipProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

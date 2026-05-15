@@ -1,6 +1,8 @@
 import type { InputHTMLAttributes } from "react";
 
+import { cn } from "@/shared/lib/cn";
 import { createVariant } from "@/shared/lib/create-variant";
+import { controlBaseClassName } from "@/shared/ui/ui-base";
 
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   inputSize?: "md" | "lg";
@@ -8,7 +10,11 @@ type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 };
 
 const inputVariants = createVariant(
-  "w-full min-h-[var(--control-height)] rounded-[var(--radius-control)] border px-[var(--control-padding-x)] py-[var(--control-padding-y)] text-sm text-fg-primary placeholder:text-fg-muted disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 [--tw-ring-color:var(--focus-ring)] [background:var(--field-bg)] [border-color:var(--field-border)] transition-[border-color,background-color,box-shadow] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)] focus:[background:var(--field-bg-focus)] focus:[border-color:var(--field-border-focus)] focus:[box-shadow:0_0_0_4px_color-mix(in_srgb,var(--primary)_10%,transparent)]",
+  cn(
+    "w-full",
+    controlBaseClassName,
+    "transition-[border-color,background-color,box-shadow]",
+  ),
   {
     defaultVariants: {
       inputSize: "md",

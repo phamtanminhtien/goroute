@@ -4,15 +4,9 @@ import {
   Braces,
   Cloud,
   Code2,
-  Cpu,
-  Gamepad2,
-  Gem,
   KeyRound,
   Layers3,
-  type LucideIcon,
-  Shield,
   Sparkles,
-  Star,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -23,8 +17,11 @@ import {
   providersQueryKey,
 } from "@/features/providers/api";
 import { Button } from "@/shared/ui/button";
+import { EmptyState } from "@/shared/ui/empty-state";
+import { InlineAlert } from "@/shared/ui/inline-alert";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 
 type ProviderSection = {
@@ -68,10 +65,7 @@ export function ProvidersPage() {
         >
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div
-                className="border-border/85 bg-bg-primary/72 min-h-[126px] animate-pulse rounded-[22px] border"
-                key={index}
-              />
+              <Skeleton className="min-h-[126px]" key={index} />
             ))}
           </div>
         </SectionCard>
@@ -84,11 +78,11 @@ export function ProvidersPage() {
           tone="solid"
         >
           <div className="space-y-4">
-            <p className="text-sm leading-6 text-rose-700" role="alert">
+            <InlineAlert tone="error">
               {providersQuery.error instanceof Error
                 ? providersQuery.error.message
                 : "Request failed"}
-            </p>
+            </InlineAlert>
             <Button onClick={() => providersQuery.refetch()} tone="secondary">
               Retry request
             </Button>
@@ -104,9 +98,10 @@ export function ProvidersPage() {
           title="Provider catalog is empty"
           tone="solid"
         >
-          <p className="text-fg-secondary text-sm leading-6">
-            Add providers to the system catalog before using the registry UI.
-          </p>
+          <EmptyState
+            body="Add providers to the system catalog before using the registry UI."
+            title="No providers available"
+          />
         </SectionCard>
       ) : null}
 
@@ -237,44 +232,6 @@ function ConnectionStatusPill({ count }: { count: number }) {
       <span>{buildConnectionStatus(count)}</span>
     </div>
   );
-}
-
-function resolveProviderIcon(provider: ProviderItem): LucideIcon {
-  switch (provider.id) {
-    case "openai":
-      return KeyRound;
-    case "cx":
-      return Sparkles;
-  }
-
-  if (provider.category === "oauth") {
-    return Bot;
-  }
-  if (provider.category === "api_key") {
-    return Braces;
-  }
-  if (provider.category === "free_tier") {
-    return Cloud;
-  }
-  if (provider.category === "custom") {
-    return Layers3;
-  }
-
-  const fallbackIcons: LucideIcon[] = [
-    Bot,
-    Code2,
-    Cpu,
-    Gamepad2,
-    Gem,
-    Shield,
-    Sparkles,
-    Star,
-  ];
-  const hash = provider.id
-    .split("")
-    .reduce((total, character) => total + character.charCodeAt(0), 0);
-
-  return fallbackIcons[hash % fallbackIcons.length];
 }
 
 function ProviderLogoFallback({ provider }: { provider: ProviderItem }) {

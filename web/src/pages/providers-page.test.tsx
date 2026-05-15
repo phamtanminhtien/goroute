@@ -202,7 +202,6 @@ describe("providers pages", () => {
 
   it("deletes a connection and refetches providers", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     listProvidersMock
       .mockResolvedValueOnce(baseProviders)
       .mockResolvedValueOnce([
@@ -222,6 +221,8 @@ describe("providers pages", () => {
 
     await screen.findByText(/codex-user/i);
     await user.click(screen.getByRole("button", { name: /^delete$/i }));
+    await screen.findByRole("alertdialog");
+    await user.click(screen.getByRole("button", { name: /confirm delete/i }));
 
     await waitFor(() => {
       expect(deleteConnectionMock).toHaveBeenNthCalledWith(
