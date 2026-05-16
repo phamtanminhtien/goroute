@@ -17,5 +17,7 @@ type ConnectionConfig struct {
 	APIKey       string `json:"api_key,omitempty"`
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	TokenType    string `json:"token_type,omitempty"`
+	ExpiresIn    int    `json:"expires_in,omitempty"`
 	Name         string `json:"name"`
 }

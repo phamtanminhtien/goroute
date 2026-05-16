@@ -57,6 +57,8 @@ func Registration() providerregistry.Registration {
 			return providerregistry.OAuthResult{
 				AccessToken:  completed.AccessToken,
 				RefreshToken: completed.RefreshToken,
+				TokenType:    completed.TokenType,
+				ExpiresIn:    completed.ExpiresIn,
 				Name:         completed.Email,
 			}, nil
 		},

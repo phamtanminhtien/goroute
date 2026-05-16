@@ -67,6 +67,8 @@ type Item struct {
 	APIKey          string   `json:"api_key,omitempty"`
 	AccessToken     string   `json:"access_token,omitempty"`
 	RefreshToken    string   `json:"refresh_token,omitempty"`
+	TokenType       string   `json:"token_type,omitempty"`
+	ExpiresIn       int      `json:"expires_in,omitempty"`
 	HasAPIKey       bool     `json:"has_api_key"`
 	HasAccessToken  bool     `json:"has_access_token"`
 	HasRefreshToken bool     `json:"has_refresh_token"`
@@ -191,6 +193,8 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 		Name:         defaultString(strings.TrimSpace(result.Name), connectionID),
 		AccessToken:  result.AccessToken,
 		RefreshToken: result.RefreshToken,
+		TokenType:    result.TokenType,
+		ExpiresIn:    result.ExpiresIn,
 	})
 
 	nextConfig := s.config
@@ -325,6 +329,7 @@ func normalizeConnection(connection config.ConnectionConfig) config.ConnectionCo
 	connection.APIKey = strings.TrimSpace(connection.APIKey)
 	connection.AccessToken = strings.TrimSpace(connection.AccessToken)
 	connection.RefreshToken = strings.TrimSpace(connection.RefreshToken)
+	connection.TokenType = strings.TrimSpace(connection.TokenType)
 	return connection
 }
 
@@ -339,6 +344,8 @@ func (s *Service) redactConnection(connection config.ConnectionConfig) Item {
 		ID:              connection.ID,
 		ProviderID:      connection.ProviderID,
 		Name:            connection.Name,
+		TokenType:       connection.TokenType,
+		ExpiresIn:       connection.ExpiresIn,
 		HasAPIKey:       strings.TrimSpace(connection.APIKey) != "",
 		HasAccessToken:  strings.TrimSpace(connection.AccessToken) != "",
 		HasRefreshToken: strings.TrimSpace(connection.RefreshToken) != "",
@@ -359,6 +366,12 @@ func preserveExistingSecrets(
 	}
 	if next.RefreshToken == "" {
 		next.RefreshToken = existing.RefreshToken
+	}
+	if next.TokenType == "" {
+		next.TokenType = existing.TokenType
+	}
+	if next.ExpiresIn == 0 {
+		next.ExpiresIn = existing.ExpiresIn
 	}
 
 	return next

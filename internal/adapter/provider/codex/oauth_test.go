@@ -83,6 +83,8 @@ func TestCompleteCodexOAuthFromCallbackURL(t *testing.T) {
 			return jsonResponse(http.StatusOK, `{
 				"access_token":"access-123",
 				"refresh_token":"refresh-456",
+				"token_type":"Bearer",
+				"expires_in":3600,
 				"id_token":"`+testJWT(`{"email":"shaylee11@jabmag.com","https://api.openai.com/auth":{"chatgpt_account_id":"acct_123","chatgpt_plan_type":"plus"}}`)+`"
 			}`), nil
 		}),
@@ -105,6 +107,12 @@ func TestCompleteCodexOAuthFromCallbackURL(t *testing.T) {
 	}
 	if result.RefreshToken != "refresh-456" {
 		t.Fatalf("unexpected refresh token: %q", result.RefreshToken)
+	}
+	if result.TokenType != "Bearer" {
+		t.Fatalf("unexpected token type: %q", result.TokenType)
+	}
+	if result.ExpiresIn != 3600 {
+		t.Fatalf("unexpected expires_in: %d", result.ExpiresIn)
 	}
 	if result.Email != "shaylee11@jabmag.com" {
 		t.Fatalf("unexpected email: %q", result.Email)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
 )
 
@@ -25,7 +26,7 @@ func NewWithWriter(env string, writer io.Writer) zerolog.Logger {
 		output = zerolog.ConsoleWriter{
 			Out:        writer,
 			TimeFormat: time.RFC3339,
-			NoColor:    true,
+			NoColor:    !supportsColor(writer),
 		}
 	}
 
@@ -39,4 +40,14 @@ func isProductionEnv(env string) bool {
 	default:
 		return false
 	}
+}
+
+func supportsColor(writer io.Writer) bool {
+	file, ok := writer.(*os.File)
+	if !ok {
+		return false
+	}
+
+	fd := file.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }

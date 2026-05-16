@@ -74,6 +74,8 @@ func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, web
 				ProviderID:  "cx",
 				Name:        "codex-user",
 				AccessToken: "secret-token",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
 			},
 		},
 	}
@@ -112,6 +114,8 @@ func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, web
 				return providerregistry.OAuthResult{
 					AccessToken:  "oauth-access-token",
 					RefreshToken: "oauth-refresh-token",
+					TokenType:    "Bearer",
+					ExpiresIn:    3600,
 					Name:         "oauth-user@example.com",
 				}, nil
 			},
@@ -617,6 +621,9 @@ func TestConnectionsUpdatePreservesSecretsWhenOmitted(t *testing.T) {
 	if !strings.Contains(listRec.Body.String(), `"has_access_token":true`) {
 		t.Fatalf("expected access token to remain configured, got body=%s", listRec.Body.String())
 	}
+	if !strings.Contains(listRec.Body.String(), `"token_type":"Bearer"`) || !strings.Contains(listRec.Body.String(), `"expires_in":3600`) {
+		t.Fatalf("expected oauth metadata to remain configured, got body=%s", listRec.Body.String())
+	}
 	if !strings.Contains(listRec.Body.String(), `"name":"renamed-user"`) {
 		t.Fatalf("expected updated name in list, got body=%s", listRec.Body.String())
 	}
@@ -659,6 +666,9 @@ func TestConnectionsOAuthCompletionCreatesConnection(t *testing.T) {
 	if !strings.Contains(completeRec.Body.String(), `"name":"oauth-user@example.com"`) {
 		t.Fatalf("expected email-backed connection name, got body=%s", completeRec.Body.String())
 	}
+	if !strings.Contains(completeRec.Body.String(), `"token_type":"Bearer"`) || !strings.Contains(completeRec.Body.String(), `"expires_in":3600`) {
+		t.Fatalf("expected oauth metadata in response, got body=%s", completeRec.Body.String())
+	}
 	if strings.Contains(completeRec.Body.String(), "oauth-access-token") {
 		t.Fatalf("expected oauth access token to stay redacted, got body=%s", completeRec.Body.String())
 	}
@@ -673,6 +683,9 @@ func TestConnectionsOAuthCompletionCreatesConnection(t *testing.T) {
 	}
 	if !strings.Contains(listRec.Body.String(), `"has_access_token":true`) || !strings.Contains(listRec.Body.String(), `"has_refresh_token":true`) {
 		t.Fatalf("expected oauth tokens to be persisted, got body=%s", listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"token_type":"Bearer"`) || !strings.Contains(listRec.Body.String(), `"expires_in":3600`) {
+		t.Fatalf("expected oauth metadata to be persisted, got body=%s", listRec.Body.String())
 	}
 }
 

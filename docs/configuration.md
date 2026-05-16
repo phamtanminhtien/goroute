@@ -25,6 +25,8 @@ Example `~/.goroute/config.json`:
       "provider_id": "cx",
       "access_token": "${ACCESS_TOKEN}",
       "refresh_token": "${REFRESH_TOKEN}",
+      "token_type": "Bearer",
+      "expires_in": 3600,
       "name": "user@example.com"
     },
     {
@@ -58,6 +60,7 @@ Current connection credential behavior:
 - `codex` uses `access_token`, falling back to `api_key` if present.
 - `openai` uses `api_key`, falling back to `access_token` if present.
 - `refresh_token` is represented in config but is not used for refresh yet.
+- `token_type` and `expires_in` are persisted with OAuth connections when returned by the provider.
 
 ## Custom OpenAI-Compatible Base URL Direction
 
@@ -96,6 +99,8 @@ Implemented fields:
 - api_key
 - access_token
 - refresh_token
+- token_type
+- expires_in
 
 ### System provider definition
 

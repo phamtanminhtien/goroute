@@ -153,6 +153,8 @@ func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 			return OAuthResult{
 				AccessToken:  "access-123",
 				RefreshToken: "refresh-456",
+				TokenType:    "Bearer",
+				ExpiresIn:    3600,
 				Name:         "user@example.com",
 			}, nil
 		},
@@ -169,7 +171,7 @@ func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompleteOAuth returned error: %v", err)
 	}
-	if result.AccessToken != "access-123" || result.RefreshToken != "refresh-456" || result.Name != "user@example.com" {
+	if result.AccessToken != "access-123" || result.RefreshToken != "refresh-456" || result.TokenType != "Bearer" || result.ExpiresIn != 3600 || result.Name != "user@example.com" {
 		t.Fatalf("unexpected oauth result: %#v", result)
 	}
 }

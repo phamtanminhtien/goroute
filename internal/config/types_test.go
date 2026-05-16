@@ -11,13 +11,15 @@ func TestConnectionConfigJSONShapeMatchesConfigFile(t *testing.T) {
 		ProviderID:   "cx",
 		AccessToken:  "access-token",
 		RefreshToken: "refresh-token",
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
 		Name:         "user@example.com",
 	})
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
-	const want = `{"id":"connection-1","provider_id":"cx","access_token":"access-token","refresh_token":"refresh-token","name":"user@example.com"}`
+	const want = `{"id":"connection-1","provider_id":"cx","access_token":"access-token","refresh_token":"refresh-token","token_type":"Bearer","expires_in":3600,"name":"user@example.com"}`
 	if string(bytes) != want {
 		t.Fatalf("expected JSON shape %s, got %s", want, string(bytes))
 	}

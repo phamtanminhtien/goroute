@@ -25,6 +25,8 @@ type OAuthSession struct {
 type OAuthResult struct {
 	AccessToken  string
 	RefreshToken string
+	TokenType    string
+	ExpiresIn    int
 	Name         string
 }
 

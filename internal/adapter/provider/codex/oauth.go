@@ -117,6 +117,8 @@ type PendingCodexOAuth struct {
 type CompletedCodexOAuth struct {
 	AccessToken  string
 	RefreshToken string
+	TokenType    string
+	ExpiresIn    int
 	Email        string
 }
 
@@ -173,6 +175,8 @@ func CompleteCodexOAuthFromCallbackURL(pending PendingCodexOAuth, callbackURL st
 	return &CompletedCodexOAuth{
 		AccessToken:  tokenResponse.AccessToken,
 		RefreshToken: tokenResponse.RefreshToken,
+		TokenType:    tokenResponse.TokenType,
+		ExpiresIn:    tokenResponse.ExpiresIn,
 		Email:        email,
 	}, nil
 }

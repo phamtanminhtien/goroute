@@ -9,6 +9,7 @@ export type ProviderModel = {
 };
 
 export type ProviderConnection = {
+  expires_in?: number;
   has_access_token: boolean;
   has_api_key: boolean;
   has_refresh_token: boolean;
@@ -17,6 +18,7 @@ export type ProviderConnection = {
   problems: string[];
   provider_id: string;
   status: string;
+  token_type?: string;
 };
 
 export type ProviderItem = {
