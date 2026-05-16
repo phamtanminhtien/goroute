@@ -40,6 +40,7 @@ Thumbs.db
 .gomodcache/
 tmp/
 build-errors.log
+.cache
 
 # Local data
 .data/

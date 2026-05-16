@@ -18,9 +18,11 @@ func Registration() providerregistry.Registration {
 			Category:     "api_key",
 			DefaultModel: "openai/gpt-4.1",
 			Models: []provider.Model{{
-				ID:          "openai/gpt-4.1",
-				Name:        "GPT-4.1",
-				Description: "",
+				ID:                       "openai/gpt-4.1",
+				Name:                     "GPT-4.1",
+				Description:              "",
+				InputPricePerMillionUSD:  2,
+				OutputPricePerMillionUSD: 8,
 			}},
 		},
 		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.Connection, error) {

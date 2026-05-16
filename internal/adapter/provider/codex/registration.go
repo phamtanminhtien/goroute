@@ -19,9 +19,11 @@ func Registration() providerregistry.Registration {
 			Category:     "oauth",
 			DefaultModel: "cx/gpt-5.4",
 			Models: []provider.Model{{
-				ID:          "cx/gpt-5.4",
-				Name:        "GPT-5.4",
-				Description: "",
+				ID:                       "cx/gpt-5.4",
+				Name:                     "GPT-5.4",
+				Description:              "",
+				InputPricePerMillionUSD:  1.25,
+				OutputPricePerMillionUSD: 10,
 			}},
 		},
 		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.Connection, error) {

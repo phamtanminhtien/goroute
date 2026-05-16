@@ -17,7 +17,9 @@ type Provider struct {
 }
 
 type Model struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID                       string  `json:"id"`
+	Name                     string  `json:"name"`
+	Description              string  `json:"description"`
+	InputPricePerMillionUSD  float64 `json:"input_price_per_million_usd"`
+	OutputPricePerMillionUSD float64 `json:"output_price_per_million_usd"`
 }

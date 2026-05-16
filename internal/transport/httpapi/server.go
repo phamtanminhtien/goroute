@@ -8,6 +8,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/health"
+	"github.com/phamtanminhtien/goroute/internal/usecase/analytics"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 	"github.com/rs/zerolog"
@@ -17,11 +18,13 @@ type aiRequestLogRepository interface {
 	CreateAIRequestRun(record airequestlog.RunRecord) error
 	CreateAIRequestFlow(record airequestlog.FlowRecord) error
 	CreateThirdPartyRequestLog(record airequestlog.ThirdPartyRequestLogRecord) error
+	analytics.Repository
 }
 
 func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
+	analyticsService := analytics.NewService(requestLogRepo, catalog)
 
 	router.Handle("/healthz", health.Handler())
 	router.Handle("/v1/models", modelsHandler(catalog))
@@ -37,6 +40,10 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Handle("/admin/api/connections/{id}", connectionByIDHandler(connectionService))
 		r.Handle("/admin/api/connections/{id}/usage", connectionUsageHandler(connectionService))
 		r.Handle("/admin/api/connections/oauth", connectionOAuthHandler(connectionService))
+		r.Handle("/admin/api/analytics/usage/summary", analyticsUsageSummaryHandler(analyticsService))
+		r.Handle("/admin/api/analytics/usage/timeseries", analyticsUsageTimeseriesHandler(analyticsService))
+		r.Handle("/admin/api/analytics/usage/provider-breakdown", analyticsUsageProviderBreakdownHandler(analyticsService))
+		r.Handle("/admin/api/analytics/usage/recent-requests", analyticsUsageRecentRequestsHandler(analyticsService))
 	})
 
 	if webUIRoot != nil {

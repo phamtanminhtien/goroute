@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import type { EChartsOption } from "echarts";
 import {
   ArrowUpRight,
@@ -10,38 +11,59 @@ import { useState } from "react";
 
 import { AnalyticsChart } from "@/features/analytics/analytics-chart";
 import {
-  type RecentRequestItem,
-  usageAnalyticsDatasets,
-  type UsageBreakdownItem,
-  type UsageMetricSnapshot,
+  getUsageProviderBreakdown,
+  getUsageRecentRequests,
+  getUsageSummary,
+  getUsageTimeseries,
+  usageProviderBreakdownQueryKey,
   type UsageRange,
   usageRangeOptions,
-  type UsageTimeseriesPoint,
-} from "@/features/analytics/mock-usage-data";
+  usageRecentRequestsQueryKey,
+  usageSummaryQueryKey,
+  usageTimeseriesQueryKey,
+} from "@/features/analytics/api";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { InlineAlert } from "@/shared/ui/inline-alert";
 import { PageHeader } from "@/shared/ui/page-header";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { SurfaceCard } from "@/shared/ui/surface-card";
 
-const statusToneClasses: Record<RecentRequestItem["status"], string> = {
-  Cached:
-    "border border-[color:color-mix(in_srgb,var(--primary)_22%,transparent)] bg-[color:color-mix(in_srgb,var(--primary)_12%,transparent)] text-primary",
+const statusToneClasses: Record<"Completed" | "Failed", string> = {
   Completed:
     "border border-[color:color-mix(in_srgb,var(--success)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)]",
   Failed:
     "border border-[color:color-mix(in_srgb,var(--error)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)]",
-  Streaming:
-    "border border-[color:color-mix(in_srgb,var(--warning)_26%,transparent)] bg-[color:color-mix(in_srgb,var(--warning)_12%,transparent)] text-[var(--warning)]",
 };
 
 export function UsageAnalyticsPage() {
   const [range, setRange] = useState<UsageRange>("24h");
-  const dataset = usageAnalyticsDatasets[range];
+  const summaryQuery = useQuery({
+    queryFn: () => getUsageSummary(range),
+    queryKey: usageSummaryQueryKey(range),
+  });
+  const timeseriesQuery = useQuery({
+    queryFn: () => getUsageTimeseries(range),
+    queryKey: usageTimeseriesQueryKey(range),
+  });
+  const breakdownQuery = useQuery({
+    queryFn: () => getUsageProviderBreakdown(range),
+    queryKey: usageProviderBreakdownQueryKey(range),
+  });
+  const recentRequestsQuery = useQuery({
+    queryFn: () => getUsageRecentRequests(range),
+    queryKey: usageRecentRequestsQueryKey(range),
+  });
+
+  const summary = summaryQuery.data;
+  const timeseries = timeseriesQuery.data?.points ?? [];
+  const breakdown = breakdownQuery.data?.items ?? [];
+  const recentRequests = recentRequestsQuery.data?.items ?? [];
 
   return (
     <section className="space-y-6 pb-6">
       <PageHeader
-        description="System-wide request volume, token flow, and estimated spend across the proxy. All numbers on this screen are mocked locally for design and UX work."
+        description="System-wide request volume, token flow, and estimated spend across the proxy from live admin analytics."
         eyebrow="Analytics"
         title="Usage & Analytics"
       >
@@ -76,20 +98,61 @@ export function UsageAnalyticsPage() {
       </PageHeader>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {dataset.metrics.map((metric) => (
-          <MetricCard key={metric.label} metric={metric} />
-        ))}
+        <MetricCard
+          deltaLabel={summary?.requests.delta_label}
+          deltaTone={summary?.requests.delta_tone}
+          icon="requests"
+          label="Total Requests"
+          loading={summaryQuery.isPending}
+          value={formatInteger(summary?.requests.value ?? 0)}
+        />
+        <MetricCard
+          deltaLabel={summary?.input_tokens.delta_label}
+          deltaTone={summary?.input_tokens.delta_tone}
+          icon="input"
+          label="Total Input Tokens"
+          loading={summaryQuery.isPending}
+          value={formatCompactNumber(summary?.input_tokens.value ?? 0)}
+        />
+        <MetricCard
+          deltaLabel={summary?.output_tokens.delta_label}
+          deltaTone={summary?.output_tokens.delta_tone}
+          icon="output"
+          label="Output Tokens"
+          loading={summaryQuery.isPending}
+          value={formatCompactNumber(summary?.output_tokens.value ?? 0)}
+        />
+        <MetricCard
+          deltaLabel={summary?.estimated_cost_usd.delta_label}
+          deltaTone={summary?.estimated_cost_usd.delta_tone}
+          icon="cost"
+          label="Est. Cost"
+          loading={summaryQuery.isPending}
+          value={formatCurrency(summary?.estimated_cost_usd.value ?? 0)}
+        />
       </div>
+
+      {summaryQuery.isError ? (
+        <InlineAlert tone="error">
+          {summaryQuery.error instanceof Error
+            ? summaryQuery.error.message
+            : "Summary analytics request failed."}
+        </InlineAlert>
+      ) : null}
 
       <div className="grid gap-3 xl:grid-cols-[1.5fr_1fr]">
         <ChartPanel
           description="Traffic volume across the selected window."
-          option={buildRequestVolumeOption(dataset.timeseries)}
+          error={timeseriesQuery.isError}
+          loading={timeseriesQuery.isPending}
+          option={buildRequestVolumeOption(timeseries, range)}
           title="Request Volume"
         />
         <ChartPanel
-          description="Estimated provider share for the selected range."
-          option={buildBreakdownOption(dataset.breakdown)}
+          description="Estimated provider share for the selected range by request volume."
+          error={breakdownQuery.isError}
+          loading={breakdownQuery.isPending}
+          option={buildBreakdownOption(breakdown)}
           title="Provider Breakdown"
         />
       </div>
@@ -97,12 +160,16 @@ export function UsageAnalyticsPage() {
       <div className="grid gap-3 xl:grid-cols-[1.3fr_1fr]">
         <ChartPanel
           description="Input and output token movement over time."
-          option={buildTokenFlowOption(dataset.timeseries)}
+          error={timeseriesQuery.isError}
+          loading={timeseriesQuery.isPending}
+          option={buildTokenFlowOption(timeseries, range)}
           title="Token Flow"
         />
         <ChartPanel
-          description="Estimated spend trend from mocked local analytics data."
-          option={buildCostOption(dataset.timeseries)}
+          description="Estimated spend trend from live admin analytics."
+          error={timeseriesQuery.isError}
+          loading={timeseriesQuery.isPending}
+          option={buildCostOption(timeseries, range)}
           title="Cost Trend"
         />
       </div>
@@ -114,7 +181,7 @@ export function UsageAnalyticsPage() {
               Recent Requests
             </p>
             <p className="text-fg-secondary text-sm leading-6">
-              Mock recent traffic samples for the selected analytics range.
+              Latest matching proxy requests for the selected analytics range.
             </p>
           </div>
           <div className="border-border/70 text-fg-muted inline-flex items-center gap-2 rounded-full border bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold tracking-[0.18em] uppercase">
@@ -137,19 +204,60 @@ export function UsageAnalyticsPage() {
               </tr>
             </thead>
             <tbody>
-              {dataset.recentRequests.map((request) => (
-                <RecentRequestRow key={request.id} request={request} />
-              ))}
+              {recentRequestsQuery.isPending
+                ? Array.from({ length: 5 }).map((_, index) => (
+                    <RecentRequestRowSkeleton key={index} />
+                  ))
+                : recentRequests.map((request) => (
+                    <RecentRequestRow
+                      key={request.request_id}
+                      request={request}
+                    />
+                  ))}
             </tbody>
           </table>
         </div>
+
+        {recentRequestsQuery.isError ? (
+          <div className="p-5 pt-0">
+            <InlineAlert tone="error">
+              {recentRequestsQuery.error instanceof Error
+                ? recentRequestsQuery.error.message
+                : "Recent requests could not be loaded."}
+            </InlineAlert>
+          </div>
+        ) : null}
+
+        {!recentRequestsQuery.isPending &&
+        !recentRequestsQuery.isError &&
+        recentRequests.length === 0 ? (
+          <div className="p-5 pt-0">
+            <InlineAlert>
+              No matching requests were found for this range.
+            </InlineAlert>
+          </div>
+        ) : null}
       </SurfaceCard>
     </section>
   );
 }
 
-function MetricCard({ metric }: { metric: UsageMetricSnapshot }) {
-  const icon = getMetricIcon(metric.label);
+function MetricCard({
+  deltaLabel,
+  deltaTone,
+  icon,
+  label,
+  loading,
+  value,
+}: {
+  deltaLabel?: string;
+  deltaTone?: "critical" | "positive" | "warning";
+  icon: "cost" | "input" | "output" | "requests";
+  label: string;
+  loading?: boolean;
+  value: string;
+}) {
+  const metricIcon = getMetricIcon(icon);
 
   return (
     <SurfaceCard className="p-5" tone="glass">
@@ -157,30 +265,27 @@ function MetricCard({ metric }: { metric: UsageMetricSnapshot }) {
         <div className="space-y-3">
           <div className="space-y-1">
             <p className="text-fg-muted text-[11px] font-semibold tracking-[0.18em] uppercase">
-              {metric.label}
+              {label}
             </p>
-            <p className="text-fg-primary text-3xl font-semibold tracking-[-0.04em]">
-              {metric.value}
-            </p>
+            <div className="text-fg-primary text-3xl font-semibold tracking-[-0.04em]">
+              {loading ? <Skeleton className="h-9 w-28" /> : value}
+            </div>
           </div>
-          <div
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-              metric.deltaTone === "positive" &&
-                "border-[color:color-mix(in_srgb,var(--success)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)]",
-              metric.deltaTone === "warning" &&
-                "border-[color:color-mix(in_srgb,var(--warning)_26%,transparent)] bg-[color:color-mix(in_srgb,var(--warning)_12%,transparent)] text-[var(--warning)]",
-              metric.deltaTone === "critical" &&
-                "border-[color:color-mix(in_srgb,var(--error)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)]",
-            )}
-          >
-            <ArrowUpRight className="size-3.5" />
-            <span>{metric.deltaLabel}</span>
-          </div>
+          {deltaLabel && deltaTone ? (
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                metricDeltaClassName(deltaTone),
+              )}
+            >
+              <ArrowUpRight className="size-3.5" />
+              <span>{deltaLabel}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="dashboard-icon-surface text-fg-primary flex size-12 shrink-0 items-center justify-center rounded-[16px] border">
-          {icon}
+          {metricIcon}
         </div>
       </div>
     </SurfaceCard>
@@ -189,10 +294,14 @@ function MetricCard({ metric }: { metric: UsageMetricSnapshot }) {
 
 function ChartPanel({
   description,
+  error,
+  loading,
   option,
   title,
 }: {
   description: string;
+  error?: boolean;
+  loading?: boolean;
   option: EChartsOption;
   title: string;
 }) {
@@ -204,69 +313,133 @@ function ChartPanel({
         </p>
         <p className="text-fg-secondary text-sm leading-6">{description}</p>
       </div>
-      <AnalyticsChart className="mt-5 h-[300px] w-full" option={option} />
+      {loading ? <Skeleton className="mt-5 h-[300px] w-full" /> : null}
+      {!loading && !error ? (
+        <AnalyticsChart className="mt-5 h-[300px] w-full" option={option} />
+      ) : null}
+      {!loading && error ? (
+        <InlineAlert className="mt-5" tone="error">
+          Analytics chart data could not be loaded.
+        </InlineAlert>
+      ) : null}
     </SurfaceCard>
   );
 }
 
-function RecentRequestRow({ request }: { request: RecentRequestItem }) {
+function RecentRequestRow({
+  request,
+}: {
+  request: {
+    estimated_cost_usd: number;
+    input_tokens: number;
+    latency_ms: number;
+    model: string;
+    output_tokens: number;
+    path: string;
+    request_id: string;
+    status: "completed" | "failed";
+    timestamp: string;
+  };
+}) {
+  const statusLabel = request.status === "completed" ? "Completed" : "Failed";
+
   return (
     <tr className="border-border/50 border-b text-sm last:border-b-0">
       <td className="px-5 py-4 align-top">
         <div className="space-y-1">
           <div className="text-fg-primary font-semibold">{request.model}</div>
-          <div className="text-fg-secondary text-xs">{request.timestamp}</div>
+          <div className="text-fg-secondary text-xs">
+            {formatDateTime(request.timestamp)}
+          </div>
         </div>
       </td>
       <td className="px-5 py-4 align-top">
         <div className="space-y-1">
-          <div className="text-fg-primary font-medium">{request.route}</div>
-          <div className="text-fg-secondary text-xs">{request.id}</div>
+          <div className="text-fg-primary font-medium">{request.path}</div>
+          <div className="text-fg-secondary text-xs">{request.request_id}</div>
         </div>
       </td>
       <td className="px-5 py-4 align-top">
         <span
           className={cn(
             "inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold",
-            statusToneClasses[request.status],
+            statusToneClasses[statusLabel],
           )}
         >
-          {request.status}
+          {statusLabel}
         </span>
       </td>
       <td className="text-fg-primary px-5 py-4 align-top font-medium">
-        {request.latency}
+        {formatLatency(request.latency_ms)}
       </td>
       <td className="text-fg-primary px-5 py-4 align-top font-medium">
-        {request.inputTokens}
+        {formatCompactNumber(request.input_tokens)}
       </td>
       <td className="text-fg-primary px-5 py-4 align-top font-medium">
-        {request.outputTokens}
+        {formatCompactNumber(request.output_tokens)}
       </td>
       <td className="text-fg-primary px-5 py-4 align-top font-medium">
-        {request.estimatedCost}
+        {formatCurrency(request.estimated_cost_usd)}
       </td>
     </tr>
   );
 }
 
-function getMetricIcon(label: string) {
-  switch (label) {
-    case "Total Requests":
+function RecentRequestRowSkeleton() {
+  return (
+    <tr className="border-border/50 border-b text-sm last:border-b-0">
+      <td className="px-5 py-4">
+        <Skeleton className="h-10 w-32" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-10 w-40" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-6 w-20" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-6 w-16" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-6 w-16" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-6 w-16" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-6 w-16" />
+      </td>
+    </tr>
+  );
+}
+
+function getMetricIcon(icon: "cost" | "input" | "output" | "requests") {
+  switch (icon) {
+    case "requests":
       return <ChartNoAxesColumn className="size-5" />;
-    case "Total Input Tokens":
+    case "input":
       return <Database className="size-5" />;
-    case "Output Tokens":
+    case "output":
       return <ArrowUpRight className="size-5" />;
-    case "Est. Cost":
+    case "cost":
       return <Coins className="size-5" />;
-    default:
-      return <ChartNoAxesColumn className="size-5" />;
+  }
+}
+
+function metricDeltaClassName(tone: "critical" | "positive" | "warning") {
+  switch (tone) {
+    case "positive":
+      return "border-[color:color-mix(in_srgb,var(--success)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_12%,transparent)] text-[var(--success)]";
+    case "warning":
+      return "border-[color:color-mix(in_srgb,var(--warning)_26%,transparent)] bg-[color:color-mix(in_srgb,var(--warning)_12%,transparent)] text-[var(--warning)]";
+    case "critical":
+      return "border-[color:color-mix(in_srgb,var(--error)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)]";
   }
 }
 
 function buildRequestVolumeOption(
-  points: UsageTimeseriesPoint[],
+  points: Array<{ bucket_start: string; requests: number }>,
+  range: UsageRange,
 ): EChartsOption {
   return {
     animationDuration: 450,
@@ -302,7 +475,7 @@ function buildRequestVolumeOption(
       axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
       axisTick: { show: false },
       boundaryGap: false,
-      data: points.map((point) => point.label),
+      data: points.map((point) => formatBucketLabel(point.bucket_start, range)),
       type: "category",
     },
     yAxis: {
@@ -316,7 +489,14 @@ function buildRequestVolumeOption(
   };
 }
 
-function buildTokenFlowOption(points: UsageTimeseriesPoint[]): EChartsOption {
+function buildTokenFlowOption(
+  points: Array<{
+    bucket_start: string;
+    input_tokens: number;
+    output_tokens: number;
+  }>,
+  range: UsageRange,
+): EChartsOption {
   return {
     animationDuration: 450,
     grid: { bottom: 24, left: 12, right: 12, top: 18 },
@@ -330,7 +510,7 @@ function buildTokenFlowOption(points: UsageTimeseriesPoint[]): EChartsOption {
     series: [
       {
         barMaxWidth: 26,
-        data: points.map((point) => point.inputTokens),
+        data: points.map((point) => point.input_tokens),
         itemStyle: {
           borderRadius: [8, 8, 0, 0],
           color: "#df7a52",
@@ -340,7 +520,7 @@ function buildTokenFlowOption(points: UsageTimeseriesPoint[]): EChartsOption {
       },
       {
         barMaxWidth: 26,
-        data: points.map((point) => point.outputTokens),
+        data: points.map((point) => point.output_tokens),
         itemStyle: {
           borderRadius: [8, 8, 0, 0],
           color: "#9fd768",
@@ -364,7 +544,7 @@ function buildTokenFlowOption(points: UsageTimeseriesPoint[]): EChartsOption {
       axisLabel: { color: "#8e939d" },
       axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
       axisTick: { show: false },
-      data: points.map((point) => point.label),
+      data: points.map((point) => formatBucketLabel(point.bucket_start, range)),
       type: "category",
     },
     yAxis: {
@@ -378,13 +558,16 @@ function buildTokenFlowOption(points: UsageTimeseriesPoint[]): EChartsOption {
   };
 }
 
-function buildCostOption(points: UsageTimeseriesPoint[]): EChartsOption {
+function buildCostOption(
+  points: Array<{ bucket_start: string; estimated_cost_usd: number }>,
+  range: UsageRange,
+): EChartsOption {
   return {
     animationDuration: 450,
     grid: { bottom: 24, left: 12, right: 12, top: 18 },
     series: [
       {
-        data: points.map((point) => point.cost),
+        data: points.map((point) => point.estimated_cost_usd),
         itemStyle: { color: "#9fd768" },
         lineStyle: { color: "#9fd768", width: 3 },
         smooth: true,
@@ -409,7 +592,7 @@ function buildCostOption(points: UsageTimeseriesPoint[]): EChartsOption {
       axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } },
       axisTick: { show: false },
       boundaryGap: false,
-      data: points.map((point) => point.label),
+      data: points.map((point) => formatBucketLabel(point.bucket_start, range)),
       type: "category",
     },
     yAxis: {
@@ -423,7 +606,9 @@ function buildCostOption(points: UsageTimeseriesPoint[]): EChartsOption {
   };
 }
 
-function buildBreakdownOption(items: UsageBreakdownItem[]): EChartsOption {
+function buildBreakdownOption(
+  items: Array<{ provider_name: string; requests_pct: number }>,
+): EChartsOption {
   return {
     animationDuration: 450,
     legend: {
@@ -437,9 +622,9 @@ function buildBreakdownOption(items: UsageBreakdownItem[]): EChartsOption {
         avoidLabelOverlap: true,
         center: ["50%", "44%"],
         data: items.map((item) => ({
-          itemStyle: { color: item.color },
-          name: item.label,
-          value: item.value,
+          itemStyle: { color: breakdownColor(item.provider_name) },
+          name: item.provider_name,
+          value: item.requests_pct,
         })),
         label: {
           color: "#f2f3f5",
@@ -468,4 +653,66 @@ function formatCompactNumber(value: number) {
     maximumFractionDigits: value >= 1000000 ? 1 : 0,
     notation: "compact",
   }).format(value);
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: value >= 1 ? 2 : 3,
+    minimumFractionDigits: value >= 1 ? 2 : 0,
+    style: "currency",
+  }).format(value);
+}
+
+function formatLatency(value: number) {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}s`;
+  }
+
+  return `${value}ms`;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
+function formatBucketLabel(value: string, range: UsageRange) {
+  const date = new Date(value);
+
+  switch (range) {
+    case "24h":
+      return new Intl.DateTimeFormat("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
+    case "7d":
+      return new Intl.DateTimeFormat("en-US", {
+        day: "numeric",
+        month: "short",
+      }).format(date);
+    case "30d":
+      return new Intl.DateTimeFormat("en-US", {
+        day: "numeric",
+        month: "short",
+      }).format(date);
+  }
+}
+
+function breakdownColor(value: string) {
+  const palette = ["#df7a52", "#9fd768", "#56d364", "#f59e0b", "#63b3ed"];
+  let hash = 0;
+  for (const char of value) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+
+  return palette[hash % palette.length];
 }

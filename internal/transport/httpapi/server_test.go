@@ -26,8 +26,8 @@ import (
 func testCatalog() provider.Catalog {
 	return provider.Catalog{
 		Providers: []provider.Provider{
-			{ID: "cx", Name: "Codex", AuthType: provider.AuthTypeOAuth, Category: "oauth", DefaultModel: "cx/gpt-5.4"},
-			{ID: "opena", Name: "OpenAI", AuthType: provider.AuthTypeAPIKey, Category: "api_key", DefaultModel: "opena/gpt-4.1"},
+			{ID: "cx", Name: "Codex", AuthType: provider.AuthTypeOAuth, Category: "oauth", DefaultModel: "cx/gpt-5.4", Models: []provider.Model{{ID: "cx/gpt-5.4", Name: "GPT-5.4", InputPricePerMillionUSD: 1.25, OutputPricePerMillionUSD: 10}}},
+			{ID: "opena", Name: "OpenAI", AuthType: provider.AuthTypeAPIKey, Category: "api_key", DefaultModel: "opena/gpt-4.1", Models: []provider.Model{{ID: "opena/gpt-4.1", Name: "GPT-4.1", InputPricePerMillionUSD: 2, OutputPricePerMillionUSD: 8}}},
 		},
 	}
 }
