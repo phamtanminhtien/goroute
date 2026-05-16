@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -48,7 +48,7 @@ func TestClientChatCompletionsPassesCommonOpenAIFields(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClient(httpClient, config.ConnectionConfig{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
 
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:       "opena/gpt-4.1",
@@ -113,7 +113,7 @@ func TestClientStreamsOpenAIResponses(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClient(httpClient, config.ConnectionConfig{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "opena/gpt-4.1",
@@ -137,7 +137,7 @@ func TestClientStreamsOpenAIResponses(t *testing.T) {
 }
 
 func TestClientRequiresCredential(t *testing.T) {
-	client := NewClient(nil, config.ConnectionConfig{ProviderID: "openai", Name: "openai-user"})
+	client := NewClient(nil, connection.Record{ProviderID: "openai", Name: "openai-user"})
 
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
 	if err == nil {

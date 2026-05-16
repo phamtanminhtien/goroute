@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -32,17 +32,17 @@ const (
 
 type Client struct {
 	httpClient *http.Client
-	connection config.ConnectionConfig
+	connection connection.Record
 	baseURL    string
 	sessions   *sessionStore
 	tokenMu    sync.Mutex
 }
 
-func NewClient(connection config.ConnectionConfig) *Client {
+func NewClient(connection connection.Record) *Client {
 	return NewClientWithHTTPClient(nil, connection)
 }
 
-func NewClientWithHTTPClient(httpClient *http.Client, connection config.ConnectionConfig) *Client {
+func NewClientWithHTTPClient(httpClient *http.Client, connection connection.Record) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -200,7 +200,7 @@ func (c *Client) resolveAccessToken(forceRefresh bool) (string, error) {
 	return "", err
 }
 
-func shouldRetryWithTokenRefresh(statusCode int, connection config.ConnectionConfig) bool {
+func shouldRetryWithTokenRefresh(statusCode int, connection connection.Record) bool {
 	if statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden {
 		return false
 	}

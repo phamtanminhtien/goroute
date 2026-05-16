@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -23,7 +23,7 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestClientRequiresCredential(t *testing.T) {
-	client := NewClient(config.ConnectionConfig{ProviderID: "cx", Name: "codex-user"})
+	client := NewClient(connection.Record{ProviderID: "cx", Name: "codex-user"})
 
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4"})
 	if err == nil {
@@ -73,7 +73,7 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, config.ConnectionConfig{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model: "cx/gpt-5.3-codex",
@@ -119,7 +119,7 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, config.ConnectionConfig{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "cx/gpt-5.3-codex",
@@ -169,7 +169,7 @@ func TestClientRefreshesTokenProactivelyBeforeRequest(t *testing.T) {
 	})}
 	oauthHTTPClient = httpClient
 
-	client := NewClientWithHTTPClient(httpClient, config.ConnectionConfig{
+	client := NewClientWithHTTPClient(httpClient, connection.Record{
 		ProviderID:           "cx",
 		Name:                 "codex-user",
 		AccessToken:          "stale-token",
@@ -236,7 +236,7 @@ func TestClientRefreshesTokenAfterUnauthorizedResponse(t *testing.T) {
 	})}
 	oauthHTTPClient = httpClient
 
-	client := NewClientWithHTTPClient(httpClient, config.ConnectionConfig{
+	client := NewClientWithHTTPClient(httpClient, connection.Record{
 		ProviderID:           "cx",
 		Name:                 "codex-user",
 		AccessToken:          "stale-token",

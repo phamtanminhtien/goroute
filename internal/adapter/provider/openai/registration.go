@@ -3,7 +3,7 @@ package openai
 import (
 	"strings"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -23,10 +23,10 @@ func Registration() providerregistry.Registration {
 				Description: "",
 			}},
 		},
-		BuildConnection: func(connectionConfig config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.Connection, error) {
 			return NewClient(nil, connectionConfig), nil
 		},
-		ValidateConnection: func(connectionConfig config.ConnectionConfig) []string {
+		ValidateConnection: func(connectionConfig connection.Record) []string {
 			if strings.TrimSpace(connectionConfig.APIKey) == "" && strings.TrimSpace(connectionConfig.AccessToken) == "" {
 				return []string{"missing api_key or access_token"}
 			}

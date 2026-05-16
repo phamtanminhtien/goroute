@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
@@ -22,7 +22,7 @@ func connectionsHandler(service *connectionsusecase.Service) http.Handler {
 				"data":   service.List(),
 			})
 		case http.MethodPost:
-			var input config.ConnectionConfig
+			var input connection.Record
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 				return
@@ -58,7 +58,7 @@ func connectionByIDHandler(service *connectionsusecase.Service) http.Handler {
 			}
 			writeJSON(w, http.StatusOK, item)
 		case http.MethodPut:
-			var input config.ConnectionConfig
+			var input connection.Record
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 				return

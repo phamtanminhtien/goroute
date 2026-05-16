@@ -3,12 +3,11 @@
 ## Configuration
 
 The user config file is loaded from `~/.goroute/config.json`.
-It configures local runtime behavior and credentials only; providers, model namespaces, and model catalogs are compiled into the binary.
+It configures local runtime behavior only; providers, model namespaces, and model catalogs are compiled into the binary, while connection records are stored in SQLite.
 
-The current schema has two top-level domains:
+The current schema has one top-level domain:
 
 - server
-- connections
 
 Example `~/.goroute/config.json`:
 
@@ -18,31 +17,14 @@ Example `~/.goroute/config.json`:
     "listen": ":2232",
     "auth_token": "change-me",
     "web_ui_dir": "web/dist"
-  },
-  "connections": [
-    {
-      "id": "codex-1",
-      "provider_id": "cx",
-      "access_token": "${ACCESS_TOKEN}",
-      "refresh_token": "${REFRESH_TOKEN}",
-      "token_type": "Bearer",
-      "expires_in": 3600,
-      "name": "user@example.com"
-    },
-    {
-      "id": "openai-1",
-      "provider_id": "openai",
-      "api_key": "${OPENAI_API_KEY}",
-      "name": "user@example.com"
-    }
-  ]
+  }
 }
 ```
 
-Current validation requires every connection to have `id`, `provider_id`, and `name`.
 `server.listen` defaults to `:2232` when omitted.
 `server.auth_token` is required and is used to protect admin-only HTTP routes.
 `server.web_ui_dir` defaults to `web/dist`; when that directory exists, the Go server also serves the built admin UI and SPA routes.
+Connections are persisted in `~/.goroute/goroute.db`.
 Connection credentials are validated lazily by the selected adapter during request execution.
 
 ## Logging Environment
@@ -59,7 +41,7 @@ Current connection credential behavior:
 
 - `codex` uses `access_token`, falling back to `api_key` if present.
 - `openai` uses `api_key`, falling back to `access_token` if present.
-- `refresh_token` is represented in config but is not used for refresh yet.
+- `refresh_token` is stored with the connection record and is used by the Codex provider to refresh access tokens when needed.
 - `token_type` and `expires_in` are persisted with OAuth connections when returned by the provider.
 
 ## Admin API
@@ -84,7 +66,7 @@ Current admin routes:
 
 This usage data is not persisted in a database, cache table, or the user config file.
 The server fetches it live from the Codex upstream when the admin route is called, normalizes it in memory, and returns it immediately.
-Nothing from the normalized quota payload is stored back into `~/.goroute/config.json`.
+Nothing from the normalized quota payload is stored back into `~/.goroute/config.json` or `~/.goroute/goroute.db`.
 
 The Codex adapter calls:
 
@@ -220,7 +202,7 @@ Current built-in providers:
 
 ## Data Model
 
-### Connection config
+### Connection record
 
 Implemented fields:
 

@@ -38,6 +38,10 @@ func (a *App) Run() error {
 		a.logger.Error().Err(err).Msg("server_shutdown_failed")
 		return err
 	}
+	if err := a.store.Close(); err != nil {
+		a.logger.Error().Err(err).Msg("sqlite_close_failed")
+		return err
+	}
 
 	a.logger.Info().Msg("server_shutdown_complete")
 	return nil

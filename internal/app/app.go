@@ -11,7 +11,9 @@ import (
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
 	provideropenai "github.com/phamtanminhtien/goroute/internal/adapter/provider/openai"
 	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
+	"github.com/phamtanminhtien/goroute/internal/storage/sqlite"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/phamtanminhtien/goroute/internal/usecase/connections"
@@ -21,6 +23,7 @@ import (
 type App struct {
 	server *http.Server
 	logger zerolog.Logger
+	store  *sqlite.Store
 }
 
 func New(logger zerolog.Logger) (*App, error) {
@@ -33,9 +36,18 @@ func New(logger zerolog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
+	databasePath, err := config.ResolveDatabasePath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
+	}
+	store, err := sqlite.Open(databasePath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite store: %w", err)
+	}
 
 	providers, err := buildProviderRegistry()
 	if err != nil {
+		store.Close()
 		return nil, fmt.Errorf("build provider registry: %w", err)
 	}
 	catalog := providers.Catalog()
@@ -45,12 +57,18 @@ func New(logger zerolog.Logger) (*App, error) {
 	connectionServiceLogger := logger.With().Str("component", "connections_service").Logger()
 	httpLogger := logger.With().Str("component", "http").Logger()
 
-	connectionRegistry, err := buildConnectionRegistryWithLogger(cfg.Connections, providers, &connectionRegistryLogger)
+	connectionRecords, err := store.ListConnections()
 	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("load sqlite connections: %w", err)
+	}
+	connectionRegistry, err := buildConnectionRegistryWithLogger(connectionRecords, providers, &connectionRegistryLogger)
+	if err != nil {
+		store.Close()
 		return nil, err
 	}
 
-	connectionService := connections.NewService(configPath, cfg, &connectionRuntime{
+	connectionService := connections.NewService(connectionRecords, store, &connectionRuntime{
 		providers: providers,
 		registry:  connectionRegistry,
 		logger:    &connectionRegistryLogger,
@@ -70,7 +88,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	return &App{server: server, logger: appLogger}, nil
+	return &App{server: server, logger: appLogger, store: store}, nil
 }
 
 func buildProviderRegistry() (providerregistry.Registry, error) {
@@ -80,7 +98,7 @@ func buildProviderRegistry() (providerregistry.Registry, error) {
 	)
 }
 
-func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConfig, providers providerregistry.Registry, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
+func buildConnectionRegistryWithLogger(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
 	entries, err := buildConnectionEntries(connectionConfigs, providers, logger)
 	if err != nil {
 		return nil, err
@@ -90,7 +108,7 @@ func buildConnectionRegistryWithLogger(connectionConfigs []config.ConnectionConf
 	return &registry, nil
 }
 
-func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, providers providerregistry.Registry, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
+func buildConnectionEntries(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
 	connectionsByProvider := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
 		logConnectionDiagnostic(logger, providers, connectionConfig)
@@ -110,7 +128,7 @@ func buildConnectionEntries(connectionConfigs []config.ConnectionConfig, provide
 	return connectionsByProvider, nil
 }
 
-func logConnectionDiagnostic(logger *zerolog.Logger, providers providerregistry.Registry, connection config.ConnectionConfig) {
+func logConnectionDiagnostic(logger *zerolog.Logger, providers providerregistry.Registry, connection connection.Record) {
 	if logger == nil {
 		return
 	}
@@ -136,7 +154,7 @@ type connectionRuntime struct {
 	logger    *zerolog.Logger
 }
 
-func (r *connectionRuntime) ReplaceConnections(connectionConfigs []config.ConnectionConfig) error {
+func (r *connectionRuntime) ReplaceConnections(connectionConfigs []connection.Record) error {
 	entries, err := buildConnectionEntries(connectionConfigs, r.providers, r.logger)
 	if err != nil {
 		return err

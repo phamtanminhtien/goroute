@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
@@ -13,13 +13,13 @@ func TestCatalogPreservesRegistrationOrder(t *testing.T) {
 	registry, err := New(
 		Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+			BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 				return nil, nil
 			},
 		},
 		Registration{
 			Descriptor: provider.Provider{ID: "openai", Name: "OpenAI"},
-			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+			BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 				return nil, nil
 			},
 		},
@@ -40,7 +40,7 @@ func TestCatalogPreservesRegistrationOrder(t *testing.T) {
 func TestBuildConnectionRejectsUnknownProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
 	})
@@ -48,7 +48,7 @@ func TestBuildConnectionRejectsUnknownProvider(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = registry.BuildConnection(config.ConnectionConfig{ProviderID: "openai"})
+	_, err = registry.BuildConnection(connection.Record{ProviderID: "openai"})
 	if err == nil || !strings.Contains(err.Error(), `unsupported provider "openai"`) {
 		t.Fatalf("expected unsupported provider error, got %v", err)
 	}
@@ -57,10 +57,10 @@ func TestBuildConnectionRejectsUnknownProvider(t *testing.T) {
 func TestValidateConnectionUsesProviderValidator(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
-		ValidateConnection: func(config.ConnectionConfig) []string {
+		ValidateConnection: func(connection.Record) []string {
 			return []string{"missing access_token or api_key"}
 		},
 	})
@@ -68,7 +68,7 @@ func TestValidateConnectionUsesProviderValidator(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	problems := registry.ValidateConnection(config.ConnectionConfig{ProviderID: "cx"})
+	problems := registry.ValidateConnection(connection.Record{ProviderID: "cx"})
 	if len(problems) != 1 || problems[0] != "missing access_token or api_key" {
 		t.Fatalf("unexpected problems: %#v", problems)
 	}
@@ -77,10 +77,10 @@ func TestValidateConnectionUsesProviderValidator(t *testing.T) {
 func TestGenerateOAuthURLUsesProviderGenerator(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
-		GenerateOAuthURL: func(config.ConnectionConfig) (string, error) {
+		GenerateOAuthURL: func(connection.Record) (string, error) {
 			return "https://auth.openai.com/oauth/authorize?provider=cx", nil
 		},
 	})
@@ -88,7 +88,7 @@ func TestGenerateOAuthURLUsesProviderGenerator(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	url, err := registry.GenerateOAuthURL(config.ConnectionConfig{ProviderID: "cx"})
+	url, err := registry.GenerateOAuthURL(connection.Record{ProviderID: "cx"})
 	if err != nil {
 		t.Fatalf("GenerateOAuthURL returned error: %v", err)
 	}
@@ -100,18 +100,18 @@ func TestGenerateOAuthURLUsesProviderGenerator(t *testing.T) {
 func TestGetAccessTokenUsesProviderResolver(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
-		GetAccessToken: func(connection config.ConnectionConfig) (string, error) {
-			return "access-for-" + connection.ID, nil
+		GetAccessToken: func(record connection.Record) (string, error) {
+			return "access-for-" + record.ID, nil
 		},
 	})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	token, err := registry.GetAccessToken(config.ConnectionConfig{ID: "codex-1", ProviderID: "cx"})
+	token, err := registry.GetAccessToken(connection.Record{ID: "codex-1", ProviderID: "cx"})
 	if err != nil {
 		t.Fatalf("GetAccessToken returned error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestGetAccessTokenUsesProviderResolver(t *testing.T) {
 func TestGetAccessTokenRejectsUnsupportedProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
 	})
@@ -131,7 +131,7 @@ func TestGetAccessTokenRejectsUnsupportedProvider(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = registry.GetAccessToken(config.ConnectionConfig{ProviderID: "openai"})
+	_, err = registry.GetAccessToken(connection.Record{ProviderID: "openai"})
 	if err == nil || !strings.Contains(err.Error(), `unsupported provider "openai"`) {
 		t.Fatalf("expected unsupported provider error, got %v", err)
 	}
@@ -140,7 +140,7 @@ func TestGetAccessTokenRejectsUnsupportedProvider(t *testing.T) {
 func TestGetAccessTokenRejectsProviderWithoutResolver(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
 	})
@@ -148,7 +148,7 @@ func TestGetAccessTokenRejectsProviderWithoutResolver(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = registry.GetAccessToken(config.ConnectionConfig{ProviderID: "cx"})
+	_, err = registry.GetAccessToken(connection.Record{ProviderID: "cx"})
 	if err == nil || !strings.Contains(err.Error(), "does not support access token resolution") {
 		t.Fatalf("expected unsupported access token resolver error, got %v", err)
 	}
@@ -157,7 +157,7 @@ func TestGetAccessTokenRejectsProviderWithoutResolver(t *testing.T) {
 func TestGenerateOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "openai", Name: "OpenAI"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
 	})
@@ -165,7 +165,7 @@ func TestGenerateOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = registry.GenerateOAuthURL(config.ConnectionConfig{ProviderID: "openai"})
+	_, err = registry.GenerateOAuthURL(connection.Record{ProviderID: "openai"})
 	if err == nil || !strings.Contains(err.Error(), "does not support oauth authorization url generation") {
 		t.Fatalf("expected unsupported oauth generator error, got %v", err)
 	}
@@ -174,10 +174,10 @@ func TestGenerateOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 func TestStartOAuthUsesProviderStarter(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
-		StartOAuth: func(config.ConnectionConfig) (OAuthSession, error) {
+		StartOAuth: func(connection.Record) (OAuthSession, error) {
 			return OAuthSession{
 				AuthorizationURL: "https://auth.openai.com/oauth/authorize?provider=cx",
 				Pending:          map[string]string{"state": "test-state"},
@@ -188,7 +188,7 @@ func TestStartOAuthUsesProviderStarter(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	session, err := registry.StartOAuth(config.ConnectionConfig{ProviderID: "cx"})
+	session, err := registry.StartOAuth(connection.Record{ProviderID: "cx"})
 	if err != nil {
 		t.Fatalf("StartOAuth returned error: %v", err)
 	}
@@ -203,10 +203,10 @@ func TestStartOAuthUsesProviderStarter(t *testing.T) {
 func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 			return nil, nil
 		},
-		CompleteOAuth: func(config.ConnectionConfig, map[string]string, string) (OAuthResult, error) {
+		CompleteOAuth: func(connection.Record, map[string]string, string) (OAuthResult, error) {
 			return OAuthResult{
 				AccessToken:          "access-123",
 				RefreshToken:         "refresh-456",
@@ -222,7 +222,7 @@ func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 	}
 
 	result, err := registry.CompleteOAuth(
-		config.ConnectionConfig{ProviderID: "cx"},
+		connection.Record{ProviderID: "cx"},
 		map[string]string{"state": "test-state"},
 		"http://localhost:1455/auth/callback?code=abc&state=test-state",
 	)

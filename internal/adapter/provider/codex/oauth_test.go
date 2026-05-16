@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 )
 
 func TestGenerateOAuthURLIncludesCodexOAuthParameters(t *testing.T) {
-	authURL, err := GenerateOAuthURL(config.ConnectionConfig{ProviderID: "cx"})
+	authURL, err := GenerateOAuthURL(connection.Record{ProviderID: "cx"})
 	if err != nil {
 		t.Fatalf("GenerateOAuthURL returned error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestCheckAndRefreshTokenRefreshesExpiringToken(t *testing.T) {
 		}),
 	}
 
-	token, err := checkAndRefreshToken(config.ConnectionConfig{
+	token, err := checkAndRefreshToken(connection.Record{
 		ProviderID:           "cx",
 		AccessToken:          "access-123",
 		RefreshToken:         "refresh-123",

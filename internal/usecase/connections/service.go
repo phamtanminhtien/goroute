@@ -9,28 +9,35 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/rs/zerolog"
 )
 
 type Runtime interface {
-	ReplaceConnections([]config.ConnectionConfig) error
+	ReplaceConnections([]connection.Record) error
+}
+
+type Repository interface {
+	CreateConnection(connection.Record) error
+	UpdateConnection(string, connection.Record) error
+	DeleteConnection(string) error
+	ReplaceConnections([]connection.Record) error
 }
 
 type ProviderRegistry interface {
-	ValidateConnection(config.ConnectionConfig) []string
-	GetUsage(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error)
-	GenerateOAuthURL(config.ConnectionConfig) (string, error)
-	StartOAuth(config.ConnectionConfig) (providerregistry.OAuthSession, error)
-	CompleteOAuth(config.ConnectionConfig, map[string]string, string) (providerregistry.OAuthResult, error)
+	ValidateConnection(connection.Record) []string
+	GetUsage(context.Context, connection.Record) (providerregistry.UsageInfo, error)
+	GenerateOAuthURL(connection.Record) (string, error)
+	StartOAuth(connection.Record) (providerregistry.OAuthSession, error)
+	CompleteOAuth(connection.Record, map[string]string, string) (providerregistry.OAuthResult, error)
 }
 
 type Service struct {
 	mu           sync.RWMutex
-	configPath   string
-	config       config.Config
+	connections  []connection.Record
 	pendingOAuth map[string]pendingOAuthConnection
+	repo         Repository
 	runtime      Runtime
 	providers    ProviderRegistry
 	logger       *zerolog.Logger
@@ -46,16 +53,16 @@ type OAuthStartResult struct {
 	AuthorizationURL string `json:"url"`
 }
 
-func NewService(configPath string, cfg config.Config, runtime Runtime, providers ProviderRegistry, logger *zerolog.Logger) *Service {
+func NewService(initial []connection.Record, repo Repository, runtime Runtime, providers ProviderRegistry, logger *zerolog.Logger) *Service {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
 	}
 
 	return &Service{
-		configPath:   configPath,
-		config:       cfg,
+		connections:  append([]connection.Record(nil), initial...),
 		pendingOAuth: make(map[string]pendingOAuthConnection),
+		repo:         repo,
 		runtime:      runtime,
 		providers:    providers,
 		logger:       logger,
@@ -82,8 +89,8 @@ func (s *Service) List() []Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	items := make([]Item, 0, len(s.config.Connections))
-	for _, connection := range s.config.Connections {
+	items := make([]Item, 0, len(s.connections))
+	for _, connection := range s.connections {
 		items = append(items, s.redactConnection(connection))
 	}
 
@@ -94,7 +101,7 @@ func (s *Service) Get(id string) (Item, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	for _, connection := range s.config.Connections {
+	for _, connection := range s.connections {
 		if connection.ID == id {
 			return s.redactConnection(connection), true
 		}
@@ -107,7 +114,7 @@ func (s *Service) GetUsage(ctx context.Context, id string) (providerregistry.Usa
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	for _, connection := range s.config.Connections {
+	for _, connection := range s.connections {
 		if connection.ID == id {
 			return s.providers.GetUsage(ctx, connection)
 		}
@@ -120,20 +127,22 @@ func (s *Service) Providers() ProviderRegistry {
 	return s.providers
 }
 
-func (s *Service) Create(input config.ConnectionConfig) (Item, error) {
+func (s *Service) Create(input connection.Record) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	input = normalizeConnection(input)
-	for _, connection := range s.config.Connections {
-		if connection.ID == input.ID {
+	for _, existing := range s.connections {
+		if existing.ID == input.ID {
 			return Item{}, fmt.Errorf("connection %q already exists", input.ID)
 		}
 	}
 
-	nextConfig := s.config
-	nextConfig.Connections = append(append([]config.ConnectionConfig(nil), s.config.Connections...), input)
-	if err := s.persist(nextConfig); err != nil {
+	before := append([]connection.Record(nil), s.connections...)
+	next := append(append([]connection.Record(nil), s.connections...), input)
+	if err := s.persistMutation(before, next, func() error {
+		return s.repo.CreateConnection(input)
+	}); err != nil {
 		return Item{}, err
 	}
 
@@ -155,7 +164,7 @@ func (s *Service) StartOAuth(providerID string) (OAuthStartResult, error) {
 		return OAuthStartResult{}, fmt.Errorf("provider id is required")
 	}
 
-	session, err := s.providers.StartOAuth(config.ConnectionConfig{
+	session, err := s.providers.StartOAuth(connection.Record{
 		ProviderID: providerID,
 	})
 	if err != nil {
@@ -194,7 +203,7 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 	connectionID := s.nextOAuthConnectionID(pending.ProviderID)
 
 	result, err := s.providers.CompleteOAuth(
-		config.ConnectionConfig{ID: connectionID, ProviderID: pending.ProviderID},
+		connection.Record{ID: connectionID, ProviderID: pending.ProviderID},
 		clonePending(pending.Pending),
 		strings.TrimSpace(callbackURL),
 	)
@@ -202,7 +211,7 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 		return Item{}, err
 	}
 
-	input := normalizeConnection(config.ConnectionConfig{
+	input := normalizeConnection(connection.Record{
 		ID:                   connectionID,
 		ProviderID:           pending.ProviderID,
 		Name:                 defaultString(strings.TrimSpace(result.Name), connectionID),
@@ -213,9 +222,11 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 		AccessTokenExpiresAt: result.AccessTokenExpiresAt,
 	})
 
-	nextConfig := s.config
-	nextConfig.Connections = append(append([]config.ConnectionConfig(nil), s.config.Connections...), input)
-	if err := s.persist(nextConfig); err != nil {
+	before := append([]connection.Record(nil), s.connections...)
+	next := append(append([]connection.Record(nil), s.connections...), input)
+	if err := s.persistMutation(before, next, func() error {
+		return s.repo.CreateConnection(input)
+	}); err != nil {
 		return Item{}, err
 	}
 
@@ -230,21 +241,21 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 	return s.redactConnection(input), nil
 }
 
-func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error) {
+func (s *Service) Update(id string, input connection.Record) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	input = normalizeConnection(input)
 
 	index := -1
-	var existing config.ConnectionConfig
-	for i, connection := range s.config.Connections {
-		if connection.ID == id {
+	var existing connection.Record
+	for i, current := range s.connections {
+		if current.ID == id {
 			index = i
-			existing = connection
+			existing = current
 			continue
 		}
-		if connection.ID == input.ID {
+		if current.ID == input.ID {
 			return Item{}, fmt.Errorf("connection %q already exists", input.ID)
 		}
 	}
@@ -254,11 +265,12 @@ func (s *Service) Update(id string, input config.ConnectionConfig) (Item, error)
 
 	input = preserveExistingSecrets(existing, input)
 
-	nextConnections := append([]config.ConnectionConfig(nil), s.config.Connections...)
-	nextConnections[index] = input
-	nextConfig := s.config
-	nextConfig.Connections = nextConnections
-	if err := s.persist(nextConfig); err != nil {
+	before := append([]connection.Record(nil), s.connections...)
+	next := append([]connection.Record(nil), s.connections...)
+	next[index] = input
+	if err := s.persistMutation(before, next, func() error {
+		return s.repo.UpdateConnection(id, input)
+	}); err != nil {
 		return Item{}, err
 	}
 
@@ -275,16 +287,12 @@ func (s *Service) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.config.Connections) == 1 {
-		return fmt.Errorf("at least one connection must remain configured")
-	}
-
 	index := -1
-	var deleted config.ConnectionConfig
-	for i, connection := range s.config.Connections {
-		if connection.ID == id {
+	var deleted connection.Record
+	for i, current := range s.connections {
+		if current.ID == id {
 			index = i
-			deleted = connection
+			deleted = current
 			break
 		}
 	}
@@ -292,11 +300,12 @@ func (s *Service) Delete(id string) error {
 		return ErrNotFound{ConnectionID: id}
 	}
 
-	nextConnections := append([]config.ConnectionConfig(nil), s.config.Connections[:index]...)
-	nextConnections = append(nextConnections, s.config.Connections[index+1:]...)
-	nextConfig := s.config
-	nextConfig.Connections = nextConnections
-	if err := s.persist(nextConfig); err != nil {
+	before := append([]connection.Record(nil), s.connections...)
+	next := append([]connection.Record(nil), s.connections[:index]...)
+	next = append(next, s.connections[index+1:]...)
+	if err := s.persistMutation(before, next, func() error {
+		return s.repo.DeleteConnection(id)
+	}); err != nil {
 		return err
 	}
 
@@ -309,24 +318,23 @@ func (s *Service) Delete(id string) error {
 	return nil
 }
 
-func (s *Service) persist(nextConfig config.Config) error {
-	if err := config.Validate(nextConfig); err != nil {
+func (s *Service) persistMutation(before, next []connection.Record, write func() error) error {
+	if err := write(); err != nil {
 		s.logger.Error().Err(err).Msg("persist_failed")
 		return err
 	}
-	if err := s.runtime.ReplaceConnections(nextConfig.Connections); err != nil {
+	if err := s.runtime.ReplaceConnections(next); err != nil {
 		s.logger.Error().Err(err).Msg("runtime_reload_failed")
-		return err
-	}
-	if err := config.SavePath(s.configPath, nextConfig); err != nil {
-		s.logger.Error().Err(err).Msg("persist_failed")
-		if rollbackErr := s.runtime.ReplaceConnections(s.config.Connections); rollbackErr != nil {
-			s.logger.Error().Err(rollbackErr).Msg("runtime_reload_rollback_failed")
+		if rollbackErr := s.repo.ReplaceConnections(before); rollbackErr != nil {
+			s.logger.Error().Err(rollbackErr).Msg("persist_rollback_failed")
+		}
+		if restoreErr := s.runtime.ReplaceConnections(before); restoreErr != nil {
+			s.logger.Error().Err(restoreErr).Msg("runtime_reload_rollback_failed")
 		}
 		return err
 	}
 
-	s.config = nextConfig
+	s.connections = next
 	return nil
 }
 
@@ -338,7 +346,7 @@ func (e ErrNotFound) Error() string {
 	return fmt.Sprintf("connection %q not found", e.ConnectionID)
 }
 
-func normalizeConnection(connection config.ConnectionConfig) config.ConnectionConfig {
+func normalizeConnection(connection connection.Record) connection.Record {
 	connection.ID = strings.TrimSpace(connection.ID)
 	connection.ProviderID = strings.TrimSpace(connection.ProviderID)
 	connection.Name = strings.TrimSpace(connection.Name)
@@ -349,7 +357,7 @@ func normalizeConnection(connection config.ConnectionConfig) config.ConnectionCo
 	return connection
 }
 
-func (s *Service) redactConnection(connection config.ConnectionConfig) Item {
+func (s *Service) redactConnection(connection connection.Record) Item {
 	problems := connectionProblems(s.providers, connection)
 	status := "ready"
 	if len(problems) > 0 {
@@ -370,10 +378,7 @@ func (s *Service) redactConnection(connection config.ConnectionConfig) Item {
 	}
 }
 
-func preserveExistingSecrets(
-	existing config.ConnectionConfig,
-	next config.ConnectionConfig,
-) config.ConnectionConfig {
+func preserveExistingSecrets(existing connection.Record, next connection.Record) connection.Record {
 	if next.APIKey == "" {
 		next.APIKey = existing.APIKey
 	}
@@ -396,7 +401,7 @@ func preserveExistingSecrets(
 	return next
 }
 
-func connectionProblems(providers ProviderRegistry, connection config.ConnectionConfig) []string {
+func connectionProblems(providers ProviderRegistry, connection connection.Record) []string {
 	if providers == nil {
 		return nil
 	}
@@ -426,7 +431,7 @@ func defaultString(value, fallback string) string {
 func (s *Service) nextOAuthConnectionID(providerID string) string {
 	prefix := providerID
 	maxSuffix := 0
-	for _, connection := range s.config.Connections {
+	for _, connection := range s.connections {
 		if connection.ProviderID != providerID {
 			continue
 		}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 )
 
 const (
@@ -36,11 +36,11 @@ const (
 var oauthHTTPClient = http.DefaultClient
 var timeNow = time.Now
 
-func GetAccessToken(connection config.ConnectionConfig) (string, error) {
+func GetAccessToken(connection connection.Record) (string, error) {
 	return checkAndRefreshToken(connection)
 }
 
-func checkAndRefreshToken(connection config.ConnectionConfig) (string, error) {
+func checkAndRefreshToken(connection connection.Record) (string, error) {
 	nextConnection, err := refreshConnectionToken(connection, false)
 	if err != nil {
 		return "", err
@@ -54,7 +54,7 @@ func checkAndRefreshToken(connection config.ConnectionConfig) (string, error) {
 	return accessToken, nil
 }
 
-func GenerateOAuthURL(connection config.ConnectionConfig) (string, error) {
+func GenerateOAuthURL(connection connection.Record) (string, error) {
 	session, err := StartOAuth(connection)
 	if err != nil {
 		return "", err
@@ -63,7 +63,7 @@ func GenerateOAuthURL(connection config.ConnectionConfig) (string, error) {
 	return session.AuthorizationURL, nil
 }
 
-func StartOAuth(config.ConnectionConfig) (*PendingCodexOAuth, error) {
+func StartOAuth(connection.Record) (*PendingCodexOAuth, error) {
 	codeVerifier, err := randomBase64URL(defaultCodeVerifierEntropyBytes)
 	if err != nil {
 		return nil, err
@@ -248,7 +248,7 @@ func validateOAuthState(expectedState, returnedState string) error {
 	return nil
 }
 
-func refreshConnectionToken(connection config.ConnectionConfig, force bool) (config.ConnectionConfig, error) {
+func refreshConnectionToken(connection connection.Record, force bool) (connection.Record, error) {
 	connection.AccessToken = strings.TrimSpace(connection.AccessToken)
 	connection.RefreshToken = strings.TrimSpace(connection.RefreshToken)
 	connection.TokenType = strings.TrimSpace(connection.TokenType)
@@ -284,7 +284,7 @@ func refreshConnectionToken(connection config.ConnectionConfig, force bool) (con
 	return connection, nil
 }
 
-func shouldProactivelyRefresh(connection config.ConnectionConfig) bool {
+func shouldProactivelyRefresh(connection connection.Record) bool {
 	if strings.TrimSpace(connection.RefreshToken) == "" {
 		return false
 	}

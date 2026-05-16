@@ -13,11 +13,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
+	"github.com/phamtanminhtien/goroute/internal/storage/sqlite"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
@@ -42,7 +43,7 @@ type testRuntime struct {
 	registry *chatcompletion.ConnectionRegistry
 }
 
-func (r testRuntime) ReplaceConnections(connectionConfigs []config.ConnectionConfig) error {
+func (r testRuntime) ReplaceConnections(connectionConfigs []connection.Record) error {
 	entries := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
 		entries[connectionConfig.ProviderID] = append(entries[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
@@ -64,49 +65,47 @@ func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, web
 	return testServerWithUsageAndConnectionAndWebUI(t, nil, connection, webUIRoot)
 }
 
-func testServerWithUsage(t *testing.T, getUsage func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error)) http.Handler {
+func testServerWithUsage(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error)) http.Handler {
 	return testServerWithUsageAndConnection(t, getUsage, &testProvider{})
 }
 
-func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error), connection chatcompletion.Connection) http.Handler {
-	return testServerWithUsageAndConnectionAndWebUI(t, getUsage, connection, nil)
+func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection) http.Handler {
+	return testServerWithUsageAndConnectionAndWebUI(t, getUsage, connectionClient, nil)
 }
 
-func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error), connection chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
+func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
 	t.Helper()
 
-	registry := testConnectionRegistry(connection)
-	cfg := config.Config{
-		Server: config.ServerConfig{
-			Listen:    ":2232",
-			AuthToken: testAdminToken,
-		},
-		Connections: []config.ConnectionConfig{
-			{
-				ID:          "codex-1",
-				ProviderID:  "cx",
-				Name:        "codex-user",
-				AccessToken: "secret-token",
-				TokenType:   "Bearer",
-				ExpiresIn:   3600,
-			},
-		},
+	registry := testConnectionRegistry(connectionClient)
+	initialConnections := []connection.Record{{
+		ID:          "codex-1",
+		ProviderID:  "cx",
+		Name:        "codex-user",
+		AccessToken: "secret-token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+	}}
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "goroute.db"))
+	if err != nil {
+		t.Fatalf("open sqlite store: %v", err)
 	}
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := config.SavePath(configPath, cfg); err != nil {
-		t.Fatalf("save config: %v", err)
+	t.Cleanup(func() {
+		store.Close()
+	})
+	if err := store.ReplaceConnections(initialConnections); err != nil {
+		t.Fatalf("seed sqlite connections: %v", err)
 	}
 
 	logger := logging.NewWithWriter("prod", &bytes.Buffer{})
 	providers, err := providerregistry.New(
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
-				return connection, nil
+			BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
+				return connectionClient, nil
 			},
-			GetUsage: func(ctx context.Context, connection config.ConnectionConfig) (providerregistry.UsageInfo, error) {
+			GetUsage: func(ctx context.Context, record connection.Record) (providerregistry.UsageInfo, error) {
 				if getUsage != nil {
-					return getUsage(ctx, connection)
+					return getUsage(ctx, record)
 				}
 
 				return providerregistry.UsageInfo{
@@ -123,10 +122,10 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 					},
 				}, nil
 			},
-			GenerateOAuthURL: func(config.ConnectionConfig) (string, error) {
+			GenerateOAuthURL: func(connection.Record) (string, error) {
 				return "https://auth.openai.com/oauth/authorize?provider=cx", nil
 			},
-			StartOAuth: func(connection config.ConnectionConfig) (providerregistry.OAuthSession, error) {
+			StartOAuth: func(connection.Record) (providerregistry.OAuthSession, error) {
 				return providerregistry.OAuthSession{
 					AuthorizationURL: "https://auth.openai.com/oauth/authorize?provider=cx&flow=start",
 					Pending: map[string]string{
@@ -136,7 +135,7 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 					},
 				}, nil
 			},
-			CompleteOAuth: func(connection config.ConnectionConfig, pending map[string]string, callbackURL string) (providerregistry.OAuthResult, error) {
+			CompleteOAuth: func(_ connection.Record, pending map[string]string, callbackURL string) (providerregistry.OAuthResult, error) {
 				if pending["state"] != "test-state" {
 					return providerregistry.OAuthResult{}, errors.New("state mismatch")
 				}
@@ -151,8 +150,8 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 					Name:         "oauth-user@example.com",
 				}, nil
 			},
-			ValidateConnection: func(connection config.ConnectionConfig) []string {
-				if connection.AccessToken == "" && connection.APIKey == "" {
+			ValidateConnection: func(record connection.Record) []string {
+				if record.AccessToken == "" && record.APIKey == "" {
 					return []string{"missing access_token or api_key"}
 				}
 
@@ -161,7 +160,7 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 		},
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "opena", Name: "OpenAI"},
-			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+			BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
 				return &testProvider{}, nil
 			},
 		},
@@ -169,7 +168,7 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 	if err != nil {
 		t.Fatalf("build provider registry: %v", err)
 	}
-	service := connectionsusecase.NewService(configPath, cfg, testRuntime{registry: registry}, providers, &logger)
+	service := connectionsusecase.NewService(initialConnections, store, testRuntime{registry: registry}, providers, &logger)
 	return NewServer(testCatalog(), registry, service, testAdminToken, webUIRoot, &logger)
 }
 
@@ -721,7 +720,7 @@ func TestConnectionsOAuthCompletionCreatesConnection(t *testing.T) {
 	}
 }
 
-func TestConnectionsDeleteRejectsLastConnection(t *testing.T) {
+func TestConnectionsDeleteAllowsLastConnection(t *testing.T) {
 	handler := testServer(t, &testProvider{})
 	req := httptest.NewRequest(http.MethodDelete, "/admin/api/connections/codex-1", nil)
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
@@ -729,8 +728,8 @@ func TestConnectionsDeleteRejectsLastConnection(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNoContent, rec.Code, rec.Body.String())
 	}
 }
 
@@ -757,7 +756,7 @@ func TestConnectionUsageReturnsNormalizedQuotaPayload(t *testing.T) {
 }
 
 func TestConnectionUsageReturnsTemporaryUnavailableMessage(t *testing.T) {
-	handler := testServerWithUsage(t, func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error) {
+	handler := testServerWithUsage(t, func(context.Context, connection.Record) (providerregistry.UsageInfo, error) {
 		return providerregistry.UsageInfo{}, providerregistry.UsageUnavailableError{StatusCode: http.StatusBadGateway}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/connections/codex-1/usage", nil)

@@ -81,7 +81,7 @@ The client remains unchanged while routing policy evolves server-side.
 ## Configuration Direction
 
 The user config file is loaded from `~/.goroute/config.json`.
-It configures local runtime behavior and credentials only; system providers, model namespaces, and model catalogs are compiled into the binary.
+It configures local runtime behavior only; system providers, model namespaces, model catalogs, and persisted connections are handled outside the config file.
 
 Current implemented shape:
 
@@ -91,28 +91,13 @@ Current implemented shape:
     "listen": ":2232",
     "auth_token": "change-me",
     "web_ui_dir": "web/dist"
-  },
-  "connections": [
-    {
-      "id": "codex-1",
-      "provider_id": "cx",
-      "access_token": "${ACCESS_TOKEN}",
-      "refresh_token": "${REFRESH_TOKEN}",
-      "name": "user@example.com"
-    },
-    {
-      "id": "openai-1",
-      "provider_id": "openai",
-      "api_key": "${OPENAI_API_KEY}",
-      "name": "user@example.com"
-    }
-  ]
+  }
 }
 ```
 
-The current loader validates `id`, `provider_id`, and `name` for every connection. Credentials are checked by the selected adapter when a request is executed.
 `server.auth_token` is required and protects admin-only backend routes such as request history.
 `server.web_ui_dir` defaults to `web/dist`; when that folder exists, `goroute` also serves the built admin UI from the same server.
+Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API or UI.
 
 Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
 

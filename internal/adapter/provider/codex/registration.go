@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -24,19 +24,19 @@ func Registration() providerregistry.Registration {
 				Description: "",
 			}},
 		},
-		BuildConnection: func(connectionConfig config.ConnectionConfig) (chatcompletion.Connection, error) {
+		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.Connection, error) {
 			return NewClient(connectionConfig), nil
 		},
-		GetAccessToken: func(connectionConfig config.ConnectionConfig) (string, error) {
+		GetAccessToken: func(connectionConfig connection.Record) (string, error) {
 			return GetAccessToken(connectionConfig)
 		},
-		GetUsage: func(ctx context.Context, connectionConfig config.ConnectionConfig) (providerregistry.UsageInfo, error) {
+		GetUsage: func(ctx context.Context, connectionConfig connection.Record) (providerregistry.UsageInfo, error) {
 			return NewClient(connectionConfig).Usage(ctx)
 		},
-		GenerateOAuthURL: func(connectionConfig config.ConnectionConfig) (string, error) {
+		GenerateOAuthURL: func(connectionConfig connection.Record) (string, error) {
 			return GenerateOAuthURL(connectionConfig)
 		},
-		StartOAuth: func(connectionConfig config.ConnectionConfig) (providerregistry.OAuthSession, error) {
+		StartOAuth: func(connectionConfig connection.Record) (providerregistry.OAuthSession, error) {
 			pending, err := StartOAuth(connectionConfig)
 			if err != nil {
 				return providerregistry.OAuthSession{}, err
@@ -51,7 +51,7 @@ func Registration() providerregistry.Registration {
 				},
 			}, nil
 		},
-		CompleteOAuth: func(connectionConfig config.ConnectionConfig, pending map[string]string, callbackURL string) (providerregistry.OAuthResult, error) {
+		CompleteOAuth: func(connectionConfig connection.Record, pending map[string]string, callbackURL string) (providerregistry.OAuthResult, error) {
 			completed, err := CompleteCodexOAuthFromCallbackURL(PendingCodexOAuth{
 				CodeVerifier: pending["code_verifier"],
 				State:        pending["state"],
@@ -70,7 +70,7 @@ func Registration() providerregistry.Registration {
 				Name:                 completed.Email,
 			}, nil
 		},
-		ValidateConnection: func(connectionConfig config.ConnectionConfig) []string {
+		ValidateConnection: func(connectionConfig connection.Record) []string {
 			if strings.TrimSpace(connectionConfig.AccessToken) == "" && strings.TrimSpace(connectionConfig.APIKey) == "" {
 				return []string{"missing access_token or api_key"}
 			}

@@ -8,9 +8,6 @@ func TestValidateRequiresServerAuthToken(t *testing.T) {
 			Listen:    ":2232",
 			AuthToken: "   ",
 		},
-		Connections: []ConnectionConfig{
-			{ID: "connection-1", ProviderID: "openai", Name: "user@example.com"},
-		},
 	})
 	if err == nil {
 		t.Fatal("expected validation error for missing auth token")

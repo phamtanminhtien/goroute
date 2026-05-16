@@ -2,10 +2,12 @@ package app
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 )
 
@@ -17,7 +19,7 @@ func TestBuildConnectionRegistryLogsDiagnostics(t *testing.T) {
 		t.Fatalf("buildProviderRegistry returned error: %v", err)
 	}
 
-	_, err = buildConnectionRegistryWithLogger([]config.ConnectionConfig{
+	_, err = buildConnectionRegistryWithLogger([]connection.Record{
 		{ID: "codex-1", ProviderID: "cx", Name: "codex-user"},
 		{ID: "openai-1", ProviderID: "openai", Name: "openai-user", APIKey: "token"},
 	}, providers, &logger)
@@ -31,5 +33,34 @@ func TestBuildConnectionRegistryLogsDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(output, `"connection_id":"openai-1"`) || !strings.Contains(output, `"status":"ready"`) {
 		t.Fatalf("expected ready openai connection diagnostic, got %s", output)
+	}
+}
+
+func TestNewStartsWithEmptySQLiteDatabase(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".goroute", "config.json")
+	if err := config.SavePath(configPath, config.Config{
+		Server: config.ServerConfig{
+			Listen:    ":2232",
+			AuthToken: "secret",
+		},
+	}); err != nil {
+		t.Fatalf("SavePath returned error: %v", err)
+	}
+
+	logger := logging.NewWithWriter("prod", &bytes.Buffer{})
+	app, err := New(logger)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer app.store.Close()
+
+	if app.server == nil {
+		t.Fatal("expected server to be initialized")
+	}
+	if app.store == nil {
+		t.Fatal("expected sqlite store to be initialized")
 	}
 }

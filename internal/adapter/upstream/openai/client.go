@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -19,10 +19,10 @@ const defaultBaseURL = "https://api.openai.com"
 
 type Client struct {
 	httpClient *http.Client
-	connection config.ConnectionConfig
+	connection connection.Record
 }
 
-func NewClient(httpClient *http.Client, connection config.ConnectionConfig) *Client {
+func NewClient(httpClient *http.Client, connection connection.Record) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}

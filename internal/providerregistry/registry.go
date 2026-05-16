@@ -4,20 +4,20 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
 type Registration struct {
 	Descriptor         provider.Provider
-	BuildConnection    func(config.ConnectionConfig) (chatcompletion.Connection, error)
-	ValidateConnection func(config.ConnectionConfig) []string
-	GetAccessToken     func(config.ConnectionConfig) (string, error)
-	GetUsage           func(context.Context, config.ConnectionConfig) (UsageInfo, error)
-	GenerateOAuthURL   func(config.ConnectionConfig) (string, error)
-	StartOAuth         func(config.ConnectionConfig) (OAuthSession, error)
-	CompleteOAuth      func(config.ConnectionConfig, map[string]string, string) (OAuthResult, error)
+	BuildConnection    func(connection.Record) (chatcompletion.Connection, error)
+	ValidateConnection func(connection.Record) []string
+	GetAccessToken     func(connection.Record) (string, error)
+	GetUsage           func(context.Context, connection.Record) (UsageInfo, error)
+	GenerateOAuthURL   func(connection.Record) (string, error)
+	StartOAuth         func(connection.Record) (OAuthSession, error)
+	CompleteOAuth      func(connection.Record, map[string]string, string) (OAuthResult, error)
 }
 
 type UsageInfo struct {
@@ -101,7 +101,7 @@ func (r Registry) Catalog() provider.Catalog {
 	return provider.Catalog{Providers: providers}
 }
 
-func (r Registry) BuildConnection(connectionConfig config.ConnectionConfig) (chatcompletion.Connection, error) {
+func (r Registry) BuildConnection(connectionConfig connection.Record) (chatcompletion.Connection, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return nil, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
@@ -110,7 +110,7 @@ func (r Registry) BuildConnection(connectionConfig config.ConnectionConfig) (cha
 	return registration.BuildConnection(connectionConfig)
 }
 
-func (r Registry) ValidateConnection(connectionConfig config.ConnectionConfig) []string {
+func (r Registry) ValidateConnection(connectionConfig connection.Record) []string {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return []string{"unsupported provider"}
@@ -123,7 +123,7 @@ func (r Registry) ValidateConnection(connectionConfig config.ConnectionConfig) [
 	return append([]string(nil), problems...)
 }
 
-func (r Registry) GetAccessToken(connectionConfig config.ConnectionConfig) (string, error) {
+func (r Registry) GetAccessToken(connectionConfig connection.Record) (string, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return "", fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
@@ -135,7 +135,7 @@ func (r Registry) GetAccessToken(connectionConfig config.ConnectionConfig) (stri
 	return registration.GetAccessToken(connectionConfig)
 }
 
-func (r Registry) GetUsage(ctx context.Context, connectionConfig config.ConnectionConfig) (UsageInfo, error) {
+func (r Registry) GetUsage(ctx context.Context, connectionConfig connection.Record) (UsageInfo, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return UsageInfo{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
@@ -147,7 +147,7 @@ func (r Registry) GetUsage(ctx context.Context, connectionConfig config.Connecti
 	return registration.GetUsage(ctx, connectionConfig)
 }
 
-func (r Registry) GenerateOAuthURL(connectionConfig config.ConnectionConfig) (string, error) {
+func (r Registry) GenerateOAuthURL(connectionConfig connection.Record) (string, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return "", fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
@@ -159,7 +159,7 @@ func (r Registry) GenerateOAuthURL(connectionConfig config.ConnectionConfig) (st
 	return registration.GenerateOAuthURL(connectionConfig)
 }
 
-func (r Registry) StartOAuth(connectionConfig config.ConnectionConfig) (OAuthSession, error) {
+func (r Registry) StartOAuth(connectionConfig connection.Record) (OAuthSession, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return OAuthSession{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
@@ -171,7 +171,7 @@ func (r Registry) StartOAuth(connectionConfig config.ConnectionConfig) (OAuthSes
 	return registration.StartOAuth(connectionConfig)
 }
 
-func (r Registry) CompleteOAuth(connectionConfig config.ConnectionConfig, pending map[string]string, callbackURL string) (OAuthResult, error) {
+func (r Registry) CompleteOAuth(connectionConfig connection.Record, pending map[string]string, callbackURL string) (OAuthResult, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return OAuthResult{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
