@@ -1,6 +1,7 @@
 package providerregistry
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
@@ -12,9 +13,39 @@ type Registration struct {
 	Descriptor         provider.Provider
 	BuildConnection    func(config.ConnectionConfig) (chatcompletion.Connection, error)
 	ValidateConnection func(config.ConnectionConfig) []string
+	GetAccessToken     func(config.ConnectionConfig) (string, error)
+	GetUsage           func(context.Context, config.ConnectionConfig) (UsageInfo, error)
 	GenerateOAuthURL   func(config.ConnectionConfig) (string, error)
 	StartOAuth         func(config.ConnectionConfig) (OAuthSession, error)
 	CompleteOAuth      func(config.ConnectionConfig, map[string]string, string) (OAuthResult, error)
+}
+
+type UsageInfo struct {
+	Plan               string                 `json:"plan,omitempty"`
+	LimitReached       bool                   `json:"limitReached"`
+	ReviewLimitReached bool                   `json:"reviewLimitReached"`
+	Quotas             map[string]UsageWindow `json:"quotas,omitempty"`
+	Message            string                 `json:"message,omitempty"`
+}
+
+type UsageWindow struct {
+	Used      int    `json:"used"`
+	Total     int    `json:"total"`
+	Remaining int    `json:"remaining"`
+	ResetAt   string `json:"resetAt,omitempty"`
+	Unlimited bool   `json:"unlimited"`
+}
+
+type UsageUnavailableError struct {
+	StatusCode int
+}
+
+func (e UsageUnavailableError) Error() string {
+	if e.StatusCode <= 0 {
+		return "usage api temporarily unavailable"
+	}
+
+	return fmt.Sprintf("usage api temporarily unavailable (%d)", e.StatusCode)
 }
 
 type OAuthSession struct {
@@ -23,11 +54,12 @@ type OAuthSession struct {
 }
 
 type OAuthResult struct {
-	AccessToken  string
-	RefreshToken string
-	TokenType    string
-	ExpiresIn    int
-	Name         string
+	AccessToken          string
+	RefreshToken         string
+	TokenType            string
+	ExpiresIn            int
+	AccessTokenExpiresAt int64
+	Name                 string
 }
 
 type Registry struct {
@@ -89,6 +121,30 @@ func (r Registry) ValidateConnection(connectionConfig config.ConnectionConfig) [
 
 	problems := registration.ValidateConnection(connectionConfig)
 	return append([]string(nil), problems...)
+}
+
+func (r Registry) GetAccessToken(connectionConfig config.ConnectionConfig) (string, error) {
+	registration, ok := r.byID[connectionConfig.ProviderID]
+	if !ok {
+		return "", fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+	}
+	if registration.GetAccessToken == nil {
+		return "", fmt.Errorf("provider %q does not support access token resolution", connectionConfig.ProviderID)
+	}
+
+	return registration.GetAccessToken(connectionConfig)
+}
+
+func (r Registry) GetUsage(ctx context.Context, connectionConfig config.ConnectionConfig) (UsageInfo, error) {
+	registration, ok := r.byID[connectionConfig.ProviderID]
+	if !ok {
+		return UsageInfo{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+	}
+	if registration.GetUsage == nil {
+		return UsageInfo{}, fmt.Errorf("provider %q does not support usage lookup", connectionConfig.ProviderID)
+	}
+
+	return registration.GetUsage(ctx, connectionConfig)
 }
 
 func (r Registry) GenerateOAuthURL(connectionConfig config.ConnectionConfig) (string, error) {

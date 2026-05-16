@@ -28,6 +28,7 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Handle("/admin/api/providers/{id}/oauth-url", providerOAuthURLHandler(connectionService))
 		r.Handle("/admin/api/connections", connectionsHandler(connectionService))
 		r.Handle("/admin/api/connections/{id}", connectionByIDHandler(connectionService))
+		r.Handle("/admin/api/connections/{id}/usage", connectionUsageHandler(connectionService))
 		r.Handle("/admin/api/connections/oauth", connectionOAuthHandler(connectionService))
 		r.Handle("/debug/requests", requestHistoryHandler(connectionRegistry))
 	})

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -56,10 +57,22 @@ func (r testRuntime) ReplaceConnections(connectionConfigs []config.ConnectionCon
 }
 
 func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler {
-	return testServerWithWebUI(t, connection, nil)
+	return testServerWithUsageAndConnection(t, nil, connection)
 }
 
 func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
+	return testServerWithUsageAndConnectionAndWebUI(t, nil, connection, webUIRoot)
+}
+
+func testServerWithUsage(t *testing.T, getUsage func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error)) http.Handler {
+	return testServerWithUsageAndConnection(t, getUsage, &testProvider{})
+}
+
+func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error), connection chatcompletion.Connection) http.Handler {
+	return testServerWithUsageAndConnectionAndWebUI(t, getUsage, connection, nil)
+}
+
+func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error), connection chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
 	t.Helper()
 
 	registry := testConnectionRegistry(connection)
@@ -89,7 +102,26 @@ func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, web
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
 			BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
-				return &testProvider{}, nil
+				return connection, nil
+			},
+			GetUsage: func(ctx context.Context, connection config.ConnectionConfig) (providerregistry.UsageInfo, error) {
+				if getUsage != nil {
+					return getUsage(ctx, connection)
+				}
+
+				return providerregistry.UsageInfo{
+					Plan:               "plus",
+					LimitReached:       false,
+					ReviewLimitReached: false,
+					Quotas: map[string]providerregistry.UsageWindow{
+						"session": {
+							Used:      42,
+							Total:     100,
+							Remaining: 58,
+							ResetAt:   "2026-05-16T10:00:00.000Z",
+						},
+					},
+				}, nil
 			},
 			GenerateOAuthURL: func(config.ConnectionConfig) (string, error) {
 				return "https://auth.openai.com/oauth/authorize?provider=cx", nil
@@ -699,5 +731,45 @@ func TestConnectionsDeleteRejectsLastConnection(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+}
+
+func TestConnectionUsageReturnsNormalizedQuotaPayload(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/connections/codex-1/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"plan":"plus"`) {
+		t.Fatalf("expected plan in body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"limitReached":false`) {
+		t.Fatalf("expected limitReached in body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"session"`) || !strings.Contains(rec.Body.String(), `"used":42`) {
+		t.Fatalf("expected session quota in body=%s", rec.Body.String())
+	}
+}
+
+func TestConnectionUsageReturnsTemporaryUnavailableMessage(t *testing.T) {
+	handler := testServerWithUsage(t, func(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error) {
+		return providerregistry.UsageInfo{}, providerregistry.UsageUnavailableError{StatusCode: http.StatusBadGateway}
+	})
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/connections/codex-1/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `Usage API temporarily unavailable (502)`) {
+		t.Fatalf("expected unavailable message in body=%s", rec.Body.String())
 	}
 }

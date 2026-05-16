@@ -35,6 +35,7 @@ type Client struct {
 	connection config.ConnectionConfig
 	baseURL    string
 	sessions   *sessionStore
+	tokenMu    sync.Mutex
 }
 
 func NewClient(connection config.ConnectionConfig) *Client {
@@ -90,15 +91,12 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 }
 
 func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	credential := strings.TrimSpace(c.connection.AccessToken)
-	if credential == "" {
-		credential = strings.TrimSpace(c.connection.APIKey)
-	}
-	if credential == "" {
+	credential, err := c.resolveAccessToken(false)
+	if err != nil {
 		return nil, chatcompletion.ConnectionConfigurationError{
 			ConnectionID:   c.connection.ID,
 			ConnectionName: c.connection.Name,
-			Message:        "missing access_token or api_key",
+			Message:        err.Error(),
 		}
 	}
 
@@ -127,6 +125,35 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 		return nil, fmt.Errorf("execute codex request: %w", err)
 	}
 
+	if shouldRetryWithTokenRefresh(resp.StatusCode, c.connection) {
+		resp.Body.Close()
+
+		credential, err = c.resolveAccessToken(true)
+		if err != nil {
+			return nil, chatcompletion.ConnectionConfigurationError{
+				ConnectionID:   c.connection.ID,
+				ConnectionName: c.connection.Name,
+				Message:        err.Error(),
+			}
+		}
+
+		httpReq, err = http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/responses", bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("build codex retry request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		httpReq.Header.Set("Authorization", "Bearer "+credential)
+		httpReq.Header.Set("originator", "codex-cli")
+		httpReq.Header.Set("User-Agent", defaultUserAgent)
+		httpReq.Header.Set("session_id", sessionID)
+
+		resp, err = c.httpClient.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("execute codex retry request: %w", err)
+		}
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
@@ -134,6 +161,51 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 	}
 
 	return resp.Body, nil
+}
+
+func (c *Client) resolveAccessToken(forceRefresh bool) (string, error) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
+	connection := c.connection
+	if forceRefresh {
+		var err error
+		connection, err = refreshConnectionToken(connection, true)
+		if err != nil {
+			return "", err
+		}
+		c.connection = connection
+		return GetAccessToken(connection)
+	}
+
+	if strings.TrimSpace(connection.APIKey) != "" && strings.TrimSpace(connection.AccessToken) == "" {
+		return strings.TrimSpace(connection.APIKey), nil
+	}
+
+	var err error
+	connection, err = refreshConnectionToken(connection, false)
+	if err != nil {
+		return "", err
+	}
+	c.connection = connection
+
+	token, err := GetAccessToken(connection)
+	if err == nil {
+		return token, nil
+	}
+	if strings.TrimSpace(connection.APIKey) != "" {
+		return strings.TrimSpace(connection.APIKey), nil
+	}
+
+	return "", err
+}
+
+func shouldRetryWithTokenRefresh(statusCode int, connection config.ConnectionConfig) bool {
+	if statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden {
+		return false
+	}
+
+	return strings.TrimSpace(connection.RefreshToken) != ""
 }
 
 type codexResponsesRequest struct {

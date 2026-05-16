@@ -38,6 +38,8 @@ Thumbs.db
 # Cache
 .gocache/
 .gomodcache/
+tmp/
+build-errors.log
 
 # Local data
 .data/

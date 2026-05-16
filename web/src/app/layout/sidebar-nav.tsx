@@ -1,6 +1,7 @@
 import {
   Box,
   Cable,
+  ChartNoAxesColumn,
   Layers3,
   PanelsTopLeft,
   Settings,
@@ -18,6 +19,12 @@ const navItems = [
     icon: Workflow,
     label: "Providers",
     to: "/providers",
+  },
+  {
+    description: "On-demand Codex session and review quota checks",
+    icon: ChartNoAxesColumn,
+    label: "Codex usage",
+    to: "/quota/codex",
   },
   {
     description: "Ingress, auth posture, and runtime defaults",

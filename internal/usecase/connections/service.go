@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -19,6 +20,7 @@ type Runtime interface {
 
 type ProviderRegistry interface {
 	ValidateConnection(config.ConnectionConfig) []string
+	GetUsage(context.Context, config.ConnectionConfig) (providerregistry.UsageInfo, error)
 	GenerateOAuthURL(config.ConnectionConfig) (string, error)
 	StartOAuth(config.ConnectionConfig) (providerregistry.OAuthSession, error)
 	CompleteOAuth(config.ConnectionConfig, map[string]string, string) (providerregistry.OAuthResult, error)
@@ -99,6 +101,19 @@ func (s *Service) Get(id string) (Item, bool) {
 	}
 
 	return Item{}, false
+}
+
+func (s *Service) GetUsage(ctx context.Context, id string) (providerregistry.UsageInfo, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, connection := range s.config.Connections {
+		if connection.ID == id {
+			return s.providers.GetUsage(ctx, connection)
+		}
+	}
+
+	return providerregistry.UsageInfo{}, ErrNotFound{ConnectionID: id}
 }
 
 func (s *Service) Providers() ProviderRegistry {
@@ -188,13 +203,14 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 	}
 
 	input := normalizeConnection(config.ConnectionConfig{
-		ID:           connectionID,
-		ProviderID:   pending.ProviderID,
-		Name:         defaultString(strings.TrimSpace(result.Name), connectionID),
-		AccessToken:  result.AccessToken,
-		RefreshToken: result.RefreshToken,
-		TokenType:    result.TokenType,
-		ExpiresIn:    result.ExpiresIn,
+		ID:                   connectionID,
+		ProviderID:           pending.ProviderID,
+		Name:                 defaultString(strings.TrimSpace(result.Name), connectionID),
+		AccessToken:          result.AccessToken,
+		RefreshToken:         result.RefreshToken,
+		TokenType:            result.TokenType,
+		ExpiresIn:            result.ExpiresIn,
+		AccessTokenExpiresAt: result.AccessTokenExpiresAt,
 	})
 
 	nextConfig := s.config
@@ -372,6 +388,9 @@ func preserveExistingSecrets(
 	}
 	if next.ExpiresIn == 0 {
 		next.ExpiresIn = existing.ExpiresIn
+	}
+	if next.AccessTokenExpiresAt == 0 {
+		next.AccessTokenExpiresAt = existing.AccessTokenExpiresAt
 	}
 
 	return next

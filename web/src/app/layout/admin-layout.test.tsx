@@ -5,16 +5,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/routes";
 import { useAuthStore } from "@/features/auth/auth-store";
-import { listProviders } from "@/features/providers/api";
+import {
+  connectionUsageQueryKey,
+  deleteConnection,
+  getConnectionUsage,
+  listProviders,
+  updateConnection,
+} from "@/features/providers/api";
 import { useUIStore } from "@/shared/store/ui-store";
 import { renderWithQueryClient } from "@/test/test-utils";
 
 vi.mock("@/features/providers/api", () => ({
+  connectionUsageQueryKey: vi.fn((connectionID: string) => [
+    "connections",
+    connectionID,
+    "usage",
+  ]),
+  deleteConnection: vi.fn(),
+  getConnectionUsage: vi.fn(),
   listProviders: vi.fn(),
   providersQueryKey: ["providers"],
+  updateConnection: vi.fn(),
 }));
 
+const connectionUsageQueryKeyMock = vi.mocked(connectionUsageQueryKey);
+const deleteConnectionMock = vi.mocked(deleteConnection);
+const getConnectionUsageMock = vi.mocked(getConnectionUsage);
 const providersListMock = vi.mocked(listProviders);
+const updateConnectionMock = vi.mocked(updateConnection);
 const defaultProviders = [
   {
     auth_type: "oauth",
@@ -32,7 +50,29 @@ describe("admin layout", () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset.theme = "light";
+    connectionUsageQueryKeyMock.mockImplementation((connectionID: string) => [
+      "connections",
+      connectionID,
+      "usage",
+    ]);
+    deleteConnectionMock.mockResolvedValue(undefined);
+    getConnectionUsageMock.mockResolvedValue({
+      limitReached: false,
+      plan: "plus",
+      quotas: {},
+      reviewLimitReached: false,
+    });
     providersListMock.mockResolvedValue(defaultProviders);
+    updateConnectionMock.mockResolvedValue({
+      has_access_token: true,
+      has_api_key: false,
+      has_refresh_token: false,
+      id: "codex-1",
+      name: "codex-user",
+      problems: [],
+      provider_id: "cx",
+      status: "ready",
+    });
     useAuthStore.setState({
       hydrated: true,
       isAuthenticated: true,
@@ -106,6 +146,29 @@ describe("admin layout", () => {
     expect(screen.getByText(/ingress and server binding/i)).toBeInTheDocument();
   });
 
+  it("opens the dedicated quota screen from navigation", async () => {
+    const user = userEvent.setup();
+    getConnectionUsageMock.mockResolvedValue({
+      limitReached: false,
+      plan: "plus",
+      quotas: {},
+      reviewLimitReached: false,
+    });
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /quota/i }));
+
+    await screen.findByRole("heading", {
+      level: 1,
+      name: /codex usage/i,
+    });
+  });
+
   it("opens the mobile navigation drawer from the header", async () => {
     const user = userEvent.setup();
 
@@ -123,7 +186,7 @@ describe("admin layout", () => {
       screen.getByRole("dialog", { name: /navigation menu/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByRole("link", { name: /runtime/i }).length,
+      screen.getAllByRole("link", { name: /codex usage/i }).length,
     ).toBeGreaterThan(0);
   });
 });

@@ -3,11 +3,13 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/phamtanminhtien/goroute/internal/config"
+	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
 
@@ -78,6 +80,40 @@ func connectionByIDHandler(service *connectionsusecase.Service) http.Handler {
 		default:
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
+	})
+}
+
+func connectionUsageHandler(service *connectionsusecase.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		id := chi.URLParam(r, "id")
+		if id == "" || strings.Contains(id, "/") {
+			writeError(r, w, http.StatusNotFound, "not_found", "connection not found")
+			return
+		}
+
+		usage, err := service.GetUsage(r.Context(), id)
+		if err != nil {
+			var notFound connectionsusecase.ErrNotFound
+			var unavailable providerregistry.UsageUnavailableError
+			switch {
+			case errors.As(err, &notFound):
+				writeError(r, w, http.StatusNotFound, "not_found", err.Error())
+			case errors.As(err, &unavailable):
+				writeJSON(w, http.StatusOK, map[string]string{
+					"message": fmt.Sprintf("Codex connected. Usage API temporarily unavailable (%d).", unavailable.StatusCode),
+				})
+			default:
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			}
+			return
+		}
+
+		writeJSON(w, http.StatusOK, usage)
 	})
 }
 

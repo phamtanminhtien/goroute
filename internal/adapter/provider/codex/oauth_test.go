@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
 )
@@ -136,6 +137,51 @@ func TestCompleteCodexOAuthFromCallbackURL(t *testing.T) {
 	}
 	if got := values.Get("code_verifier"); got != "verifier-123" {
 		t.Fatalf("unexpected code_verifier: %q", got)
+	}
+}
+
+func TestCheckAndRefreshTokenRefreshesExpiringToken(t *testing.T) {
+	t.Cleanup(func() {
+		oauthHTTPClient = http.DefaultClient
+		timeNow = time.Now
+	})
+
+	timeNow = func() time.Time {
+		return time.Unix(1710000000, 0)
+	}
+
+	oauthHTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read refresh body: %v", err)
+			}
+			values, err := url.ParseQuery(string(body))
+			if err != nil {
+				t.Fatalf("parse refresh body: %v", err)
+			}
+			if got := values.Get("grant_type"); got != "refresh_token" {
+				t.Fatalf("unexpected grant_type: %q", got)
+			}
+			if got := values.Get("refresh_token"); got != "refresh-123" {
+				t.Fatalf("unexpected refresh token: %q", got)
+			}
+
+			return jsonResponse(http.StatusOK, `{"access_token":"access-456","refresh_token":"refresh-789","expires_in":3600,"token_type":"Bearer"}`), nil
+		}),
+	}
+
+	token, err := checkAndRefreshToken(config.ConnectionConfig{
+		ProviderID:           "cx",
+		AccessToken:          "access-123",
+		RefreshToken:         "refresh-123",
+		AccessTokenExpiresAt: timeNow().Add(2 * time.Minute).Unix(),
+	})
+	if err != nil {
+		t.Fatalf("checkAndRefreshToken returned error: %v", err)
+	}
+	if token != "access-456" {
+		t.Fatalf("unexpected refreshed token: %q", token)
 	}
 }
 

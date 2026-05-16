@@ -97,6 +97,63 @@ func TestGenerateOAuthURLUsesProviderGenerator(t *testing.T) {
 	}
 }
 
+func TestGetAccessTokenUsesProviderResolver(t *testing.T) {
+	registry, err := New(Registration{
+		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
+		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+			return nil, nil
+		},
+		GetAccessToken: func(connection config.ConnectionConfig) (string, error) {
+			return "access-for-" + connection.ID, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	token, err := registry.GetAccessToken(config.ConnectionConfig{ID: "codex-1", ProviderID: "cx"})
+	if err != nil {
+		t.Fatalf("GetAccessToken returned error: %v", err)
+	}
+	if token != "access-for-codex-1" {
+		t.Fatalf("unexpected access token: %q", token)
+	}
+}
+
+func TestGetAccessTokenRejectsUnsupportedProvider(t *testing.T) {
+	registry, err := New(Registration{
+		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
+		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = registry.GetAccessToken(config.ConnectionConfig{ProviderID: "openai"})
+	if err == nil || !strings.Contains(err.Error(), `unsupported provider "openai"`) {
+		t.Fatalf("expected unsupported provider error, got %v", err)
+	}
+}
+
+func TestGetAccessTokenRejectsProviderWithoutResolver(t *testing.T) {
+	registry, err := New(Registration{
+		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
+		BuildConnection: func(config.ConnectionConfig) (chatcompletion.Connection, error) {
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = registry.GetAccessToken(config.ConnectionConfig{ProviderID: "cx"})
+	if err == nil || !strings.Contains(err.Error(), "does not support access token resolution") {
+		t.Fatalf("expected unsupported access token resolver error, got %v", err)
+	}
+}
+
 func TestGenerateOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "openai", Name: "OpenAI"},
@@ -151,11 +208,12 @@ func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 		},
 		CompleteOAuth: func(config.ConnectionConfig, map[string]string, string) (OAuthResult, error) {
 			return OAuthResult{
-				AccessToken:  "access-123",
-				RefreshToken: "refresh-456",
-				TokenType:    "Bearer",
-				ExpiresIn:    3600,
-				Name:         "user@example.com",
+				AccessToken:          "access-123",
+				RefreshToken:         "refresh-456",
+				TokenType:            "Bearer",
+				ExpiresIn:            3600,
+				AccessTokenExpiresAt: 1710003600,
+				Name:                 "user@example.com",
 			}, nil
 		},
 	})
@@ -171,7 +229,7 @@ func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompleteOAuth returned error: %v", err)
 	}
-	if result.AccessToken != "access-123" || result.RefreshToken != "refresh-456" || result.TokenType != "Bearer" || result.ExpiresIn != 3600 || result.Name != "user@example.com" {
+	if result.AccessToken != "access-123" || result.RefreshToken != "refresh-456" || result.TokenType != "Bearer" || result.ExpiresIn != 3600 || result.AccessTokenExpiresAt != 1710003600 || result.Name != "user@example.com" {
 		t.Fatalf("unexpected oauth result: %#v", result)
 	}
 }

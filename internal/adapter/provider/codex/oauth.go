@@ -30,9 +30,29 @@ const (
 	defaultCodeVerifierEntropyBytes = 32
 	defaultStateEntropyBytes        = 32
 	defaultTokenExchangeTimeout     = 30 * time.Second
+	proactiveRefreshBuffer          = 5 * 24 * time.Hour
 )
 
 var oauthHTTPClient = http.DefaultClient
+var timeNow = time.Now
+
+func GetAccessToken(connection config.ConnectionConfig) (string, error) {
+	return checkAndRefreshToken(connection)
+}
+
+func checkAndRefreshToken(connection config.ConnectionConfig) (string, error) {
+	nextConnection, err := refreshConnectionToken(connection, false)
+	if err != nil {
+		return "", err
+	}
+
+	accessToken := strings.TrimSpace(nextConnection.AccessToken)
+	if accessToken == "" {
+		return "", errors.New("missing access_token")
+	}
+
+	return accessToken, nil
+}
 
 func GenerateOAuthURL(connection config.ConnectionConfig) (string, error) {
 	session, err := StartOAuth(connection)
@@ -228,6 +248,61 @@ func validateOAuthState(expectedState, returnedState string) error {
 	return nil
 }
 
+func refreshConnectionToken(connection config.ConnectionConfig, force bool) (config.ConnectionConfig, error) {
+	connection.AccessToken = strings.TrimSpace(connection.AccessToken)
+	connection.RefreshToken = strings.TrimSpace(connection.RefreshToken)
+	connection.TokenType = strings.TrimSpace(connection.TokenType)
+
+	if !force && !shouldProactivelyRefresh(connection) {
+		return connection, nil
+	}
+	if connection.RefreshToken == "" {
+		if connection.AccessToken != "" {
+			return connection, nil
+		}
+		return connection, errors.New("missing access_token")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTokenExchangeTimeout)
+	defer cancel()
+
+	tokenResponse, err := refreshCodexToken(ctx, connection.RefreshToken)
+	if err != nil {
+		return connection, err
+	}
+
+	connection.AccessToken = strings.TrimSpace(tokenResponse.AccessToken)
+	if refreshToken := strings.TrimSpace(tokenResponse.RefreshToken); refreshToken != "" {
+		connection.RefreshToken = refreshToken
+	}
+	if tokenType := strings.TrimSpace(tokenResponse.TokenType); tokenType != "" {
+		connection.TokenType = tokenType
+	}
+	connection.ExpiresIn = tokenResponse.ExpiresIn
+	connection.AccessTokenExpiresAt = calculateAccessTokenExpiresAt(tokenResponse.ExpiresIn)
+
+	return connection, nil
+}
+
+func shouldProactivelyRefresh(connection config.ConnectionConfig) bool {
+	if strings.TrimSpace(connection.RefreshToken) == "" {
+		return false
+	}
+	if connection.AccessTokenExpiresAt == 0 {
+		return false
+	}
+
+	return time.Unix(connection.AccessTokenExpiresAt, 0).Before(timeNow().Add(proactiveRefreshBuffer))
+}
+
+func calculateAccessTokenExpiresAt(expiresIn int) int64 {
+	if expiresIn <= 0 {
+		return 0
+	}
+
+	return timeNow().Add(time.Duration(expiresIn) * time.Second).Unix()
+}
+
 func validateCallbackEndpoint(raw, expectedRedirectURI string) error {
 	callbackURL, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -286,6 +361,45 @@ func exchangeCodexCode(ctx context.Context, code, codeVerifier, redirectURIValue
 	}
 	if strings.TrimSpace(out.AccessToken) == "" {
 		return nil, errors.New("token exchange failed: missing access token")
+	}
+
+	return &out, nil
+}
+
+func refreshCodexToken(ctx context.Context, refreshToken string) (*codexTokenResponse, error) {
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", strings.TrimSpace(refreshToken))
+	form.Set("client_id", clientID)
+	form.Set("scope", scope)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("build refresh request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := oauthHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token refresh failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		if message := strings.TrimSpace(string(body)); message != "" {
+			return nil, fmt.Errorf("token refresh failed: %s: %s", resp.Status, message)
+		}
+		return nil, fmt.Errorf("token refresh failed: %s", resp.Status)
+	}
+
+	var out codexTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode refresh response: %w", err)
+	}
+	if strings.TrimSpace(out.AccessToken) == "" {
+		return nil, errors.New("token refresh failed: missing access token")
 	}
 
 	return &out, nil

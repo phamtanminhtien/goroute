@@ -7,28 +7,38 @@ import { AppRoutes } from "@/app/routes";
 import { useAuthStore } from "@/features/auth/auth-store";
 import {
   completeOAuthConnection,
+  connectionUsageQueryKey,
   createConnection,
   deleteConnection,
   generateProviderOAuthURL,
+  getConnectionUsage,
   listProviders,
   updateConnection,
 } from "@/features/providers/api";
 import { renderWithQueryClient } from "@/test/test-utils";
 
 vi.mock("@/features/providers/api", () => ({
+  connectionUsageQueryKey: vi.fn((connectionID: string) => [
+    "connections",
+    connectionID,
+    "usage",
+  ]),
   completeOAuthConnection: vi.fn(),
   createConnection: vi.fn(),
   deleteConnection: vi.fn(),
   generateProviderOAuthURL: vi.fn(),
+  getConnectionUsage: vi.fn(),
   listProviders: vi.fn(),
   providersQueryKey: ["providers"],
   updateConnection: vi.fn(),
 }));
 
+const connectionUsageQueryKeyMock = vi.mocked(connectionUsageQueryKey);
 const completeOAuthConnectionMock = vi.mocked(completeOAuthConnection);
 const createConnectionMock = vi.mocked(createConnection);
 const deleteConnectionMock = vi.mocked(deleteConnection);
 const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
+const getConnectionUsageMock = vi.mocked(getConnectionUsage);
 const listProvidersMock = vi.mocked(listProviders);
 const updateConnectionMock = vi.mocked(updateConnection);
 
@@ -79,9 +89,28 @@ describe("providers pages", () => {
     completeOAuthConnectionMock.mockResolvedValue(
       baseProviders[0].connections[0],
     );
+    connectionUsageQueryKeyMock.mockImplementation((connectionID: string) => [
+      "connections",
+      connectionID,
+      "usage",
+    ]);
     createConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
     updateConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
     deleteConnectionMock.mockResolvedValue(undefined);
+    getConnectionUsageMock.mockResolvedValue({
+      limitReached: false,
+      plan: "plus",
+      quotas: {
+        session: {
+          remaining: 58,
+          resetAt: "2026-05-16T10:00:00.000Z",
+          total: 100,
+          unlimited: false,
+          used: 42,
+        },
+      },
+      reviewLimitReached: false,
+    });
     generateProviderOAuthURLMock.mockResolvedValue({
       sessionID: "oauth-session-1",
       url: "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann",

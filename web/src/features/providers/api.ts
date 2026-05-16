@@ -1,6 +1,8 @@
 import { apiClient } from "@/shared/api/client";
 
 export const providersQueryKey = ["providers"] as const;
+export const connectionUsageQueryKey = (connectionID: string) =>
+  ["connections", connectionID, "usage"] as const;
 
 export type ProviderModel = {
   description: string;
@@ -30,6 +32,22 @@ export type ProviderItem = {
   id: string;
   models: ProviderModel[];
   name: string;
+};
+
+export type ProviderUsageQuotaWindow = {
+  remaining: number;
+  resetAt?: string;
+  total: number;
+  unlimited: boolean;
+  used: number;
+};
+
+export type ProviderUsage = {
+  limitReached: boolean;
+  message?: string;
+  plan?: string;
+  quotas?: Record<string, ProviderUsageQuotaWindow>;
+  reviewLimitReached: boolean;
 };
 
 type ProviderOAuthURLResponse = {
@@ -108,6 +126,13 @@ export async function completeOAuthConnection(
       callback_url: callbackURL,
       session_id: sessionID,
     },
+  );
+  return response.data;
+}
+
+export async function getConnectionUsage(connectionID: string) {
+  const response = await apiClient.get<ProviderUsage>(
+    `/connections/${connectionID}/usage`,
   );
   return response.data;
 }

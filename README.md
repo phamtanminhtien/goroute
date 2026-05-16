@@ -18,9 +18,11 @@ The repository has the first request path in place:
 - configured connection registry for `codex` and `openai`
 - OpenAI-compatible upstream execution for non-streaming chat completions
 - Codex responses execution for non-streaming and streaming chat completions
+- admin APIs and UI for provider/connection management
+- Codex connection usage lookup from the admin API
 - request ID and request logging middleware
 
-The implementation is still intentionally small. Fallback is deterministic across configured connections of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Admin APIs, UI, request history, and broader OpenAI wire compatibility are still pending.
+The implementation is still intentionally small. Fallback is deterministic across configured connections of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Broader OpenAI wire compatibility is still pending.
 
 ## Core Idea
 
@@ -50,6 +52,15 @@ Currently implemented endpoints:
 - `POST /v1/chat/completions`
 - `GET /v1/models`
 - `GET /healthz`
+- `GET /admin/api/providers` (admin-only)
+- `POST /admin/api/providers/{id}/oauth-url` (admin-only)
+- `GET /admin/api/connections` (admin-only)
+- `POST /admin/api/connections` (admin-only)
+- `GET /admin/api/connections/{id}` (admin-only)
+- `PUT /admin/api/connections/{id}` (admin-only)
+- `DELETE /admin/api/connections/{id}` (admin-only)
+- `GET /admin/api/connections/{id}/usage` (admin-only, Codex usage lookup)
+- `POST /admin/api/connections/oauth` (admin-only)
 - `GET /debug/requests` (admin-only, requires `Authorization: Bearer <server.auth_token>`)
 
 ## Example Usage
@@ -124,6 +135,13 @@ After that:
 
 - admin UI: `http://localhost:2232/`
 - admin API: `http://localhost:2232/admin/api`
+
+The provider detail page fetches Codex usage from `GET /admin/api/connections/{id}/usage` and shows normalized quota buckets for:
+
+- `session`
+- `weekly`
+- `review_session`
+- `review_weekly`
 
 During frontend development you can still use Vite separately with `make web-dev`.
 

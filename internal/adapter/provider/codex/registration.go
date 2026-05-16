@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"strings"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
@@ -25,6 +26,12 @@ func Registration() providerregistry.Registration {
 		},
 		BuildConnection: func(connectionConfig config.ConnectionConfig) (chatcompletion.Connection, error) {
 			return NewClient(connectionConfig), nil
+		},
+		GetAccessToken: func(connectionConfig config.ConnectionConfig) (string, error) {
+			return GetAccessToken(connectionConfig)
+		},
+		GetUsage: func(ctx context.Context, connectionConfig config.ConnectionConfig) (providerregistry.UsageInfo, error) {
+			return NewClient(connectionConfig).Usage(ctx)
 		},
 		GenerateOAuthURL: func(connectionConfig config.ConnectionConfig) (string, error) {
 			return GenerateOAuthURL(connectionConfig)
@@ -55,11 +62,12 @@ func Registration() providerregistry.Registration {
 			}
 
 			return providerregistry.OAuthResult{
-				AccessToken:  completed.AccessToken,
-				RefreshToken: completed.RefreshToken,
-				TokenType:    completed.TokenType,
-				ExpiresIn:    completed.ExpiresIn,
-				Name:         completed.Email,
+				AccessToken:          completed.AccessToken,
+				RefreshToken:         completed.RefreshToken,
+				TokenType:            completed.TokenType,
+				ExpiresIn:            completed.ExpiresIn,
+				AccessTokenExpiresAt: calculateAccessTokenExpiresAt(completed.ExpiresIn),
+				Name:                 completed.Email,
 			}, nil
 		},
 		ValidateConnection: func(connectionConfig config.ConnectionConfig) []string {
