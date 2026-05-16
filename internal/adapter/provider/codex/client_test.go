@@ -68,8 +68,8 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","output":[{"content":[{"type":"output_text","text":"hello back"}]}]}`)),
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
 		}, nil
 	})}
 
@@ -99,8 +99,8 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 	if upstreamBody["instructions"] != "You are helpful." {
 		t.Fatalf("unexpected instructions %#v", upstreamBody["instructions"])
 	}
-	if upstreamBody["stream"] != false {
-		t.Fatalf("non-stream executor should disable upstream stream, got %#v", upstreamBody["stream"])
+	if upstreamBody["stream"] != true {
+		t.Fatalf("codex upstream should always stream, got %#v", upstreamBody["stream"])
 	}
 	if upstreamBody["store"] != false {
 		t.Fatalf("expected store=false, got %#v", upstreamBody["store"])
@@ -155,8 +155,8 @@ func TestClientIncludesEmptyInstructionsWhenNoSystemMessage(t *testing.T) {
 
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","output":[{"content":[{"type":"output_text","text":"hello back"}]}]}`)),
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
 		}, nil
 	})}
 
@@ -178,6 +178,9 @@ func TestClientIncludesEmptyInstructionsWhenNoSystemMessage(t *testing.T) {
 	}
 	if value != "" {
 		t.Fatalf("expected empty instructions, got %#v", value)
+	}
+	if upstreamBody["stream"] != true {
+		t.Fatalf("codex upstream should always stream, got %#v", upstreamBody["stream"])
 	}
 }
 
@@ -204,8 +207,8 @@ func TestClientRefreshesTokenProactivelyBeforeRequest(t *testing.T) {
 
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","output":[{"content":[{"type":"output_text","text":"hello back"}]}]}`)),
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
 		}, nil
 	})}
 	oauthHTTPClient = httpClient
@@ -271,8 +274,8 @@ func TestClientRefreshesTokenAfterUnauthorizedResponse(t *testing.T) {
 
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","output":[{"content":[{"type":"output_text","text":"hello back"}]}]}`)),
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
 		}, nil
 	})}
 	oauthHTTPClient = httpClient

@@ -65,23 +65,12 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 	}
 	defer respBody.Close()
 
-	var upstream codexResponse
-	if err := json.NewDecoder(respBody).Decode(&upstream); err != nil {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("decode codex response: %w", err)
+	streamBody, err := io.ReadAll(respBody)
+	if err != nil {
+		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("read codex stream response: %w", err)
 	}
 
-	return openaiwire.ChatCompletionsResponse{
-		ID:     upstream.ID,
-		Object: "chat.completion",
-		Model:  target.RequestedModel,
-		Choices: []openaiwire.ChatChoice{{
-			Index: 0,
-			Message: openaiwire.ChatMessage{
-				Role:    "assistant",
-				Content: upstream.outputText(),
-			},
-		}},
-	}, nil
+	return c.reconstructStreamResponse(target, streamBody), nil
 }
 
 func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
@@ -319,7 +308,7 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 		Model:        stripProviderPrefix(model),
 		Instructions: instructions,
 		Input:        input,
-		Stream:       req.Stream,
+		Stream:       true,
 		Store:        false,
 		Reasoning:    reasoning,
 	}
