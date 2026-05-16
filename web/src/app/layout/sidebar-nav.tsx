@@ -21,14 +21,20 @@ const navItems = [
     to: "/providers",
   },
   {
-    description: "On-demand Codex session and review quota checks",
+    description: "Mock request, token, and cost analytics across the proxy",
     icon: ChartNoAxesColumn,
+    label: "Usage & Analytics",
+    to: "/usage",
+  },
+  {
+    description: "On-demand Codex session and review quota checks",
+    icon: PanelsTopLeft,
     label: "Codex usage",
     to: "/quota/codex",
   },
   {
     description: "Ingress, auth posture, and runtime defaults",
-    icon: PanelsTopLeft,
+    icon: Settings,
     label: "Runtime",
     to: "/settings",
   },

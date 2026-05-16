@@ -7,6 +7,7 @@ import { LoginPage } from "@/pages/login-page";
 import { ProviderDetailPage } from "@/pages/provider-detail-page";
 import { ProvidersPage } from "@/pages/providers-page";
 import { SettingsPage } from "@/pages/settings-page";
+import { UsageAnalyticsPage } from "@/pages/usage-analytics-page";
 
 const appRoutes: RouteObject[] = [
   {
@@ -27,6 +28,7 @@ const appRoutes: RouteObject[] = [
           { index: true, element: <Navigate to="/providers" replace /> },
           { path: "providers", element: <ProvidersPage /> },
           { path: "providers/:providerId", element: <ProviderDetailPage /> },
+          { path: "usage", element: <UsageAnalyticsPage /> },
           { path: "quota/codex", element: <CodexUsagePage /> },
           { path: "settings", element: <SettingsPage /> },
         ],
