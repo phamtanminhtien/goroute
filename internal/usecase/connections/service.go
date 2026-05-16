@@ -15,14 +15,7 @@ import (
 )
 
 type Runtime interface {
-	ReplaceConnections([]connection.Record) error
-}
-
-type Repository interface {
-	CreateConnection(connection.Record) error
-	UpdateConnection(string, connection.Record) error
-	DeleteConnection(string) error
-	ReplaceConnections([]connection.Record) error
+	ReloadConnections() error
 }
 
 type ProviderRegistry interface {
@@ -34,8 +27,7 @@ type ProviderRegistry interface {
 }
 
 type Service struct {
-	mu           sync.RWMutex
-	connections  []connection.Record
+	mu           sync.Mutex
 	pendingOAuth map[string]pendingOAuthConnection
 	repo         Repository
 	runtime      Runtime
@@ -53,14 +45,13 @@ type OAuthStartResult struct {
 	AuthorizationURL string `json:"url"`
 }
 
-func NewService(initial []connection.Record, repo Repository, runtime Runtime, providers ProviderRegistry, logger *zerolog.Logger) *Service {
+func NewService(repo Repository, runtime Runtime, providers ProviderRegistry, logger *zerolog.Logger) *Service {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
 	}
 
 	return &Service{
-		connections:  append([]connection.Record(nil), initial...),
 		pendingOAuth: make(map[string]pendingOAuthConnection),
 		repo:         repo,
 		runtime:      runtime,
@@ -86,41 +77,43 @@ type Item struct {
 }
 
 func (s *Service) List() []Item {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	records, err := s.repo.ListConnections()
+	if err != nil {
+		s.logger.Error().Err(err).Msg("connection_list_failed")
+		return nil
+	}
 
-	items := make([]Item, 0, len(s.connections))
-	for _, connection := range s.connections {
-		items = append(items, s.redactConnection(connection))
+	items := make([]Item, 0, len(records))
+	for _, record := range records {
+		items = append(items, s.redactConnection(record))
 	}
 
 	return items
 }
 
 func (s *Service) Get(id string) (Item, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for _, connection := range s.connections {
-		if connection.ID == id {
-			return s.redactConnection(connection), true
-		}
+	record, ok, err := s.repo.GetConnection(id)
+	if err != nil {
+		s.logger.Error().Err(err).Str("connection_id", id).Msg("connection_get_failed")
+		return Item{}, false
+	}
+	if !ok {
+		return Item{}, false
 	}
 
-	return Item{}, false
+	return s.redactConnection(record), true
 }
 
 func (s *Service) GetUsage(ctx context.Context, id string) (providerregistry.UsageInfo, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for _, connection := range s.connections {
-		if connection.ID == id {
-			return s.providers.GetUsage(ctx, connection)
-		}
+	record, ok, err := s.repo.GetConnection(id)
+	if err != nil {
+		return providerregistry.UsageInfo{}, err
+	}
+	if !ok {
+		return providerregistry.UsageInfo{}, ErrNotFound{ConnectionID: id}
 	}
 
-	return providerregistry.UsageInfo{}, ErrNotFound{ConnectionID: id}
+	return s.providers.GetUsage(ctx, record)
 }
 
 func (s *Service) Providers() ProviderRegistry {
@@ -132,15 +125,17 @@ func (s *Service) Create(input connection.Record) (Item, error) {
 	defer s.mu.Unlock()
 
 	input = normalizeConnection(input)
-	for _, existing := range s.connections {
+	existingConnections, err := s.repo.ListConnections()
+	if err != nil {
+		return Item{}, err
+	}
+	for _, existing := range existingConnections {
 		if existing.ID == input.ID {
-			return Item{}, fmt.Errorf("connection %q already exists", input.ID)
+			return Item{}, ErrConflict{ConnectionID: input.ID}
 		}
 	}
 
-	before := append([]connection.Record(nil), s.connections...)
-	next := append(append([]connection.Record(nil), s.connections...), input)
-	if err := s.persistMutation(before, next, func() error {
+	if err := s.persistMutation(func() error {
 		return s.repo.CreateConnection(input)
 	}); err != nil {
 		return Item{}, err
@@ -200,7 +195,10 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 	if !ok {
 		return Item{}, fmt.Errorf("oauth session %q not found", sessionID)
 	}
-	connectionID := s.nextOAuthConnectionID(pending.ProviderID)
+	connectionID, err := s.nextOAuthConnectionID(pending.ProviderID)
+	if err != nil {
+		return Item{}, err
+	}
 
 	result, err := s.providers.CompleteOAuth(
 		connection.Record{ID: connectionID, ProviderID: pending.ProviderID},
@@ -222,9 +220,7 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 		AccessTokenExpiresAt: result.AccessTokenExpiresAt,
 	})
 
-	before := append([]connection.Record(nil), s.connections...)
-	next := append(append([]connection.Record(nil), s.connections...), input)
-	if err := s.persistMutation(before, next, func() error {
+	if err := s.persistMutation(func() error {
 		return s.repo.CreateConnection(input)
 	}); err != nil {
 		return Item{}, err
@@ -247,28 +243,26 @@ func (s *Service) Update(id string, input connection.Record) (Item, error) {
 
 	input = normalizeConnection(input)
 
-	index := -1
-	var existing connection.Record
-	for i, current := range s.connections {
-		if current.ID == id {
-			index = i
-			existing = current
-			continue
-		}
-		if current.ID == input.ID {
-			return Item{}, fmt.Errorf("connection %q already exists", input.ID)
-		}
+	existing, ok, err := s.repo.GetConnection(id)
+	if err != nil {
+		return Item{}, err
 	}
-	if index < 0 {
+	if !ok {
 		return Item{}, ErrNotFound{ConnectionID: id}
+	}
+	existingConnections, err := s.repo.ListConnections()
+	if err != nil {
+		return Item{}, err
+	}
+	for _, current := range existingConnections {
+		if current.ID == input.ID && current.ID != id {
+			return Item{}, ErrConflict{ConnectionID: input.ID}
+		}
 	}
 
 	input = preserveExistingSecrets(existing, input)
 
-	before := append([]connection.Record(nil), s.connections...)
-	next := append([]connection.Record(nil), s.connections...)
-	next[index] = input
-	if err := s.persistMutation(before, next, func() error {
+	if err := s.persistMutation(func() error {
 		return s.repo.UpdateConnection(id, input)
 	}); err != nil {
 		return Item{}, err
@@ -287,23 +281,15 @@ func (s *Service) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	index := -1
-	var deleted connection.Record
-	for i, current := range s.connections {
-		if current.ID == id {
-			index = i
-			deleted = current
-			break
-		}
+	deleted, ok, err := s.repo.GetConnection(id)
+	if err != nil {
+		return err
 	}
-	if index < 0 {
+	if !ok {
 		return ErrNotFound{ConnectionID: id}
 	}
 
-	before := append([]connection.Record(nil), s.connections...)
-	next := append([]connection.Record(nil), s.connections[:index]...)
-	next = append(next, s.connections[index+1:]...)
-	if err := s.persistMutation(before, next, func() error {
+	if err := s.persistMutation(func() error {
 		return s.repo.DeleteConnection(id)
 	}); err != nil {
 		return err
@@ -318,32 +304,17 @@ func (s *Service) Delete(id string) error {
 	return nil
 }
 
-func (s *Service) persistMutation(before, next []connection.Record, write func() error) error {
+func (s *Service) persistMutation(write func() error) error {
 	if err := write(); err != nil {
 		s.logger.Error().Err(err).Msg("persist_failed")
 		return err
 	}
-	if err := s.runtime.ReplaceConnections(next); err != nil {
+	if err := s.runtime.ReloadConnections(); err != nil {
 		s.logger.Error().Err(err).Msg("runtime_reload_failed")
-		if rollbackErr := s.repo.ReplaceConnections(before); rollbackErr != nil {
-			s.logger.Error().Err(rollbackErr).Msg("persist_rollback_failed")
-		}
-		if restoreErr := s.runtime.ReplaceConnections(before); restoreErr != nil {
-			s.logger.Error().Err(restoreErr).Msg("runtime_reload_rollback_failed")
-		}
 		return err
 	}
 
-	s.connections = next
 	return nil
-}
-
-type ErrNotFound struct {
-	ConnectionID string
-}
-
-func (e ErrNotFound) Error() string {
-	return fmt.Sprintf("connection %q not found", e.ConnectionID)
 }
 
 func normalizeConnection(connection connection.Record) connection.Record {
@@ -428,10 +399,15 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
-func (s *Service) nextOAuthConnectionID(providerID string) string {
+func (s *Service) nextOAuthConnectionID(providerID string) (string, error) {
+	connections, err := s.repo.ListConnections()
+	if err != nil {
+		return "", err
+	}
+
 	prefix := providerID
 	maxSuffix := 0
-	for _, connection := range s.connections {
+	for _, connection := range connections {
 		if connection.ProviderID != providerID {
 			continue
 		}
@@ -449,7 +425,7 @@ func (s *Service) nextOAuthConnectionID(providerID string) string {
 		}
 	}
 
-	return fmt.Sprintf("%s-%d", prefix, maxSuffix+1)
+	return fmt.Sprintf("%s-%d", prefix, maxSuffix+1), nil
 }
 
 func randomBase64URL(n int) (string, error) {

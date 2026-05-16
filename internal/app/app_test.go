@@ -55,12 +55,12 @@ func TestNewStartsWithEmptySQLiteDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	defer app.store.Close()
+	defer app.repo.Close()
 
 	if app.server == nil {
 		t.Fatal("expected server to be initialized")
 	}
-	if app.store == nil {
-		t.Fatal("expected sqlite store to be initialized")
+	if app.repo == nil {
+		t.Fatal("expected repository to be initialized")
 	}
 }

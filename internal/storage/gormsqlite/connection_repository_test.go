@@ -1,21 +1,22 @@
-package sqlite
+package gormsqlite
 
 import (
+	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
+	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
 
 func TestOpenMigratesEmptyDatabase(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "goroute.db"))
+	repo, err := Open(filepath.Join(t.TempDir(), "goroute.db"))
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer store.Close()
+	defer repo.Close()
 
-	connections, err := store.ListConnections()
+	connections, err := repo.ListConnections()
 	if err != nil {
 		t.Fatalf("ListConnections returned error: %v", err)
 	}
@@ -24,29 +25,33 @@ func TestOpenMigratesEmptyDatabase(t *testing.T) {
 	}
 }
 
-func TestStoreConnectionCRUD(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "goroute.db"))
+func TestRepositoryConnectionCRUD(t *testing.T) {
+	repo, err := Open(filepath.Join(t.TempDir(), "goroute.db"))
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer store.Close()
+	defer repo.Close()
 
 	created := connection.Record{
-		ID:          "openai-1",
-		ProviderID:  "openai",
-		Name:        "openai-user",
-		APIKey:      "token-1",
-		AccessToken: "access-1",
+		ID:                   "openai-1",
+		ProviderID:           "openai",
+		Name:                 "openai-user",
+		APIKey:               "token-1",
+		AccessToken:          "access-1",
+		RefreshToken:         "refresh-1",
+		TokenType:            "Bearer",
+		ExpiresIn:            3600,
+		AccessTokenExpiresAt: 1700000000,
 	}
-	if err := store.CreateConnection(created); err != nil {
+	if err := repo.CreateConnection(created); err != nil {
 		t.Fatalf("CreateConnection returned error: %v", err)
 	}
 
-	got, ok, err := store.GetConnection("openai-1")
+	got, ok, err := repo.GetConnection("openai-1")
 	if err != nil {
 		t.Fatalf("GetConnection returned error: %v", err)
 	}
-	if !ok || got.Name != "openai-user" || got.APIKey != "token-1" {
+	if !ok || got.Name != "openai-user" || got.APIKey != "token-1" || got.RefreshToken != "refresh-1" {
 		t.Fatalf("unexpected stored connection: ok=%v value=%#v", ok, got)
 	}
 
@@ -54,19 +59,19 @@ func TestStoreConnectionCRUD(t *testing.T) {
 	updated.ID = "openai-renamed"
 	updated.Name = "openai-admin"
 	updated.APIKey = ""
-	if err := store.UpdateConnection("openai-1", updated); err != nil {
+	if err := repo.UpdateConnection("openai-1", updated); err != nil {
 		t.Fatalf("UpdateConnection returned error: %v", err)
 	}
 
-	got, ok, err = store.GetConnection("openai-renamed")
+	got, ok, err = repo.GetConnection("openai-renamed")
 	if err != nil {
 		t.Fatalf("GetConnection after update returned error: %v", err)
 	}
-	if !ok || got.Name != "openai-admin" || got.AccessToken != "access-1" {
+	if !ok || got.Name != "openai-admin" || got.AccessToken != "access-1" || got.APIKey != "" {
 		t.Fatalf("unexpected updated connection: ok=%v value=%#v", ok, got)
 	}
 
-	listed, err := store.ListConnections()
+	listed, err := repo.ListConnections()
 	if err != nil {
 		t.Fatalf("ListConnections after update returned error: %v", err)
 	}
@@ -74,11 +79,11 @@ func TestStoreConnectionCRUD(t *testing.T) {
 		t.Fatalf("unexpected list output: %#v", listed)
 	}
 
-	if err := store.DeleteConnection("openai-renamed"); err != nil {
+	if err := repo.DeleteConnection("openai-renamed"); err != nil {
 		t.Fatalf("DeleteConnection returned error: %v", err)
 	}
 
-	_, ok, err = store.GetConnection("openai-renamed")
+	_, ok, err = repo.GetConnection("openai-renamed")
 	if err != nil {
 		t.Fatalf("GetConnection after delete returned error: %v", err)
 	}
@@ -87,18 +92,21 @@ func TestStoreConnectionCRUD(t *testing.T) {
 	}
 }
 
-func TestStoreEnforcesUniqueConnectionIDs(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "goroute.db"))
+func TestRepositoryEnforcesUniqueConnectionIDs(t *testing.T) {
+	repo, err := Open(filepath.Join(t.TempDir(), "goroute.db"))
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer store.Close()
+	defer repo.Close()
 
 	record := connection.Record{ID: "cx-1", ProviderID: "cx", Name: "codex-user", AccessToken: "token"}
-	if err := store.CreateConnection(record); err != nil {
+	if err := repo.CreateConnection(record); err != nil {
 		t.Fatalf("CreateConnection returned error: %v", err)
 	}
-	if err := store.CreateConnection(record); err == nil || !strings.Contains(err.Error(), "UNIQUE") {
-		t.Fatalf("expected unique constraint error, got %v", err)
+
+	err = repo.CreateConnection(record)
+	var conflict connectionsusecase.ErrConflict
+	if err == nil || !errors.As(err, &conflict) {
+		t.Fatalf("expected conflict error, got %v", err)
 	}
 }

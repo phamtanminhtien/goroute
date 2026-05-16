@@ -13,7 +13,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
-	"github.com/phamtanminhtien/goroute/internal/storage/sqlite"
+	"github.com/phamtanminhtien/goroute/internal/storage/gormsqlite"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/phamtanminhtien/goroute/internal/usecase/connections"
@@ -23,7 +23,7 @@ import (
 type App struct {
 	server *http.Server
 	logger zerolog.Logger
-	store  *sqlite.Store
+	repo   *gormsqlite.Repository
 }
 
 func New(logger zerolog.Logger) (*App, error) {
@@ -40,14 +40,14 @@ func New(logger zerolog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve database path: %w", err)
 	}
-	store, err := sqlite.Open(databasePath)
+	repo, err := gormsqlite.Open(databasePath)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite store: %w", err)
+		return nil, fmt.Errorf("open sqlite repository: %w", err)
 	}
 
 	providers, err := buildProviderRegistry()
 	if err != nil {
-		store.Close()
+		repo.Close()
 		return nil, fmt.Errorf("build provider registry: %w", err)
 	}
 	catalog := providers.Catalog()
@@ -57,22 +57,20 @@ func New(logger zerolog.Logger) (*App, error) {
 	connectionServiceLogger := logger.With().Str("component", "connections_service").Logger()
 	httpLogger := logger.With().Str("component", "http").Logger()
 
-	connectionRecords, err := store.ListConnections()
-	if err != nil {
-		store.Close()
-		return nil, fmt.Errorf("load sqlite connections: %w", err)
+	connectionRuntime := &connectionRuntime{
+		repo:      repo,
+		providers: providers,
+		logger:    &connectionRegistryLogger,
 	}
-	connectionRegistry, err := buildConnectionRegistryWithLogger(connectionRecords, providers, &connectionRegistryLogger)
+	connectionRegistry, err := connectionRuntime.BuildRegistry()
 	if err != nil {
-		store.Close()
+		repo.Close()
 		return nil, err
 	}
 
-	connectionService := connections.NewService(connectionRecords, store, &connectionRuntime{
-		providers: providers,
-		registry:  connectionRegistry,
-		logger:    &connectionRegistryLogger,
-	}, providers, &connectionServiceLogger)
+	connectionRuntime.registry = connectionRegistry
+
+	connectionService := connections.NewService(repo, connectionRuntime, providers, &connectionServiceLogger)
 
 	webUIRoot, webUIDir := resolveWebUIRoot(cfg.Server.WebUIDir)
 	if webUIRoot == nil {
@@ -88,7 +86,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	return &App{server: server, logger: appLogger, store: store}, nil
+	return &App{server: server, logger: appLogger, repo: repo}, nil
 }
 
 func buildProviderRegistry() (providerregistry.Registry, error) {
@@ -149,12 +147,35 @@ func logConnectionDiagnostic(logger *zerolog.Logger, providers providerregistry.
 }
 
 type connectionRuntime struct {
+	repo interface {
+		ListConnections() ([]connection.Record, error)
+	}
 	providers providerregistry.Registry
 	registry  *chatcompletion.ConnectionRegistry
 	logger    *zerolog.Logger
 }
 
-func (r *connectionRuntime) ReplaceConnections(connectionConfigs []connection.Record) error {
+func (r *connectionRuntime) BuildRegistry() (*chatcompletion.ConnectionRegistry, error) {
+	connectionConfigs, err := r.repo.ListConnections()
+	if err != nil {
+		return nil, fmt.Errorf("load runtime connections: %w", err)
+	}
+
+	entries, err := buildConnectionEntries(connectionConfigs, r.providers, r.logger)
+	if err != nil {
+		return nil, err
+	}
+
+	registry := chatcompletion.NewConnectionRegistryWithEntries(entries, r.logger)
+	return &registry, nil
+}
+
+func (r *connectionRuntime) ReloadConnections() error {
+	connectionConfigs, err := r.repo.ListConnections()
+	if err != nil {
+		return fmt.Errorf("load runtime connections: %w", err)
+	}
+
 	entries, err := buildConnectionEntries(connectionConfigs, r.providers, r.logger)
 	if err != nil {
 		return err

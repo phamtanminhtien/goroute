@@ -38,8 +38,8 @@ func (a *App) Run() error {
 		a.logger.Error().Err(err).Msg("server_shutdown_failed")
 		return err
 	}
-	if err := a.store.Close(); err != nil {
-		a.logger.Error().Err(err).Msg("sqlite_close_failed")
+	if err := a.repo.Close(); err != nil {
+		a.logger.Error().Err(err).Msg("repository_close_failed")
 		return err
 	}
 

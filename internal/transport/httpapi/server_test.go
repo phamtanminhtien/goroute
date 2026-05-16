@@ -18,7 +18,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
-	"github.com/phamtanminhtien/goroute/internal/storage/sqlite"
+	"github.com/phamtanminhtien/goroute/internal/storage/gormsqlite"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
@@ -40,17 +40,30 @@ func testConnectionRegistry(connection chatcompletion.Connection) *chatcompletio
 const testAdminToken = "secret"
 
 type testRuntime struct {
-	registry *chatcompletion.ConnectionRegistry
+	repo interface {
+		ListConnections() ([]connection.Record, error)
+	}
+	providers providerregistry.Registry
+	registry  *chatcompletion.ConnectionRegistry
 }
 
-func (r testRuntime) ReplaceConnections(connectionConfigs []connection.Record) error {
+func (r testRuntime) ReloadConnections() error {
+	connectionConfigs, err := r.repo.ListConnections()
+	if err != nil {
+		return err
+	}
+
 	entries := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
+		connectionClient, err := r.providers.BuildConnection(connectionConfig)
+		if err != nil {
+			return err
+		}
 		entries[connectionConfig.ProviderID] = append(entries[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
 			ID:         connectionConfig.ID,
 			Name:       connectionConfig.Name,
 			ProviderID: connectionConfig.ProviderID,
-			Connection: &testProvider{},
+			Connection: connectionClient,
 		})
 	}
 	r.registry.ReplaceConnections(entries)
@@ -87,12 +100,12 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 	}}
-	store, err := sqlite.Open(databasePath)
+	repo, err := gormsqlite.Open(databasePath)
 	if err != nil {
-		t.Fatalf("open sqlite store: %v", err)
+		t.Fatalf("open sqlite repository: %v", err)
 	}
-	t.Cleanup(func() { store.Close() })
-	if err := store.ReplaceConnections(initialConnections); err != nil {
+	t.Cleanup(func() { repo.Close() })
+	if err := repo.ReplaceConnections(initialConnections); err != nil {
 		t.Fatalf("seed sqlite connections: %v", err)
 	}
 
@@ -176,7 +189,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 			Connection: connectionClient,
 		}},
 	}, &logger)
-	service := connectionsusecase.NewService(initialConnections, store, testRuntime{registry: &registry}, providers, &logger)
+	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)
 	return NewServer(testCatalog(), &registry, service, testAdminToken, webUIRoot, &logger)
 }
 

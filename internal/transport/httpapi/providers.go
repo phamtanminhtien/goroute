@@ -147,10 +147,11 @@ func connectionOAuthHandler(service *connectionsusecase.Service) http.Handler {
 
 func writeConnectionMutationError(r *http.Request, w http.ResponseWriter, err error) {
 	var notFound connectionsusecase.ErrNotFound
+	var conflict connectionsusecase.ErrConflict
 	switch {
 	case errors.As(err, &notFound):
 		writeError(r, w, http.StatusNotFound, "not_found", err.Error())
-	case strings.Contains(err.Error(), "already exists"):
+	case errors.As(err, &conflict):
 		writeError(r, w, http.StatusConflict, "conflict", err.Error())
 	default:
 		writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())

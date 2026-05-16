@@ -13,6 +13,20 @@ type stubRepository struct {
 	items []connection.Record
 }
 
+func (r *stubRepository) ListConnections() ([]connection.Record, error) {
+	return append([]connection.Record(nil), r.items...), nil
+}
+
+func (r *stubRepository) GetConnection(id string) (connection.Record, bool, error) {
+	for _, current := range r.items {
+		if current.ID == id {
+			return current, true, nil
+		}
+	}
+
+	return connection.Record{}, false, nil
+}
+
 func (r *stubRepository) CreateConnection(item connection.Record) error {
 	r.items = append(r.items, item)
 	return nil
@@ -43,14 +57,17 @@ func (r *stubRepository) ReplaceConnections(items []connection.Record) error {
 	return nil
 }
 
-type stubRuntime struct {
-	err       error
-	snapshots [][]connection.Record
+func (r *stubRepository) Close() error {
+	return nil
 }
 
-func (r *stubRuntime) ReplaceConnections(items []connection.Record) error {
-	snapshot := append([]connection.Record(nil), items...)
-	r.snapshots = append(r.snapshots, snapshot)
+type stubRuntime struct {
+	err     error
+	reloads int
+}
+
+func (r *stubRuntime) ReloadConnections() error {
+	r.reloads++
 	return r.err
 }
 
@@ -76,7 +93,7 @@ func (stubProviders) CompleteOAuth(connection.Record, map[string]string, string)
 	return providerregistry.OAuthResult{}, nil
 }
 
-func TestServiceRestoresRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
+func TestServiceKeepsRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
 	initial := []connection.Record{{
 		ID:         "openai-1",
 		ProviderID: "openai",
@@ -85,7 +102,7 @@ func TestServiceRestoresRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
 	}}
 	repo := &stubRepository{items: append([]connection.Record(nil), initial...)}
 	runtime := &stubRuntime{err: errors.New("runtime rebuild failed")}
-	service := NewService(initial, repo, runtime, stubProviders{}, nil)
+	service := NewService(repo, runtime, stubProviders{}, nil)
 
 	_, err := service.Create(connection.Record{
 		ID:          "cx-1",
@@ -97,13 +114,13 @@ func TestServiceRestoresRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
 		t.Fatalf("expected runtime error, got %v", err)
 	}
 
-	if len(repo.items) != 1 || repo.items[0].ID != "openai-1" {
-		t.Fatalf("expected repository rollback to original snapshot, got %#v", repo.items)
+	if len(repo.items) != 2 || repo.items[1].ID != "cx-1" {
+		t.Fatalf("expected repository to remain source of truth, got %#v", repo.items)
 	}
-	if items := service.List(); len(items) != 1 || items[0].ID != "openai-1" {
-		t.Fatalf("expected service cache to remain unchanged, got %#v", items)
+	if items := service.List(); len(items) != 2 || items[1].ID != "cx-1" {
+		t.Fatalf("expected service reads to reflect repository state, got %#v", items)
 	}
-	if len(runtime.snapshots) != 2 {
-		t.Fatalf("expected failed reload and restore reload attempts, got %#v", runtime.snapshots)
+	if runtime.reloads != 1 {
+		t.Fatalf("expected one runtime reload attempt, got %d", runtime.reloads)
 	}
 }
