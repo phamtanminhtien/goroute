@@ -47,7 +47,7 @@ type ResponseReasoning struct {
 	Summary string `json:"summary"`
 }
 
-type Response struct {
+type ResponsesResponse struct {
 	ID                string         `json:"id"`
 	Object            string         `json:"object"`
 	CreatedAt         int64          `json:"created_at"`

@@ -18,14 +18,14 @@ type ChatCompletionsStreamChoice struct {
 }
 
 type ResponsesStreamEvent struct {
-	Type     string          `json:"type,omitempty"`
-	ID       string          `json:"id,omitempty"`
-	Text     string          `json:"text,omitempty"`
-	Delta    string          `json:"delta,omitempty"`
-	Content  []OutputContent `json:"content,omitempty"`
-	Output   []OutputItem    `json:"output,omitempty"`
-	Item     *OutputItem     `json:"item,omitempty"`
-	Response *Response       `json:"response,omitempty"`
+	Type     string             `json:"type,omitempty"`
+	ID       string             `json:"id,omitempty"`
+	Text     string             `json:"text,omitempty"`
+	Delta    string             `json:"delta,omitempty"`
+	Content  []OutputContent    `json:"content,omitempty"`
+	Output   []OutputItem       `json:"output,omitempty"`
+	Item     *OutputItem        `json:"item,omitempty"`
+	Response *ResponsesResponse `json:"response,omitempty"`
 }
 
 func (e ResponsesStreamEvent) TextValue() string {
@@ -47,7 +47,7 @@ func (e ResponsesStreamEvent) TextValue() string {
 	return builder.String()
 }
 
-func (r Response) TextValue() string {
+func (r ResponsesResponse) TextValue() string {
 	var builder strings.Builder
 	for _, item := range r.Output {
 		builder.WriteString(item.TextValue())
