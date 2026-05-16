@@ -292,7 +292,7 @@ func TestProviderOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
-	handler := testServer(t, &testProvider{response: openaiwire.ChatCompletionsResponse{ID: "chatcmpl-1", Object: "chat.completion", Model: "gpt-5.4", Choices: []openaiwire.ChatChoice{{Index: 0, Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"}}}}})
+	handler := testServer(t, &testProvider{response: openaiwire.ChatCompletionsResponse{ID: "chatcmpl-1", Object: "chat.completion", Model: "gpt-5.4", Choices: []openaiwire.ChatChoice{{Index: 0, Message: openaiwire.Message{Role: "assistant", Content: "hello back"}}}}})
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -339,7 +339,7 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 				Model:  "gpt-5.4",
 				Choices: []openaiwire.ChatChoice{{
 					Index:   0,
-					Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"},
+					Message: openaiwire.Message{Role: "assistant", Content: "hello back"},
 				}},
 				Usage: &openaiwire.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
 			},
@@ -610,7 +610,7 @@ func TestChatCompletionsAcceptsCommonOpenAIFields(t *testing.T) {
 			Model:  "gpt-5.4",
 			Choices: []openaiwire.ChatChoice{{
 				Index:   0,
-				Message: openaiwire.ChatMessage{Role: "assistant", Content: "weather ready"},
+				Message: openaiwire.Message{Role: "assistant", Content: "weather ready"},
 			}},
 		},
 	}

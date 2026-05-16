@@ -219,43 +219,9 @@ func shouldRetryWithTokenRefresh(statusCode int, connection connection.Record) b
 	return strings.TrimSpace(connection.RefreshToken) != ""
 }
 
-type codexResponsesRequest struct {
-	Model        string                 `json:"model"`
-	Instructions string                 `json:"instructions"`
-	Input        []codexInputItem       `json:"input"`
-	Stream       bool                   `json:"stream"`
-	Store        bool                   `json:"store"`
-	Reasoning    any                    `json:"reasoning,omitempty"`
-	Include      []string               `json:"include,omitempty"`
-	Extra        map[string]interface{} `json:"-"`
-}
-
-type codexInputItem struct {
-	Type      string                 `json:"type"`
-	Role      string                 `json:"role,omitempty"`
-	Content   []codexContentPart     `json:"content,omitempty"`
-	CallID    string                 `json:"call_id,omitempty"`
-	Name      string                 `json:"name,omitempty"`
-	Arguments string                 `json:"arguments,omitempty"`
-	Output    string                 `json:"output,omitempty"`
-	Extra     map[string]interface{} `json:"-"`
-}
-
-type codexContentPart struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-}
-
-type reasoningConfig struct {
-	Effort  string `json:"effort"`
-	Summary string `json:"summary"`
-}
-
-func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, model string) codexResponsesRequest {
+func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, model string) openaiwire.ResponsesRequest {
 	var instructions string
-	input := make([]codexInputItem, 0, len(req.Messages))
+	input := make([]openaiwire.ResponseInputItem, 0, len(req.Messages))
 
 	for _, msg := range req.Messages {
 		switch msg.Role {
@@ -264,14 +230,14 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 				instructions = extractMessageText(msg)
 			}
 		case "user", "assistant":
-			input = append(input, codexInputItem{
+			input = append(input, openaiwire.ResponseInputItem{
 				Type:    "message",
 				Role:    msg.Role,
 				Content: contentToResponsesContent(msg.Role, msg.Content),
 			})
 			if msg.Role == "assistant" {
 				for _, toolCall := range msg.ToolCalls {
-					input = append(input, codexInputItem{
+					input = append(input, openaiwire.ResponseInputItem{
 						Type:      "function_call",
 						CallID:    toolCall.ID,
 						Name:      toolCall.Function.Name,
@@ -280,7 +246,7 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 				}
 			}
 		case "tool":
-			input = append(input, codexInputItem{
+			input = append(input, openaiwire.ResponseInputItem{
 				Type:   "function_call_output",
 				CallID: msg.ToolCallID,
 				Output: stringifyContent(msg.Content),
@@ -289,14 +255,14 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 	}
 
 	if len(input) == 0 {
-		input = append(input, codexInputItem{
+		input = append(input, openaiwire.ResponseInputItem{
 			Type:    "message",
 			Role:    "user",
-			Content: []codexContentPart{{Type: "input_text", Text: "..."}},
+			Content: []openaiwire.ResponseInputContentPart{{Type: "input_text", Text: "..."}},
 		})
 	}
 
-	reasoning := any(reasoningConfig{Effort: defaultString(req.ReasoningEffort, "low"), Summary: "auto"})
+	reasoning := any(openaiwire.ResponseReasoning{Effort: defaultString(req.ReasoningEffort, "low"), Summary: "auto"})
 	if len(req.Reasoning) > 0 {
 		var raw any
 		if err := json.Unmarshal(req.Reasoning, &raw); err == nil {
@@ -304,7 +270,7 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 		}
 	}
 
-	out := codexResponsesRequest{
+	out := openaiwire.ResponsesRequest{
 		Model:        stripProviderPrefix(model),
 		Instructions: instructions,
 		Input:        input,
@@ -329,7 +295,7 @@ func stripProviderPrefix(model string) string {
 	return model
 }
 
-func contentToResponsesContent(role string, content any) []codexContentPart {
+func contentToResponsesContent(role string, content any) []openaiwire.ResponseInputContentPart {
 	textType := "input_text"
 	if role == "assistant" {
 		textType = "output_text"
@@ -337,28 +303,28 @@ func contentToResponsesContent(role string, content any) []codexContentPart {
 
 	switch v := content.(type) {
 	case string:
-		return []codexContentPart{{Type: textType, Text: v}}
+		return []openaiwire.ResponseInputContentPart{{Type: textType, Text: v}}
 	case []any:
-		parts := make([]codexContentPart, 0, len(v))
+		parts := make([]openaiwire.ResponseInputContentPart, 0, len(v))
 		for _, part := range v {
 			partMap, ok := part.(map[string]any)
 			if !ok {
-				parts = append(parts, codexContentPart{Type: textType, Text: stringifyContent(part)})
+				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: stringifyContent(part)})
 				continue
 			}
 			switch partMap["type"] {
 			case "text":
-				parts = append(parts, codexContentPart{Type: textType, Text: stringField(partMap, "text")})
+				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: stringField(partMap, "text")})
 			case "image_url":
 				imageURL, detail := imageURLFields(partMap["image_url"])
-				parts = append(parts, codexContentPart{Type: "input_image", ImageURL: imageURL, Detail: defaultString(detail, "auto")})
+				parts = append(parts, openaiwire.ResponseInputContentPart{Type: "input_image", ImageURL: imageURL, Detail: defaultString(detail, "auto")})
 			default:
-				parts = append(parts, codexContentPart{Type: textType, Text: stringifyContent(part)})
+				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: stringifyContent(part)})
 			}
 		}
 		return parts
 	default:
-		return []codexContentPart{{Type: textType, Text: stringifyContent(content)}}
+		return []openaiwire.ResponseInputContentPart{{Type: textType, Text: stringifyContent(content)}}
 	}
 }
 
@@ -424,7 +390,7 @@ func extractTextParts(content any) []string {
 
 func reasoningEffort(reasoning any) string {
 	switch v := reasoning.(type) {
-	case reasoningConfig:
+	case openaiwire.ResponseReasoning:
 		return v.Effort
 	case map[string]any:
 		effort, _ := v["effort"].(string)
@@ -569,27 +535,6 @@ func randomBase36(length int) string {
 			continue
 		}
 		builder.WriteByte(alphabet[index.Int64()])
-	}
-	return builder.String()
-}
-
-type codexResponse struct {
-	ID     string            `json:"id"`
-	Output []codexOutputItem `json:"output"`
-}
-
-type codexOutputItem struct {
-	Content []codexContentPart `json:"content"`
-}
-
-func (r codexResponse) outputText() string {
-	var builder strings.Builder
-	for _, item := range r.Output {
-		for _, part := range item.Content {
-			if part.Text != "" {
-				builder.WriteString(part.Text)
-			}
-		}
 	}
 	return builder.String()
 }

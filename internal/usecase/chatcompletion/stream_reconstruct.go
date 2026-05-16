@@ -10,19 +10,6 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 )
 
-type openAIStreamChunk struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Index        int                    `json:"index"`
-		Delta        openaiwire.ChatMessage `json:"delta"`
-		FinishReason string                 `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *openaiwire.Usage `json:"usage,omitempty"`
-}
-
 func ReconstructOpenAIResponseFromSSE(data []byte, fallbackModel string) (openaiwire.ChatCompletionsResponse, bool) {
 	events := sseDataEvents(data)
 	if len(events) == 0 {
@@ -40,7 +27,7 @@ func ReconstructOpenAIResponseFromSSE(data []byte, fallbackModel string) (openai
 			continue
 		}
 
-		var chunk openAIStreamChunk
+		var chunk openaiwire.ChatCompletionsStreamChunk
 		if err := json.Unmarshal([]byte(event), &chunk); err != nil {
 			return openaiwire.ChatCompletionsResponse{}, false
 		}
@@ -67,16 +54,21 @@ func ReconstructOpenAIResponseFromSSE(data []byte, fallbackModel string) (openai
 			if current == nil {
 				current = &openaiwire.ChatChoice{
 					Index:   choice.Index,
-					Message: openaiwire.ChatMessage{},
+					Message: openaiwire.Message{},
 				}
 				choices[choice.Index] = current
 			}
 			if choice.Delta.Role != "" {
 				current.Message.Role = choice.Delta.Role
 			}
-			current.Message.Content = mergeContent(current.Message.Content, choice.Delta.Content)
-			current.Message.ToolCallID = choice.Delta.ToolCallID
+			current.Message.Content += choice.Delta.Content
 			current.Message.ToolCalls = mergeToolCalls(current.Message.ToolCalls, choice.Delta.ToolCalls)
+			if choice.Delta.Refusal != "" {
+				current.Message.Refusal += choice.Delta.Refusal
+			}
+			if choice.Delta.Audio != nil {
+				current.Message.Audio = choice.Delta.Audio
+			}
 			if choice.FinishReason != "" {
 				current.FinishReason = choice.FinishReason
 			}
@@ -105,11 +97,8 @@ func BuildAssistantResponse(model string, content string) openaiwire.ChatComplet
 		Object: "chat.completion",
 		Model:  model,
 		Choices: []openaiwire.ChatChoice{{
-			Index: 0,
-			Message: openaiwire.ChatMessage{
-				Role:    "assistant",
-				Content: content,
-			},
+			Index:   0,
+			Message: openaiwire.Message{Role: "assistant", Content: content},
 		}},
 	}
 }
@@ -126,7 +115,7 @@ func ExtractTextFromSSE(data []byte) string {
 			continue
 		}
 
-		var payload map[string]any
+		var payload openaiwire.ResponsesStreamEvent
 		if err := json.Unmarshal([]byte(event), &payload); err != nil {
 			if builder.Len() == 0 {
 				builder.WriteString(event)
@@ -134,7 +123,7 @@ func ExtractTextFromSSE(data []byte) string {
 			continue
 		}
 
-		builder.WriteString(extractTextValue(payload))
+		builder.WriteString(payload.TextValue())
 	}
 
 	return builder.String()
@@ -169,24 +158,6 @@ func sseDataEvents(data []byte) []string {
 	return events
 }
 
-func mergeContent(current any, delta any) any {
-	switch typed := delta.(type) {
-	case nil:
-		return current
-	case string:
-		currentString, _ := current.(string)
-		return currentString + typed
-	case []any:
-		currentSlice, _ := current.([]any)
-		return append(currentSlice, typed...)
-	default:
-		if current == nil {
-			return typed
-		}
-		return current
-	}
-}
-
 func mergeToolCalls(current []openaiwire.ToolCall, delta []openaiwire.ToolCall) []openaiwire.ToolCall {
 	if len(delta) == 0 {
 		return current
@@ -219,47 +190,4 @@ func mergeToolCalls(current []openaiwire.ToolCall, delta []openaiwire.ToolCall) 
 		}
 	}
 	return out
-}
-
-func extractTextValue(value any) string {
-	switch typed := value.(type) {
-	case map[string]any:
-		if text, _ := typed["text"].(string); text != "" {
-			return text
-		}
-		if delta, ok := typed["delta"].(map[string]any); ok {
-			return extractTextValue(delta)
-		}
-		if content, ok := typed["content"].([]any); ok {
-			var builder strings.Builder
-			for _, current := range content {
-				builder.WriteString(extractTextValue(current))
-			}
-			return builder.String()
-		}
-		if choices, ok := typed["choices"].([]any); ok {
-			var builder strings.Builder
-			for _, current := range choices {
-				builder.WriteString(extractTextValue(current))
-			}
-			return builder.String()
-		}
-		if output, ok := typed["output"].([]any); ok {
-			var builder strings.Builder
-			for _, current := range output {
-				builder.WriteString(extractTextValue(current))
-			}
-			return builder.String()
-		}
-	case []any:
-		var builder strings.Builder
-		for _, current := range typed {
-			builder.WriteString(extractTextValue(current))
-		}
-		return builder.String()
-	case string:
-		return typed
-	}
-
-	return ""
 }
