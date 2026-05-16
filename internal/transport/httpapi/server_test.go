@@ -74,9 +74,11 @@ func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Contex
 }
 
 func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
-	t.Helper()
+	return testServerWithUsageAndConnectionAndWebUIAtPath(t, getUsage, connectionClient, webUIRoot, filepath.Join(t.TempDir(), "goroute.db"))
+}
 
-	registry := testConnectionRegistry(connectionClient)
+func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection, webUIRoot fs.FS, databasePath string) http.Handler {
+	t.Helper()
 	initialConnections := []connection.Record{{
 		ID:          "codex-1",
 		ProviderID:  "cx",
@@ -85,13 +87,11 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 	}}
-	store, err := sqlite.Open(filepath.Join(t.TempDir(), "goroute.db"))
+	store, err := sqlite.Open(databasePath)
 	if err != nil {
 		t.Fatalf("open sqlite store: %v", err)
 	}
-	t.Cleanup(func() {
-		store.Close()
-	})
+	t.Cleanup(func() { store.Close() })
 	if err := store.ReplaceConnections(initialConnections); err != nil {
 		t.Fatalf("seed sqlite connections: %v", err)
 	}
@@ -168,8 +168,16 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 	if err != nil {
 		t.Fatalf("build provider registry: %v", err)
 	}
-	service := connectionsusecase.NewService(initialConnections, store, testRuntime{registry: registry}, providers, &logger)
-	return NewServer(testCatalog(), registry, service, testAdminToken, webUIRoot, &logger)
+	registry := chatcompletion.NewConnectionRegistryWithEntriesAndHistory(map[string][]chatcompletion.ConnectionEntry{
+		"cx": {{
+			ID:         "codex-1",
+			Name:       "codex-user",
+			ProviderID: "cx",
+			Connection: connectionClient,
+		}},
+	}, &logger, store)
+	service := connectionsusecase.NewService(initialConnections, store, testRuntime{registry: &registry}, providers, &logger)
+	return NewServer(testCatalog(), &registry, service, testAdminToken, webUIRoot, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {
@@ -500,6 +508,44 @@ func TestDebugRequestsReturnsStructuredAttemptHistory(t *testing.T) {
 	}
 	if !strings.Contains(body, `"final_status":"success"`) {
 		t.Fatalf("expected success final status in history, got body=%s", body)
+	}
+}
+
+func TestDebugRequestsPersistsAcrossServerRestart(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	provider := &testProvider{
+		response: openaiwire.ChatCompletionsResponse{
+			ID:     "chatcmpl-4",
+			Object: "chat.completion",
+			Model:  "gpt-5.4",
+			Choices: []openaiwire.ChatChoice{{
+				Index:   0,
+				Message: openaiwire.ChatMessage{Role: "assistant", Content: "ok"},
+			}},
+		},
+	}
+
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, provider, nil, databasePath)
+	requestBody := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(requestBody))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	restartedHandler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, provider, nil, databasePath)
+	req := httptest.NewRequest(http.MethodGet, "/debug/requests?limit=1", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+	restartedHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"requested_model":"cx/gpt-5.4"`) {
+		t.Fatalf("expected persisted requested model in history, got body=%s", body)
+	}
+	if !strings.Contains(body, `"final_status":"success"`) {
+		t.Fatalf("expected persisted success status in history, got body=%s", body)
 	}
 }
 

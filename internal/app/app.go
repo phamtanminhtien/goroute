@@ -62,7 +62,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		store.Close()
 		return nil, fmt.Errorf("load sqlite connections: %w", err)
 	}
-	connectionRegistry, err := buildConnectionRegistryWithLogger(connectionRecords, providers, &connectionRegistryLogger)
+	connectionRegistry, err := buildConnectionRegistryWithHistory(connectionRecords, providers, &connectionRegistryLogger, store)
 	if err != nil {
 		store.Close()
 		return nil, err
@@ -99,12 +99,16 @@ func buildProviderRegistry() (providerregistry.Registry, error) {
 }
 
 func buildConnectionRegistryWithLogger(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
+	return buildConnectionRegistryWithHistory(connectionConfigs, providers, logger, nil)
+}
+
+func buildConnectionRegistryWithHistory(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger, history chatcompletion.HistoryStore) (*chatcompletion.ConnectionRegistry, error) {
 	entries, err := buildConnectionEntries(connectionConfigs, providers, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	registry := chatcompletion.NewConnectionRegistryWithEntries(entries, logger)
+	registry := chatcompletion.NewConnectionRegistryWithEntriesAndHistory(entries, logger, history)
 	return &registry, nil
 }
 

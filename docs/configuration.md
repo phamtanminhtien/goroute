@@ -24,7 +24,7 @@ Example `~/.goroute/config.json`:
 `server.listen` defaults to `:2232` when omitted.
 `server.auth_token` is required and is used to protect admin-only HTTP routes.
 `server.web_ui_dir` defaults to `web/dist`; when that directory exists, the Go server also serves the built admin UI and SPA routes.
-Connections are persisted in `~/.goroute/goroute.db`.
+Connections and request-attempt history are persisted in `~/.goroute/goroute.db`.
 Connection credentials are validated lazily by the selected adapter during request execution.
 
 ## Logging Environment

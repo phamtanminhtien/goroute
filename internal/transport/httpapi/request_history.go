@@ -24,9 +24,15 @@ func requestHistoryHandler(connectionRegistry *chatcompletion.ConnectionRegistry
 			limit = parsed
 		}
 
+		history, err := connectionRegistry.RecentRequestAttempts(limit)
+		if err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", "failed to load request history")
+			return
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
 			"object": "list",
-			"data":   connectionRegistry.RecentRequestAttempts(limit),
+			"data":   history,
 		})
 	})
 }

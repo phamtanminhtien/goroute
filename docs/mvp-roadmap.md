@@ -73,10 +73,10 @@ Suggested scope:
 - expose connection availability/config validation issues clearly at startup
 - tighten error responses and add more table-driven tests
 - add structured request attempt history
-- decide whether request history is in-memory only for MVP or persisted later
+- keep request history persisted in SQLite so admin diagnostics survive restarts
 
 ## Small but important fixes already worth landing
 
-- document the current config schema as implemented, including required connection `id`, `provider_id`, and `name`
+- document the current config schema as implemented, including that `config.json` stores only local server settings while connections and request history live in SQLite
 - decide how custom OpenAI-compatible base URLs should be configured, if needed
 - keep bootstrap architecture simple while adding policy and observability incrementally

@@ -114,6 +114,67 @@ func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 	}
 }
 
+func TestConnectionRegistryPersistsLifecycleUpdates(t *testing.T) {
+	historyStore := &recordingHistoryStore{}
+	registry := NewConnectionRegistryWithEntriesAndHistory(map[string][]ConnectionEntry{
+		"cx": {{
+			ID:         "codex-primary",
+			Name:       "Codex Primary",
+			ProviderID: "cx",
+			Connection: recordingConnection{err: UpstreamError{StatusCode: 429, Message: "rate limited"}},
+		}, {
+			ID:         "codex-secondary",
+			Name:       "Codex Secondary",
+			ProviderID: "cx",
+			Connection: recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}},
+		}},
+	}, loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})), historyStore)
+
+	ctx := WithRequestID(context.Background(), "req-42")
+	_, err := registry.ChatCompletions(ctx, openaiwire.ChatCompletionsRequest{
+		Model:    "cx/gpt-5.4",
+		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "hello"}},
+		Tools:    []openaiwire.Tool{{Type: "function", Function: openaiwire.ToolFunction{Name: "lookup"}}},
+	}, routing.Target{
+		Prefix:         "cx",
+		RequestedModel: "gpt-5.4",
+		ProviderID:     "cx",
+		ProviderName:   "Codex",
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+
+	if historyStore.created.HistoryID == 0 {
+		t.Fatalf("expected created history id, got %#v", historyStore.created)
+	}
+	if historyStore.created.Status != RequestStatusStarted {
+		t.Fatalf("expected started status on create, got %#v", historyStore.created)
+	}
+	if historyStore.created.MessageCount != 1 || historyStore.created.ToolCount != 1 {
+		t.Fatalf("expected request metadata on create, got %#v", historyStore.created)
+	}
+	if len(historyStore.updates) != 2 {
+		t.Fatalf("expected two updates (retry + success), got %#v", historyStore.updates)
+	}
+	if historyStore.updates[0].Status != RequestStatusRetrying || historyStore.updates[0].AttemptCount != 1 {
+		t.Fatalf("expected retrying update after first attempt, got %#v", historyStore.updates[0])
+	}
+	if historyStore.updates[0].LastErrorCategory != "upstream_retryable_error" {
+		t.Fatalf("expected rate_limited on retry update, got %#v", historyStore.updates[0])
+	}
+	last := historyStore.updates[1]
+	if last.Status != RequestStatusSuccess || last.FinalStatus != RequestStatusSuccess {
+		t.Fatalf("expected success final update, got %#v", last)
+	}
+	if last.AttemptCount != 2 || last.LastConnectionID != "codex-secondary" {
+		t.Fatalf("expected second attempt metadata, got %#v", last)
+	}
+	if len(last.Attempts) != 2 || !last.Attempts[0].WillFallback || last.Attempts[1].Outcome != "success" {
+		t.Fatalf("unexpected attempts timeline: %#v", last.Attempts)
+	}
+}
+
 func newTestRegistry(connections map[string][]Connection) ConnectionRegistry {
 	return NewConnectionRegistryWithEntries(wrapConnections(connections), loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})))
 }
@@ -138,6 +199,28 @@ type recordingConnection struct {
 	response openaiwire.ChatCompletionsResponse
 	err      error
 	onCall   func()
+}
+
+type recordingHistoryStore struct {
+	created RequestAttemptHistory
+	updates []RequestAttemptHistory
+	nextID  int64
+}
+
+func (s *recordingHistoryStore) CreateRequestAttemptHistory(record RequestAttemptHistory) (RequestAttemptHistory, error) {
+	s.nextID++
+	record.HistoryID = s.nextID
+	s.created = cloneHistoryRecord(record)
+	return record, nil
+}
+
+func (s *recordingHistoryStore) UpdateRequestAttemptHistory(record RequestAttemptHistory) error {
+	s.updates = append(s.updates, cloneHistoryRecord(record))
+	return nil
+}
+
+func (s *recordingHistoryStore) RecentRequestAttempts(limit int) ([]RequestAttemptHistory, error) {
+	return nil, nil
 }
 
 func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCompletionsRequest, routing.Target) (openaiwire.ChatCompletionsResponse, error) {
