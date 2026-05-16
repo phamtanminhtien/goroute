@@ -140,6 +140,47 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 	}
 }
 
+func TestClientIncludesEmptyInstructionsWhenNoSystemMessage(t *testing.T) {
+	t.Setenv("MACHINE_ID", "test-machine")
+
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","output":[{"content":[{"type":"output_text","text":"hello back"}]}]}`)),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+
+	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
+		Model: "cx/gpt-5.3-codex",
+		Messages: []openaiwire.ChatMessage{
+			{Role: "user", Content: "Hello"},
+		},
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("chat completions: %v", err)
+	}
+
+	value, ok := upstreamBody["instructions"]
+	if !ok {
+		t.Fatal("expected instructions field to be present")
+	}
+	if value != "" {
+		t.Fatalf("expected empty instructions, got %#v", value)
+	}
+}
+
 func TestClientRefreshesTokenProactivelyBeforeRequest(t *testing.T) {
 	t.Cleanup(func() {
 		oauthHTTPClient = http.DefaultClient

@@ -232,7 +232,7 @@ func shouldRetryWithTokenRefresh(statusCode int, connection connection.Record) b
 
 type codexResponsesRequest struct {
 	Model        string                 `json:"model"`
-	Instructions string                 `json:"instructions,omitempty"`
+	Instructions string                 `json:"instructions"`
 	Input        []codexInputItem       `json:"input"`
 	Stream       bool                   `json:"stream"`
 	Store        bool                   `json:"store"`
