@@ -392,7 +392,7 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) {
 		t.Fatalf("expected translated request body, got %#v", flows[0])
 	}
-	if !strings.Contains(flows[0].ResponseBody, `"model":"cx/gpt-5.4"`) {
+	if !strings.Contains(flows[0].ResponseBody, `"id":"upstream-1"`) {
 		t.Fatalf("expected raw response body, got %#v", flows[0])
 	}
 	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
@@ -579,7 +579,7 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 	if flows[0].ProviderRequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("unexpected flow provider request mode %#v", flows)
 	}
-	if flows[0].ResponseBody != "{\"text\":\"first\"}" {
+	if !strings.Contains(flows[0].ResponseBody, `"content":"first"`) {
 		t.Fatalf("expected raw SSE response body, got %#v", flows[0])
 	}
 	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) || !strings.Contains(flows[0].TranslatedRequestBody, `"stream":true`) {

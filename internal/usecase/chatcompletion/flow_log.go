@@ -248,7 +248,7 @@ func (r *FlowRecorder) SetHTTPResponse(statusCode int, headers http.Header, body
 	r.responseStatusCode = statusCode
 	r.responseHeaders = marshalHeaders(headers, false)
 	if !r.responseBodySet {
-		r.responseBody = responseBodyForStorage(r.requestMode, body)
+		r.responseBody = flowResponseBodyForStorage(headers, body)
 	}
 }
 
@@ -352,6 +352,10 @@ func (r *FlowRecorder) AddThirdPartyLog(log ThirdPartyLog) {
 	}
 	if r.providerRequestMode == "" && log.ProviderRequestMode != "" {
 		r.providerRequestMode = log.ProviderRequestMode
+	}
+	if strings.TrimSpace(log.ResponseBody) != "" {
+		r.responseBody = log.ResponseBody
+		r.responseBodySet = true
 	}
 	r.thirdPartyLogs = append(r.thirdPartyLogs, log)
 }
@@ -568,12 +572,11 @@ func ThirdPartySSEResponseBodyForStorage(body string) string {
 	return redactBody(lastSSEEvent(body))
 }
 
-func responseBodyForStorage(requestMode string, body string) string {
-	if requestMode != RequestModeStream {
-		return body
+func flowResponseBodyForStorage(headers http.Header, body string) string {
+	if isEventStream(headers) {
+		return redactBody(lastSSEEvent(body))
 	}
-
-	return lastSSEEvent(body)
+	return redactBody(body)
 }
 
 func lastSSEEvent(body string) string {

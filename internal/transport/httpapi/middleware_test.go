@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 )
 
@@ -46,5 +48,24 @@ func TestLoggingMiddlewareEmitsStructuredRequestFields(t *testing.T) {
 	}
 	if payload["request_id"] == "" {
 		t.Fatalf("expected request_id field, got %#v", payload["request_id"])
+	}
+
+	headerRequestID := rec.Header().Get("X-Request-ID")
+	if headerRequestID == "" {
+		t.Fatal("expected X-Request-ID header")
+	}
+
+	loggedRequestID, ok := payload["request_id"].(string)
+	if !ok {
+		t.Fatalf("expected request_id field to be a string, got %#v", payload["request_id"])
+	}
+	if loggedRequestID != headerRequestID {
+		t.Fatalf("expected header and log request IDs to match, got header=%q log=%q", headerRequestID, loggedRequestID)
+	}
+	if !strings.HasPrefix(loggedRequestID, "req-") {
+		t.Fatalf("expected request_id to start with req-, got %q", loggedRequestID)
+	}
+	if _, err := uuid.Parse(strings.TrimPrefix(loggedRequestID, "req-")); err != nil {
+		t.Fatalf("expected request_id suffix to be a UUID, got %q: %v", loggedRequestID, err)
 	}
 }

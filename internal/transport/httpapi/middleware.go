@@ -4,22 +4,24 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/rs/zerolog"
 )
 
-var requestCounter uint64
-
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("req-%d", atomic.AddUint64(&requestCounter, 1))
+		id := newRequestID()
 		ctx := chatcompletion.WithRequestID(r.Context(), id)
 		w.Header().Set("X-Request-ID", id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func newRequestID() string {
+	return fmt.Sprintf("req-%s", uuid.NewString())
 }
 
 func loggingMiddleware(logger *zerolog.Logger) func(http.Handler) http.Handler {
