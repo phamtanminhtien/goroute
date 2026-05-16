@@ -307,19 +307,25 @@ func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
 	}
 }
 
-func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
-	handler := testServer(t, &testProvider{err: chatcompletion.UpstreamError{StatusCode: http.StatusTooManyRequests, Message: "rate limited"}})
+func TestChatCompletionsPassesThroughUpstreamErrors(t *testing.T) {
+	handler := testServer(t, &testProvider{err: chatcompletion.UpstreamError{
+		StatusCode: http.StatusTooManyRequests,
+		Message:    `{"error":{"message":"rate limited","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}`,
+	}})
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("expected %d, got %d body=%s", http.StatusBadGateway, rec.Code, rec.Body.String())
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusTooManyRequests, rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"request_id":"req-`) {
-		t.Fatalf("expected request_id in error body, got body=%s", rec.Body.String())
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("expected application/json content type, got %q", got)
+	}
+	if rec.Body.String() != `{"error":{"message":"rate limited","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}` {
+		t.Fatalf("expected upstream body to pass through, got body=%s", rec.Body.String())
 	}
 }
 

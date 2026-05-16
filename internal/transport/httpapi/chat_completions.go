@@ -62,7 +62,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 				switch {
 				case errors.As(err, &upstreamErr):
 					recorder.SetError("upstream_error", upstreamErr.Error())
-					writeError(r, bodyWriter, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
+					writeUpstreamError(bodyWriter, upstreamErr)
 				default:
 					recorder.SetError("invalid_request", err.Error())
 					writeError(r, bodyWriter, http.StatusBadRequest, "invalid_request", err.Error())
@@ -89,7 +89,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 			switch {
 			case errors.As(err, &upstreamErr):
 				recorder.SetError("upstream_error", upstreamErr.Error())
-				writeError(r, bodyWriter, http.StatusBadGateway, "upstream_error", upstreamErr.Error())
+				writeUpstreamError(bodyWriter, upstreamErr)
 			default:
 				recorder.SetError("invalid_request", err.Error())
 				writeError(r, bodyWriter, http.StatusBadRequest, "invalid_request", err.Error())
