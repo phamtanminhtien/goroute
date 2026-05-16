@@ -2,6 +2,16 @@ package openaiwire
 
 import "strings"
 
+type ResponsesStreamEventType string
+
+const (
+	ResponsesStreamEventTypeCreated         ResponsesStreamEventType = "response.created"
+	ResponsesStreamEventTypeOutputTextDelta ResponsesStreamEventType = "response.output_text.delta"
+	ResponsesStreamEventTypeOutputItemDone  ResponsesStreamEventType = "response.output_item.done"
+	ResponsesStreamEventTypeCompleted       ResponsesStreamEventType = "response.completed"
+	ResponsesStreamEventTypeFailed          ResponsesStreamEventType = "response.failed"
+)
+
 type ChatCompletionsStreamChunk struct {
 	ID      string                        `json:"id"`
 	Object  string                        `json:"object"`
@@ -12,20 +22,21 @@ type ChatCompletionsStreamChunk struct {
 }
 
 type ChatCompletionsStreamChoice struct {
-	Index        int     `json:"index"`
-	Delta        Message `json:"delta"`
-	FinishReason string  `json:"finish_reason"`
+	Index        int          `json:"index"`
+	Delta        Message      `json:"delta"`
+	FinishReason FinishReason `json:"finish_reason,omitempty"`
 }
 
 type ResponsesStreamEvent struct {
-	Type     string             `json:"type,omitempty"`
-	ID       string             `json:"id,omitempty"`
-	Text     string             `json:"text,omitempty"`
-	Delta    string             `json:"delta,omitempty"`
-	Content  []OutputContent    `json:"content,omitempty"`
-	Output   []OutputItem       `json:"output,omitempty"`
-	Item     *OutputItem        `json:"item,omitempty"`
-	Response *ResponsesResponse `json:"response,omitempty"`
+	Type        ResponsesStreamEventType `json:"type,omitempty"`
+	ID          string                   `json:"id,omitempty"`
+	Text        string                   `json:"text,omitempty"`
+	Delta       string                   `json:"delta,omitempty"`
+	OutputIndex int                      `json:"output_index,omitempty"`
+	Content     []OutputContent          `json:"content,omitempty"`
+	Output      []OutputItem             `json:"output,omitempty"`
+	Item        *OutputItem              `json:"item,omitempty"`
+	Response    *ResponsesResponse       `json:"response,omitempty"`
 }
 
 func (e ResponsesStreamEvent) TextValue() string {

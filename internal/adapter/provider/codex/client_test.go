@@ -69,7 +69,11 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"in_progress\"}}\n\n" +
+					"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello back\"}]}}\n\n" +
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12,\"input_tokens_details\":{\"cached_tokens\":4}}}}\n\n",
+			)),
 		}, nil
 	})}
 
@@ -88,6 +92,15 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 	}
 	if response.Choices[0].Message.Content != "hello back" {
 		t.Fatalf("unexpected response content: %#v", response.Choices[0].Message.Content)
+	}
+	if response.Choices[0].FinishReason != "stop" {
+		t.Fatalf("unexpected finish reason: %#v", response.Choices[0].FinishReason)
+	}
+	if response.Usage == nil || response.Usage.TotalTokens != 12 {
+		t.Fatalf("unexpected usage: %#v", response.Usage)
+	}
+	if response.Usage.PromptTokensDetails == nil || response.Usage.PromptTokensDetails.CachedTokens != 4 {
+		t.Fatalf("unexpected prompt token details: %#v", response.Usage)
 	}
 
 	if sessionID != "sess_"+hashContent("test-machine") {
@@ -115,7 +128,11 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader("data: first\n\n")),
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678}}\n\n" +
+					"data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n" +
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12,\"input_tokens_details\":{\"cached_tokens\":4}}}}\n\n",
+			)),
 		}, nil
 	})}
 
@@ -135,12 +152,24 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read stream: %v", err)
 	}
-	if string(data) != "data: first\n\n" {
+	if !strings.Contains(string(data), "\"object\":\"chat.completion.chunk\"") {
+		t.Fatalf("expected chat completion chunk stream, got %q", data)
+	}
+	if !strings.Contains(string(data), "\"content\":\"Hello\"") {
+		t.Fatalf("expected streamed content, got %q", data)
+	}
+	if !strings.Contains(string(data), "\"finish_reason\":\"stop\"") {
+		t.Fatalf("expected finish chunk, got %q", data)
+	}
+	if !strings.Contains(string(data), "\"prompt_tokens_details\":{\"cached_tokens\":4}") {
+		t.Fatalf("expected usage details, got %q", data)
+	}
+	if !strings.Contains(string(data), "data: [DONE]") {
 		t.Fatalf("unexpected stream body %q", data)
 	}
 }
 
-func TestClientIncludesEmptyInstructionsWhenNoSystemMessage(t *testing.T) {
+func TestClientIncludesDefaultInstructionsWhenNoSystemMessage(t *testing.T) {
 	t.Setenv("MACHINE_ID", "test-machine")
 
 	var upstreamBody map[string]any
@@ -156,7 +185,9 @@ func TestClientIncludesEmptyInstructionsWhenNoSystemMessage(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello back\"}]}}\n\n",
+			)),
 		}, nil
 	})}
 
@@ -176,8 +207,8 @@ func TestClientIncludesEmptyInstructionsWhenNoSystemMessage(t *testing.T) {
 	if !ok {
 		t.Fatal("expected instructions field to be present")
 	}
-	if value != "" {
-		t.Fatalf("expected empty instructions, got %#v", value)
+	if value != defaultInstruction {
+		t.Fatalf("expected default instructions %q, got %#v", defaultInstruction, value)
 	}
 	if upstreamBody["stream"] != true {
 		t.Fatalf("codex upstream should always stream, got %#v", upstreamBody["stream"])
@@ -208,7 +239,9 @@ func TestClientRefreshesTokenProactivelyBeforeRequest(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello back\"}]}}\n\n",
+			)),
 		}, nil
 	})}
 	oauthHTTPClient = httpClient
@@ -275,7 +308,9 @@ func TestClientRefreshesTokenAfterUnauthorizedResponse(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader("data: {\"text\":\"hello back\"}\n\n")),
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello back\"}]}}\n\n",
+			)),
 		}, nil
 	})}
 	oauthHTTPClient = httpClient

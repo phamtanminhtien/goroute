@@ -76,7 +76,11 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
 	body := req
 	body.Stream = true
-	return c.doResponses(ctx, body, target)
+	streamBody, err := c.doResponses(ctx, body, target)
+	if err != nil {
+		return nil, err
+	}
+	return transformResponsesToChatCompletionsStream(streamBody, target.Prefix+"/"+target.RequestedModel), nil
 }
 
 func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
@@ -225,17 +229,17 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 
 	for _, msg := range req.Messages {
 		switch msg.Role {
-		case "system":
+		case openaiwire.ChatRoleSystem:
 			if instructions == "" {
 				instructions = extractMessageText(msg)
 			}
-		case "user", "assistant":
+		case openaiwire.ChatRoleUser, openaiwire.ChatRoleAssistant:
 			input = append(input, openaiwire.ResponseInputItem{
 				Type:    "message",
-				Role:    msg.Role,
+				Role:    string(msg.Role),
 				Content: contentToResponsesContent(msg.Role, msg.Content),
 			})
-			if msg.Role == "assistant" {
+			if msg.Role == openaiwire.ChatRoleAssistant {
 				for _, toolCall := range msg.ToolCalls {
 					input = append(input, openaiwire.ResponseInputItem{
 						Type:      "function_call",
@@ -245,7 +249,7 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 					})
 				}
 			}
-		case "tool":
+		case openaiwire.ChatRoleTool:
 			input = append(input, openaiwire.ResponseInputItem{
 				Type:   "function_call_output",
 				CallID: msg.ToolCallID,
@@ -254,10 +258,14 @@ func chatCompletionsToCodexResponses(req openaiwire.ChatCompletionsRequest, mode
 		}
 	}
 
+	if strings.TrimSpace(instructions) == "" {
+		instructions = defaultInstruction
+	}
+
 	if len(input) == 0 {
 		input = append(input, openaiwire.ResponseInputItem{
 			Type:    "message",
-			Role:    "user",
+			Role:    string(openaiwire.ChatRoleUser),
 			Content: []openaiwire.ResponseInputContentPart{{Type: "input_text", Text: "..."}},
 		})
 	}
@@ -295,9 +303,9 @@ func stripProviderPrefix(model string) string {
 	return model
 }
 
-func contentToResponsesContent(role string, content any) []openaiwire.ResponseInputContentPart {
+func contentToResponsesContent(role openaiwire.ChatRole, content any) []openaiwire.ResponseInputContentPart {
 	textType := "input_text"
-	if role == "assistant" {
+	if role == openaiwire.ChatRoleAssistant {
 		textType = "output_text"
 	}
 
@@ -472,7 +480,7 @@ func (s *sessionStore) resolve(messages []openaiwire.ChatMessage, machineID stri
 
 	var firstAssistantText string
 	for _, msg := range messages {
-		if msg.Role == "assistant" {
+		if msg.Role == openaiwire.ChatRoleAssistant {
 			firstAssistantText = extractMessageText(msg)
 			break
 		}
@@ -540,8 +548,12 @@ func randomBase36(length int) string {
 }
 
 func (c *Client) reconstructStreamResponse(target routing.Target, streamBody []byte) openaiwire.ChatCompletionsResponse {
-	text := chatcompletion.ExtractTextFromSSE(streamBody)
-	return chatcompletion.BuildAssistantResponse(target.RequestedModel, text)
+	response, err := parseResponsesSSE(streamBody)
+	if err != nil {
+		text := chatcompletion.ExtractTextFromSSE(streamBody)
+		return chatcompletion.BuildAssistantResponse(target.RequestedModel, text)
+	}
+	return responseToChatCompletion(response, target.RequestedModel)
 }
 
 func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target, requestBody []byte, request *http.Request, response *http.Response, responseBody []byte, startedAt time.Time, completedAt time.Time, err error, attemptIndex int, stream bool) {

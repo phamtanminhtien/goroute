@@ -2,6 +2,28 @@ package openaiwire
 
 import "encoding/json"
 
+type ChatRole string
+
+const (
+	ChatRoleSystem    ChatRole = "system"
+	ChatRoleUser      ChatRole = "user"
+	ChatRoleAssistant ChatRole = "assistant"
+	ChatRoleTool      ChatRole = "tool"
+)
+
+type ToolType string
+
+const (
+	ToolTypeFunction ToolType = "function"
+)
+
+type FinishReason string
+
+const (
+	FinishReasonStop      FinishReason = "stop"
+	FinishReasonToolCalls FinishReason = "tool_calls"
+)
+
 type ChatCompletionsRequest struct {
 	Model           string          `json:"model"`
 	Messages        []ChatMessage   `json:"messages"`
@@ -15,7 +37,7 @@ type ChatCompletionsRequest struct {
 }
 
 type ChatMessage struct {
-	Role       string     `json:"role"`
+	Role       ChatRole   `json:"role"`
 	Content    any        `json:"content"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -23,7 +45,7 @@ type ChatMessage struct {
 
 type ToolCall struct {
 	ID       string           `json:"id"`
-	Type     string           `json:"type,omitempty"`
+	Type     ToolType         `json:"type,omitempty"`
 	Function ToolCallFunction `json:"function"`
 }
 
@@ -33,7 +55,7 @@ type ToolCallFunction struct {
 }
 
 type Tool struct {
-	Type     string       `json:"type"`
+	Type     ToolType     `json:"type"`
 	Function ToolFunction `json:"function"`
 }
 
@@ -56,14 +78,14 @@ type ChatCompletionsResponse struct {
 }
 
 type ChatCompletionChoice struct {
-	Index        int     `json:"index"`
-	Message      Message `json:"message"`
-	FinishReason string  `json:"finish_reason,omitempty"`
-	LogProbs     any     `json:"logprobs,omitempty"`
+	Index        int          `json:"index"`
+	Message      Message      `json:"message"`
+	FinishReason FinishReason `json:"finish_reason,omitempty"`
+	LogProbs     any          `json:"logprobs,omitempty"`
 }
 
 type Message struct {
-	Role      string     `json:"role"`
+	Role      ChatRole   `json:"role"`
 	Content   string     `json:"content,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	Refusal   string     `json:"refusal,omitempty"`
@@ -71,9 +93,14 @@ type Message struct {
 }
 
 type CompletionUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int                  `json:"prompt_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type PromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 type OpenAIError struct {

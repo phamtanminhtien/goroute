@@ -2,6 +2,28 @@ package openaiwire
 
 import "encoding/json"
 
+type ResponsesStatus string
+
+const (
+	ResponsesStatusInProgress ResponsesStatus = "in_progress"
+	ResponsesStatusCompleted  ResponsesStatus = "completed"
+	ResponsesStatusFailed     ResponsesStatus = "failed"
+)
+
+type OutputItemType string
+
+const (
+	OutputItemTypeMessage      OutputItemType = "message"
+	OutputItemTypeFunctionCall OutputItemType = "function_call"
+	OutputItemTypeReasoning    OutputItemType = "reasoning"
+)
+
+type OutputContentType string
+
+const (
+	OutputContentTypeOutputText OutputContentType = "output_text"
+)
+
 type ResponsesRequest struct {
 	Model        string              `json:"model"`
 	Instructions string              `json:"instructions"`
@@ -48,34 +70,53 @@ type ResponseReasoning struct {
 }
 
 type ResponsesResponse struct {
-	ID                string         `json:"id"`
-	Object            string         `json:"object"`
-	CreatedAt         int64          `json:"created_at"`
-	Status            string         `json:"status"`
-	Model             string         `json:"model"`
-	Output            []OutputItem   `json:"output"`
-	Usage             *ResponseUsage `json:"usage,omitempty"`
-	Error             *ResponseError `json:"error,omitempty"`
-	IncompleteDetails any            `json:"incomplete_details,omitempty"`
+	ID                string          `json:"id"`
+	Object            string          `json:"object"`
+	CreatedAt         int64           `json:"created_at"`
+	Status            ResponsesStatus `json:"status"`
+	Model             string          `json:"model"`
+	Output            []OutputItem    `json:"output"`
+	Usage             *ResponseUsage  `json:"usage,omitempty"`
+	Error             *ResponseError  `json:"error,omitempty"`
+	IncompleteDetails any             `json:"incomplete_details,omitempty"`
 }
 
 type OutputItem struct {
-	ID      string          `json:"id,omitempty"`
-	Type    string          `json:"type"`
-	Role    string          `json:"role,omitempty"`
-	Content []OutputContent `json:"content,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Type      OutputItemType        `json:"type"`
+	Role      string                `json:"role,omitempty"`
+	Content   []OutputContent       `json:"content,omitempty"`
+	CallID    string                `json:"call_id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Arguments string                `json:"arguments,omitempty"`
+	Summary   []ResponseSummaryPart `json:"summary,omitempty"`
 }
 
 type OutputContent struct {
-	Type        string `json:"type"`
-	Text        string `json:"text,omitempty"`
-	Annotations []any  `json:"annotations,omitempty"`
+	Type        OutputContentType `json:"type"`
+	Text        string            `json:"text,omitempty"`
+	Annotations []any             `json:"annotations,omitempty"`
+}
+
+type ResponseSummaryPart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
 }
 
 type ResponseUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens         int                         `json:"input_tokens"`
+	OutputTokens        int                         `json:"output_tokens"`
+	TotalTokens         int                         `json:"total_tokens"`
+	InputTokensDetails  *ResponseInputTokenDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *ResponseOutputTokenDetails `json:"output_tokens_details,omitempty"`
+}
+
+type ResponseInputTokenDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+type ResponseOutputTokenDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 type ResponseError struct {
