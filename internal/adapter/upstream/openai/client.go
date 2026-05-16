@@ -48,6 +48,10 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 	if err != nil {
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("encode upstream request: %w", err)
 	}
+	if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.SetProviderRequestMode(false)
+		recorder.SetTranslatedRequestBody(string(payload))
+	}
 
 	httpReq, err := c.newChatCompletionsRequest(ctx, payload, credential)
 	if err != nil {
@@ -101,6 +105,10 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 	if err != nil {
 		return nil, fmt.Errorf("encode upstream request: %w", err)
 	}
+	if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.SetProviderRequestMode(true)
+		recorder.SetTranslatedRequestBody(string(payload))
+	}
 
 	httpReq, err := c.newChatCompletionsRequest(ctx, payload, credential)
 	if err != nil {
@@ -124,16 +132,12 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 
 	return chatcompletion.CaptureStream(resp.Body, func(streamBody []byte, streamErr error) {
 		completedAt := time.Now().UTC()
-		responseBody := ""
 		if reconstructed, ok := chatcompletion.ReconstructOpenAIResponseFromSSE(streamBody, target.RequestedModel); ok {
-			if payload, err := json.Marshal(reconstructed); err == nil {
-				responseBody = string(payload)
-			}
 			if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
 				recorder.SetFlowResponse(reconstructed, true)
 			}
 		}
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, []byte(responseBody), startedAt, completedAt, streamErr, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, streamBody, startedAt, completedAt, streamErr, 0)
 	}), nil
 }
 
@@ -167,18 +171,19 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 	}
 
 	logRecord := chatcompletion.ThirdPartyLog{
-		ProviderID:     target.ProviderID,
-		ProviderName:   target.ProviderName,
-		ConnectionID:   c.connection.ID,
-		ConnectionName: c.connection.Name,
-		AttemptIndex:   attemptIndex,
-		RequestMethod:  request.Method,
-		RequestURL:     request.URL.String(),
-		RequestHeaders: chatcompletion.RedactHeadersForStorage(request.Header),
-		RequestBody:    chatcompletion.RedactBodyForStorage(string(requestBody)),
-		ResponseBody:   chatcompletion.RedactBodyForStorage(string(responseBody)),
-		StartedAt:      startedAt,
-		CompletedAt:    completedAt,
+		ProviderID:          target.ProviderID,
+		ProviderName:        target.ProviderName,
+		ConnectionID:        c.connection.ID,
+		ConnectionName:      c.connection.Name,
+		AttemptIndex:        attemptIndex,
+		RequestMethod:       request.Method,
+		RequestURL:          request.URL.String(),
+		ProviderRequestMode: defaultProviderRequestMode(request),
+		RequestHeaders:      chatcompletion.RedactHeadersForStorage(request.Header),
+		RequestBody:         chatcompletion.RedactBodyForStorage(string(requestBody)),
+		ResponseBody:        chatcompletion.ThirdPartyResponseBodyForStorage(responseHeader(response), string(responseBody)),
+		StartedAt:           startedAt,
+		CompletedAt:         completedAt,
 	}
 	if response != nil {
 		logRecord.ResponseStatusCode = response.StatusCode
@@ -202,4 +207,21 @@ func thirdPartyErrorType(err error) string {
 		return "upstream_error"
 	}
 	return "request_error"
+}
+
+func responseHeader(response *http.Response) http.Header {
+	if response == nil {
+		return nil
+	}
+	return response.Header
+}
+
+func defaultProviderRequestMode(request *http.Request) string {
+	if request == nil {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(request.Header.Get("Accept")), "text/event-stream") {
+		return chatcompletion.RequestModeStream
+	}
+	return chatcompletion.RequestModeSync
 }

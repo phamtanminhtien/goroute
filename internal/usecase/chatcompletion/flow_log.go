@@ -38,25 +38,26 @@ type AttemptTrace struct {
 }
 
 type ThirdPartyLog struct {
-	FlowRequestID      string
-	Type               string
-	RequestMode        string
-	ProviderID         string
-	ProviderName       string
-	ConnectionID       string
-	ConnectionName     string
-	AttemptIndex       int
-	RequestMethod      string
-	RequestURL         string
-	RequestHeaders     string
-	RequestBody        string
-	ResponseStatusCode int
-	ResponseHeaders    string
-	ResponseBody       string
-	ErrorType          string
-	ErrorMessage       string
-	StartedAt          time.Time
-	CompletedAt        time.Time
+	FlowRequestID       string
+	Type                string
+	RequestMode         string
+	ProviderRequestMode string
+	ProviderID          string
+	ProviderName        string
+	ConnectionID        string
+	ConnectionName      string
+	AttemptIndex        int
+	RequestMethod       string
+	RequestURL          string
+	RequestHeaders      string
+	RequestBody         string
+	ResponseStatusCode  int
+	ResponseHeaders     string
+	ResponseBody        string
+	ErrorType           string
+	ErrorMessage        string
+	StartedAt           time.Time
+	CompletedAt         time.Time
 }
 
 type FlowRecorder struct {
@@ -65,15 +66,17 @@ type FlowRecorder struct {
 	requestID string
 	startedAt time.Time
 
-	requestType    string
-	requestMode    string
-	method         string
-	path           string
-	query          string
-	remoteAddr     string
-	userAgent      string
-	requestHeaders string
-	requestBody    string
+	requestType           string
+	requestMode           string
+	providerRequestMode   string
+	method                string
+	path                  string
+	query                 string
+	remoteAddr            string
+	userAgent             string
+	requestHeaders        string
+	requestBody           string
+	translatedRequestBody string
 
 	requestedModel string
 	resolvedModel  string
@@ -85,10 +88,11 @@ type FlowRecorder struct {
 	finalErrorCategory  string
 	attemptTrace        []AttemptTrace
 
-	responseStatusCode int
-	responseHeaders    string
-	responseBody       string
-	responseBodySet    bool
+	responseStatusCode     int
+	responseHeaders        string
+	responseBody           string
+	responseBodySet        bool
+	translatedResponseBody string
 
 	errorType    string
 	errorMessage string
@@ -159,9 +163,29 @@ func (r *FlowRecorder) SetRequestMode(stream bool) {
 	defer r.mu.Unlock()
 	if stream {
 		r.requestMode = RequestModeStream
+		if r.providerRequestMode == "" {
+			r.providerRequestMode = RequestModeStream
+		}
 		return
 	}
 	r.requestMode = RequestModeSync
+	if r.providerRequestMode == "" {
+		r.providerRequestMode = RequestModeSync
+	}
+}
+
+func (r *FlowRecorder) SetProviderRequestMode(stream bool) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if stream {
+		r.providerRequestMode = RequestModeStream
+		return
+	}
+	r.providerRequestMode = RequestModeSync
 }
 
 func (r *FlowRecorder) SetResolvedTarget(target routing.Target) {
@@ -224,7 +248,7 @@ func (r *FlowRecorder) SetHTTPResponse(statusCode int, headers http.Header, body
 	r.responseStatusCode = statusCode
 	r.responseHeaders = marshalHeaders(headers, false)
 	if !r.responseBodySet {
-		r.responseBody = body
+		r.responseBody = responseBodyForStorage(r.requestMode, body)
 	}
 }
 
@@ -237,6 +261,26 @@ func (r *FlowRecorder) SetResponseBody(body string) {
 	defer r.mu.Unlock()
 	r.responseBody = body
 	r.responseBodySet = true
+}
+
+func (r *FlowRecorder) SetTranslatedRequestBody(body string) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.translatedRequestBody = redactBody(body)
+}
+
+func (r *FlowRecorder) SetTranslatedResponseBody(body string) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.translatedResponseBody = redactBody(body)
 }
 
 func (r *FlowRecorder) SetError(errorType string, message string) {
@@ -278,7 +322,7 @@ func (r *FlowRecorder) SetFlowResponse(response openaiwire.ChatCompletionsRespon
 		return
 	}
 
-	r.SetResponseBody(string(payload))
+	r.SetTranslatedResponseBody(string(payload))
 	r.SetUsage(response.Usage)
 }
 
@@ -298,6 +342,16 @@ func (r *FlowRecorder) AddThirdPartyLog(log ThirdPartyLog) {
 	}
 	if log.RequestMode == "" {
 		log.RequestMode = r.requestMode
+	}
+	if log.ProviderRequestMode == "" {
+		if r.providerRequestMode != "" {
+			log.ProviderRequestMode = r.providerRequestMode
+		} else {
+			log.ProviderRequestMode = log.RequestMode
+		}
+	}
+	if r.providerRequestMode == "" && log.ProviderRequestMode != "" {
+		r.providerRequestMode = log.ProviderRequestMode
 	}
 	r.thirdPartyLogs = append(r.thirdPartyLogs, log)
 }
@@ -330,6 +384,7 @@ func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, 
 		RequestID:           r.requestID,
 		Type:                r.requestType,
 		RequestMode:         r.requestMode,
+		ProviderRequestMode: defaultString(r.providerRequestMode, r.requestMode),
 		Method:              r.method,
 		Path:                r.path,
 		RequestedModel:      r.requestedModel,
@@ -352,54 +407,58 @@ func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, 
 	}
 
 	flow := airequestlog.FlowRecord{
-		RequestID:          r.requestID,
-		Type:               r.requestType,
-		RequestMode:        r.requestMode,
-		Method:             r.method,
-		Path:               r.path,
-		Query:              r.query,
-		RemoteAddr:         r.remoteAddr,
-		UserAgent:          r.userAgent,
-		RequestHeaders:     r.requestHeaders,
-		RequestBody:        r.requestBody,
-		RequestedModel:     r.requestedModel,
-		ResolvedModel:      r.resolvedModel,
-		ProviderID:         r.providerID,
-		ProviderName:       r.providerName,
-		AttemptTrace:       attemptTrace,
-		ResponseStatusCode: r.responseStatusCode,
-		ResponseHeaders:    r.responseHeaders,
-		ResponseBody:       r.responseBody,
-		ErrorType:          r.errorType,
-		ErrorMessage:       r.errorMessage,
-		StartedAt:          r.startedAt.UnixMilli(),
-		CompletedAt:        completedAt.UnixMilli(),
-		DurationMs:         durationMs,
+		RequestID:              r.requestID,
+		Type:                   r.requestType,
+		RequestMode:            r.requestMode,
+		ProviderRequestMode:    defaultString(r.providerRequestMode, r.requestMode),
+		Method:                 r.method,
+		Path:                   r.path,
+		Query:                  r.query,
+		RemoteAddr:             r.remoteAddr,
+		UserAgent:              r.userAgent,
+		RequestHeaders:         r.requestHeaders,
+		RequestBody:            r.requestBody,
+		TranslatedRequestBody:  r.translatedRequestBody,
+		RequestedModel:         r.requestedModel,
+		ResolvedModel:          r.resolvedModel,
+		ProviderID:             r.providerID,
+		ProviderName:           r.providerName,
+		AttemptTrace:           attemptTrace,
+		ResponseStatusCode:     r.responseStatusCode,
+		ResponseHeaders:        r.responseHeaders,
+		ResponseBody:           r.responseBody,
+		TranslatedResponseBody: r.translatedResponseBody,
+		ErrorType:              r.errorType,
+		ErrorMessage:           r.errorMessage,
+		StartedAt:              r.startedAt.UnixMilli(),
+		CompletedAt:            completedAt.UnixMilli(),
+		DurationMs:             durationMs,
 	}
 
 	thirdPartyLogs := make([]airequestlog.ThirdPartyRequestLogRecord, 0, len(r.thirdPartyLogs))
 	for _, current := range r.thirdPartyLogs {
 		thirdPartyLogs = append(thirdPartyLogs, airequestlog.ThirdPartyRequestLogRecord{
-			FlowRequestID:      current.FlowRequestID,
-			Type:               current.Type,
-			RequestMode:        current.RequestMode,
-			ProviderID:         current.ProviderID,
-			ProviderName:       current.ProviderName,
-			ConnectionID:       current.ConnectionID,
-			ConnectionName:     current.ConnectionName,
-			AttemptIndex:       current.AttemptIndex,
-			RequestMethod:      current.RequestMethod,
-			RequestURL:         current.RequestURL,
-			RequestHeaders:     current.RequestHeaders,
-			RequestBody:        current.RequestBody,
-			ResponseStatusCode: current.ResponseStatusCode,
-			ResponseHeaders:    current.ResponseHeaders,
-			ResponseBody:       current.ResponseBody,
-			ErrorType:          current.ErrorType,
-			ErrorMessage:       current.ErrorMessage,
-			StartedAt:          current.StartedAt.UnixMilli(),
-			CompletedAt:        current.CompletedAt.UnixMilli(),
-			DurationMs:         current.CompletedAt.Sub(current.StartedAt).Milliseconds(),
+			FlowRequestID:       current.FlowRequestID,
+			Type:                current.Type,
+			RequestMode:         current.RequestMode,
+			ProviderRequestMode: defaultString(current.ProviderRequestMode, current.RequestMode),
+			ProviderID:          current.ProviderID,
+			ProviderName:        current.ProviderName,
+			ConnectionID:        current.ConnectionID,
+			ConnectionName:      current.ConnectionName,
+			AttemptIndex:        current.AttemptIndex,
+			RequestMethod:       current.RequestMethod,
+			RequestURL:          current.RequestURL,
+			RequestHeaders:      current.RequestHeaders,
+			RequestBody:         current.RequestBody,
+			ResponseStatusCode:  current.ResponseStatusCode,
+			ResponseHeaders:     current.ResponseHeaders,
+			ResponseBody:        current.ResponseBody,
+			ErrorType:           current.ErrorType,
+			ErrorMessage:        current.ErrorMessage,
+			StartedAt:           current.StartedAt.UnixMilli(),
+			CompletedAt:         current.CompletedAt.UnixMilli(),
+			DurationMs:          current.CompletedAt.Sub(current.StartedAt).Milliseconds(),
 		})
 	}
 
@@ -498,6 +557,66 @@ func RedactBodyForStorage(body string) string {
 	return redactBody(body)
 }
 
+func ThirdPartyResponseBodyForStorage(headers http.Header, body string) string {
+	if isEventStream(headers) {
+		return ThirdPartySSEResponseBodyForStorage(body)
+	}
+	return redactBody(body)
+}
+
+func ThirdPartySSEResponseBodyForStorage(body string) string {
+	return redactBody(lastSSEEvent(body))
+}
+
+func responseBodyForStorage(requestMode string, body string) string {
+	if requestMode != RequestModeStream {
+		return body
+	}
+
+	return lastSSEEvent(body)
+}
+
+func lastSSEEvent(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return body
+	}
+
+	normalized := strings.ReplaceAll(body, "\r\n", "\n")
+	parts := strings.Split(normalized, "\n\n")
+	for i := len(parts) - 1; i >= 0; i-- {
+		part := strings.TrimSpace(parts[i])
+		if part == "" {
+			continue
+		}
+		lines := strings.Split(part, "\n")
+		dataLines := make([]string, 0, len(lines))
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" || payload == "[DONE]" {
+				continue
+			}
+			dataLines = append(dataLines, payload)
+		}
+		if len(dataLines) > 0 {
+			return strings.Join(dataLines, "\n")
+		}
+	}
+
+	return body
+}
+
+func isEventStream(headers http.Header) bool {
+	if len(headers) == 0 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(headers.Get("Content-Type")), "text/event-stream")
+}
+
 func redactValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -517,6 +636,13 @@ func redactValue(value any) any {
 	default:
 		return value
 	}
+}
+
+func defaultString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func isSensitiveKey(key string) bool {

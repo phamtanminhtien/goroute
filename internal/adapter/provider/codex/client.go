@@ -101,6 +101,10 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 	if err != nil {
 		return nil, fmt.Errorf("encode codex request: %w", err)
 	}
+	if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.SetProviderRequestMode(true)
+		recorder.SetTranslatedRequestBody(string(payload))
+	}
 
 	attemptIndex := 0
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/responses", bytes.NewReader(payload))
@@ -164,17 +168,13 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 
 	return chatcompletion.CaptureStream(resp.Body, func(captured []byte, streamErr error) {
 		completedAt := time.Now().UTC()
-		responseBody := string(captured)
 		if req.Stream {
 			reconstructed := c.reconstructStreamResponse(target, captured)
-			if payload, err := json.Marshal(reconstructed); err == nil {
-				responseBody = string(payload)
-			}
 			if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
 				recorder.SetFlowResponse(reconstructed, true)
 			}
 		}
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, []byte(responseBody), startedAt, completedAt, streamErr, attemptIndex, req.Stream)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, captured, startedAt, completedAt, streamErr, attemptIndex, req.Stream)
 	}), nil
 }
 
@@ -568,19 +568,20 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 	}
 
 	logRecord := chatcompletion.ThirdPartyLog{
-		ProviderID:     target.ProviderID,
-		ProviderName:   target.ProviderName,
-		ConnectionID:   c.connection.ID,
-		ConnectionName: c.connection.Name,
-		AttemptIndex:   attemptIndex,
-		RequestMode:    requestMode,
-		RequestMethod:  request.Method,
-		RequestURL:     request.URL.String(),
-		RequestHeaders: chatcompletion.RedactHeadersForStorage(request.Header),
-		RequestBody:    chatcompletion.RedactBodyForStorage(string(requestBody)),
-		ResponseBody:   chatcompletion.RedactBodyForStorage(string(responseBody)),
-		StartedAt:      startedAt,
-		CompletedAt:    completedAt,
+		ProviderID:          target.ProviderID,
+		ProviderName:        target.ProviderName,
+		ConnectionID:        c.connection.ID,
+		ConnectionName:      c.connection.Name,
+		AttemptIndex:        attemptIndex,
+		RequestMode:         requestMode,
+		ProviderRequestMode: chatcompletion.RequestModeStream,
+		RequestMethod:       request.Method,
+		RequestURL:          request.URL.String(),
+		RequestHeaders:      chatcompletion.RedactHeadersForStorage(request.Header),
+		RequestBody:         chatcompletion.RedactBodyForStorage(string(requestBody)),
+		ResponseBody:        chatcompletion.ThirdPartySSEResponseBodyForStorage(string(responseBody)),
+		StartedAt:           startedAt,
+		CompletedAt:         completedAt,
 	}
 	if response != nil {
 		logRecord.ResponseStatusCode = response.StatusCode

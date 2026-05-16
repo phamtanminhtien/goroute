@@ -377,10 +377,28 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	if len(runs) != 1 || runs[0].RequestMode != chatcompletion.RequestModeSync || runs[0].TotalTokens != 15 {
 		t.Fatalf("unexpected run records %#v", runs)
 	}
-	if len(flows) != 1 || !strings.Contains(flows[0].ResponseBody, `"model":"cx/gpt-5.4"`) {
+	if runs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
+		t.Fatalf("unexpected run provider request mode %#v", runs)
+	}
+	if len(flows) != 1 {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
-	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync {
+	if flows[0].ProviderRequestMode != chatcompletion.RequestModeSync {
+		t.Fatalf("unexpected flow provider request mode %#v", flows)
+	}
+	if !strings.Contains(flows[0].RequestBody, `"role":"user"`) || !strings.Contains(flows[0].RequestBody, `"content":"hello"`) {
+		t.Fatalf("expected raw request body, got %#v", flows[0])
+	}
+	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) {
+		t.Fatalf("expected translated request body, got %#v", flows[0])
+	}
+	if !strings.Contains(flows[0].ResponseBody, `"model":"cx/gpt-5.4"`) {
+		t.Fatalf("expected raw response body, got %#v", flows[0])
+	}
+	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
 	}
 }
@@ -552,10 +570,25 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 	if len(runs) != 1 || runs[0].RequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("unexpected run records %#v", runs)
 	}
-	if len(flows) != 1 || !strings.Contains(flows[0].ResponseBody, `"content":"first"`) {
+	if runs[0].ProviderRequestMode != chatcompletion.RequestModeStream {
+		t.Fatalf("unexpected run provider request mode %#v", runs)
+	}
+	if len(flows) != 1 {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
-	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
+	if flows[0].ProviderRequestMode != chatcompletion.RequestModeStream {
+		t.Fatalf("unexpected flow provider request mode %#v", flows)
+	}
+	if flows[0].ResponseBody != "{\"text\":\"first\"}" {
+		t.Fatalf("expected raw SSE response body, got %#v", flows[0])
+	}
+	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) || !strings.Contains(flows[0].TranslatedRequestBody, `"stream":true`) {
+		t.Fatalf("expected translated request body, got %#v", flows[0])
+	}
+	if !strings.Contains(flows[0].TranslatedResponseBody, `"content":"first"`) {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeStream || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
 	}
 }
@@ -596,6 +629,12 @@ func TestChatCompletionsPersistsMalformedRequestWithoutThirdPartyLogs(t *testing
 	}
 	if len(flows) != 1 || flows[0].ErrorType != "invalid_request" {
 		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if flows[0].TranslatedRequestBody != "" {
+		t.Fatalf("expected empty translated request body, got %#v", flows[0].TranslatedRequestBody)
+	}
+	if flows[0].TranslatedResponseBody != "" {
+		t.Fatalf("expected empty translated response body, got %#v", flows[0].TranslatedResponseBody)
 	}
 	if len(thirdPartyLogs) != 0 {
 		t.Fatalf("expected no third party logs, got %#v", thirdPartyLogs)
