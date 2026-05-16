@@ -68,22 +68,22 @@ func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire
 		completedAt := time.Now().UTC()
 		latency := completedAt.Sub(started)
 		if err == nil {
-			r.logAttempt(requestID, req.Model, target, connection, i, latency, "success", "none", false)
+			r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, "success", "none", false)
 			return response, nil
 		}
 
 		policy := ClassifyError(err)
-		r.logAttempt(requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
-			r.logFinalFailure(requestID, req.Model, target, policy.Category)
+			r.logFinalFailure(ctx, requestID, req.Model, target, policy.Category)
 			return openaiwire.ChatCompletionsResponse{}, err
 		}
 	}
 
 	if lastErr != nil {
-		r.logFinalFailure(requestID, req.Model, target, lastPolicy.Category)
+		r.logFinalFailure(ctx, requestID, req.Model, target, lastPolicy.Category)
 	}
 
 	return openaiwire.ChatCompletionsResponse{}, lastErr
@@ -107,7 +107,7 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 				Category:      "streaming_unsupported",
 				AllowFallback: true,
 			}
-			r.logAttempt(requestID, req.Model, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+			r.logAttempt(ctx, requestID, req.Model, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
 			continue
 		}
 
@@ -116,22 +116,22 @@ func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req open
 		completedAt := time.Now().UTC()
 		latency := completedAt.Sub(started)
 		if err == nil {
-			r.logAttempt(requestID, req.Model, target, connection, i, latency, "success", "none", false)
+			r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, "success", "none", false)
 			return body, nil
 		}
 
 		policy := ClassifyError(err)
-		r.logAttempt(requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
-			r.logFinalFailure(requestID, req.Model, target, policy.Category)
+			r.logFinalFailure(ctx, requestID, req.Model, target, policy.Category)
 			return nil, err
 		}
 	}
 
 	if lastErr != nil {
-		r.logFinalFailure(requestID, req.Model, target, lastPolicy.Category)
+		r.logFinalFailure(ctx, requestID, req.Model, target, lastPolicy.Category)
 	}
 
 	return nil, lastErr
@@ -158,7 +158,10 @@ func (r *ConnectionRegistry) connectionsForProvider(providerID string) []Connect
 	return cloned
 }
 
-func (r *ConnectionRegistry) logAttempt(requestID string, requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
+func (r *ConnectionRegistry) logAttempt(ctx context.Context, requestID string, requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
+	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.RecordAttempt(target, connection, attempt, latency, outcome, errorCategory, willFallback)
+	}
 	r.logger.Info().
 		Str("request_id", requestID).
 		Str("requested_model", requestedModel).
@@ -175,7 +178,10 @@ func (r *ConnectionRegistry) logAttempt(requestID string, requestedModel string,
 		Msg("chat_completion_attempt")
 }
 
-func (r *ConnectionRegistry) logFinalFailure(requestID string, requestedModel string, target routing.Target, finalCategory string) {
+func (r *ConnectionRegistry) logFinalFailure(ctx context.Context, requestID string, requestedModel string, target routing.Target, finalCategory string) {
+	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.SetFinalErrorCategory(finalCategory)
+	}
 	r.logger.Warn().
 		Str("request_id", requestID).
 		Str("requested_model", requestedModel).

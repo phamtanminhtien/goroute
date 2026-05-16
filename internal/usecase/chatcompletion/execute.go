@@ -13,6 +13,11 @@ func Execute(ctx context.Context, catalog provider.Catalog, connectionRegistry *
 	if err != nil {
 		return Output{}, err
 	}
+	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.SetRequestedModel(input.Request.Model)
+		recorder.SetRequestMode(false)
+		recorder.SetResolvedTarget(target)
+	}
 
 	if len(input.Request.Messages) == 0 {
 		return Output{}, fmt.Errorf("messages must contain at least one item")
@@ -32,6 +37,11 @@ func ExecuteStream(ctx context.Context, catalog provider.Catalog, connectionRegi
 	target, err := routing.ResolveModel(catalog, input.Request.Model)
 	if err != nil {
 		return StreamOutput{}, err
+	}
+	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+		recorder.SetRequestedModel(input.Request.Model)
+		recorder.SetRequestMode(true)
+		recorder.SetResolvedTarget(target)
 	}
 
 	if len(input.Request.Messages) == 0 {

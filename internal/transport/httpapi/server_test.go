@@ -190,7 +190,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		}},
 	}, &logger)
 	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)
-	return NewServer(testCatalog(), &registry, service, testAdminToken, webUIRoot, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, testAdminToken, webUIRoot, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {
@@ -323,6 +323,62 @@ func TestChatCompletionsMapsUpstreamErrorsToBadGateway(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
+		testProvider: testProvider{
+			response: openaiwire.ChatCompletionsResponse{
+				ID:     "chatcmpl-1",
+				Object: "chat.completion",
+				Model:  "gpt-5.4",
+				Choices: []openaiwire.ChatChoice{{
+					Index:   0,
+					Message: openaiwire.ChatMessage{Role: "assistant", Content: "hello back"},
+				}},
+				Usage: &openaiwire.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			},
+		},
+	}, nil, databasePath)
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	runs, err := repo.ListAIRequestRuns()
+	if err != nil {
+		t.Fatalf("list ai request runs: %v", err)
+	}
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+	thirdPartyLogs, err := repo.ListThirdPartyRequestLogs()
+	if err != nil {
+		t.Fatalf("list third party request logs: %v", err)
+	}
+
+	if len(runs) != 1 || runs[0].RequestMode != chatcompletion.RequestModeSync || runs[0].TotalTokens != 15 {
+		t.Fatalf("unexpected run records %#v", runs)
+	}
+	if len(flows) != 1 || !strings.Contains(flows[0].ResponseBody, `"model":"cx/gpt-5.4"`) {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync {
+		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
+	}
+}
+
 func TestWebUIServesBuiltIndexForRoot(t *testing.T) {
 	webUIRoot := writeTestWebUI(t)
 	handler := testServerWithWebUI(t, &testProvider{}, os.DirFS(webUIRoot))
@@ -452,6 +508,91 @@ func TestChatCompletionsStreamsConnectionBody(t *testing.T) {
 	}
 	if rec.Body.String() != "data: first\n\n" {
 		t.Fatalf("unexpected stream body=%q", rec.Body.String())
+	}
+}
+
+func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, loggingStreamingTestProvider{testProvider: &testProvider{}, body: "data: {\"text\":\"first\"}\n\ndata: [DONE]\n\n"}, nil, databasePath)
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	runs, err := repo.ListAIRequestRuns()
+	if err != nil {
+		t.Fatalf("list ai request runs: %v", err)
+	}
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+	thirdPartyLogs, err := repo.ListThirdPartyRequestLogs()
+	if err != nil {
+		t.Fatalf("list third party request logs: %v", err)
+	}
+
+	if len(runs) != 1 || runs[0].RequestMode != chatcompletion.RequestModeStream {
+		t.Fatalf("unexpected run records %#v", runs)
+	}
+	if len(flows) != 1 || !strings.Contains(flows[0].ResponseBody, `"content":"first"`) {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
+		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
+	}
+}
+
+func TestChatCompletionsPersistsMalformedRequestWithoutThirdPartyLogs(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, databasePath)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4",`)))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	runs, err := repo.ListAIRequestRuns()
+	if err != nil {
+		t.Fatalf("list ai request runs: %v", err)
+	}
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+	thirdPartyLogs, err := repo.ListThirdPartyRequestLogs()
+	if err != nil {
+		t.Fatalf("list third party request logs: %v", err)
+	}
+
+	if len(runs) != 1 || runs[0].ErrorType != "invalid_request" {
+		t.Fatalf("unexpected run records %#v", runs)
+	}
+	if len(flows) != 1 || flows[0].ErrorType != "invalid_request" {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if len(thirdPartyLogs) != 0 {
+		t.Fatalf("expected no third party logs, got %#v", thirdPartyLogs)
 	}
 }
 

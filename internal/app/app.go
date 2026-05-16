@@ -79,7 +79,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		appLogger.Info().Str("web_ui_dir", webUIDir).Msg("web_ui_enabled")
 	}
 
-	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, cfg.Server.AuthToken, webUIRoot, &httpLogger)
+	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, repo, cfg.Server.AuthToken, webUIRoot, &httpLogger)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,

@@ -109,6 +109,7 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 		return nil, fmt.Errorf("encode codex request: %w", err)
 	}
 
+	attemptIndex := 0
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/responses", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build codex request: %w", err)
@@ -120,12 +121,16 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 	httpReq.Header.Set("User-Agent", defaultUserAgent)
 	httpReq.Header.Set("session_id", sessionID)
 
+	startedAt := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, attemptIndex, req.Stream)
 		return nil, fmt.Errorf("execute codex request: %w", err)
 	}
 
 	if shouldRetryWithTokenRefresh(resp.StatusCode, c.connection) {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, time.Now().UTC(), chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, attemptIndex, req.Stream)
 		resp.Body.Close()
 
 		credential, err = c.resolveAccessToken(true)
@@ -137,6 +142,7 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 			}
 		}
 
+		attemptIndex++
 		httpReq, err = http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/responses", bytes.NewReader(payload))
 		if err != nil {
 			return nil, fmt.Errorf("build codex retry request: %w", err)
@@ -148,8 +154,10 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 		httpReq.Header.Set("User-Agent", defaultUserAgent)
 		httpReq.Header.Set("session_id", sessionID)
 
+		startedAt = time.Now().UTC()
 		resp, err = c.httpClient.Do(httpReq)
 		if err != nil {
+			c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, attemptIndex, req.Stream)
 			return nil, fmt.Errorf("execute codex retry request: %w", err)
 		}
 	}
@@ -157,10 +165,24 @@ func (c *Client) doResponses(ctx context.Context, req openaiwire.ChatCompletions
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, time.Now().UTC(), chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, attemptIndex, req.Stream)
 		return nil, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 
-	return resp.Body, nil
+	return chatcompletion.CaptureStream(resp.Body, func(captured []byte, streamErr error) {
+		completedAt := time.Now().UTC()
+		responseBody := string(captured)
+		if req.Stream {
+			reconstructed := c.reconstructStreamResponse(target, captured)
+			if payload, err := json.Marshal(reconstructed); err == nil {
+				responseBody = string(payload)
+			}
+			if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+				recorder.SetFlowResponse(reconstructed, true)
+			}
+		}
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, []byte(responseBody), startedAt, completedAt, streamErr, attemptIndex, req.Stream)
+	}), nil
 }
 
 func (c *Client) resolveAccessToken(forceRefresh bool) (string, error) {
@@ -581,4 +603,47 @@ func (r codexResponse) outputText() string {
 		}
 	}
 	return builder.String()
+}
+
+func (c *Client) reconstructStreamResponse(target routing.Target, streamBody []byte) openaiwire.ChatCompletionsResponse {
+	text := chatcompletion.ExtractTextFromSSE(streamBody)
+	return chatcompletion.BuildAssistantResponse(target.RequestedModel, text)
+}
+
+func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target, requestBody []byte, request *http.Request, response *http.Response, responseBody []byte, startedAt time.Time, completedAt time.Time, err error, attemptIndex int, stream bool) {
+	recorder := chatcompletion.FlowRecorderFromContext(ctx)
+	if recorder == nil || request == nil {
+		return
+	}
+
+	requestMode := chatcompletion.RequestModeSync
+	if stream {
+		requestMode = chatcompletion.RequestModeStream
+	}
+
+	logRecord := chatcompletion.ThirdPartyLog{
+		ProviderID:     target.ProviderID,
+		ProviderName:   target.ProviderName,
+		ConnectionID:   c.connection.ID,
+		ConnectionName: c.connection.Name,
+		AttemptIndex:   attemptIndex,
+		RequestMode:    requestMode,
+		RequestMethod:  request.Method,
+		RequestURL:     request.URL.String(),
+		RequestHeaders: chatcompletion.RedactHeadersForStorage(request.Header),
+		RequestBody:    chatcompletion.RedactBodyForStorage(string(requestBody)),
+		ResponseBody:   chatcompletion.RedactBodyForStorage(string(responseBody)),
+		StartedAt:      startedAt,
+		CompletedAt:    completedAt,
+	}
+	if response != nil {
+		logRecord.ResponseStatusCode = response.StatusCode
+		logRecord.ResponseHeaders = chatcompletion.RedactHeadersForStorage(response.Header)
+	}
+	if err != nil {
+		logRecord.ErrorType = "request_error"
+		logRecord.ErrorMessage = err.Error()
+	}
+
+	recorder.AddThirdPartyLog(logRecord)
 }
