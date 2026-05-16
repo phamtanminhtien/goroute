@@ -4,10 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
-	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
 func TestOpenMigratesEmptyDatabase(t *testing.T) {
@@ -102,82 +100,5 @@ func TestStoreEnforcesUniqueConnectionIDs(t *testing.T) {
 	}
 	if err := store.CreateConnection(record); err == nil || !strings.Contains(err.Error(), "UNIQUE") {
 		t.Fatalf("expected unique constraint error, got %v", err)
-	}
-}
-
-func TestRequestHistoryPersistsAcrossReopen(t *testing.T) {
-	databasePath := filepath.Join(t.TempDir(), "goroute.db")
-	store, err := Open(databasePath)
-	if err != nil {
-		t.Fatalf("Open returned error: %v", err)
-	}
-
-	startedAt := time.Date(2026, 5, 16, 9, 0, 0, 0, time.UTC)
-	completedAt := startedAt.Add(1500 * time.Millisecond)
-	record := chatcompletion.RequestAttemptHistory{
-		RequestID:      "req-1",
-		RequestPath:    "/v1/chat/completions",
-		RequestedModel: "cx/gpt-5.4",
-		ResolvedTarget: "cx/gpt-5.4",
-		ProviderID:     "cx",
-		ProviderName:   "Codex",
-		Stream:         false,
-		Status:         chatcompletion.RequestStatusStarted,
-		MessageCount:   1,
-		ToolCount:      0,
-		StartedAt:      startedAt,
-		UpdatedAt:      startedAt,
-	}
-	record, err = store.CreateRequestAttemptHistory(record)
-	if err != nil {
-		t.Fatalf("CreateRequestAttemptHistory returned error: %v", err)
-	}
-
-	record.Status = chatcompletion.RequestStatusSuccess
-	record.FinalStatus = chatcompletion.RequestStatusSuccess
-	record.AttemptCount = 1
-	record.LastConnectionID = "codex-1"
-	record.LastConnectionName = "codex-user"
-	record.LastAttemptAt = completedAt
-	record.CompletedAt = completedAt
-	record.UpdatedAt = completedAt
-	record.Attempts = []chatcompletion.RequestAttempt{{
-		ConnectionID:   "codex-1",
-		ConnectionName: "codex-user",
-		AttemptIndex:   0,
-		Outcome:        "success",
-		ErrorCategory:  "none",
-		StartedAt:      startedAt,
-		CompletedAt:    completedAt,
-		LatencyMillis:  1500,
-	}}
-	if err := store.UpdateRequestAttemptHistory(record); err != nil {
-		t.Fatalf("UpdateRequestAttemptHistory returned error: %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("Close returned error: %v", err)
-	}
-
-	reopened, err := Open(databasePath)
-	if err != nil {
-		t.Fatalf("reopen store returned error: %v", err)
-	}
-	defer reopened.Close()
-
-	history, err := reopened.RecentRequestAttempts(1)
-	if err != nil {
-		t.Fatalf("RecentRequestAttempts returned error: %v", err)
-	}
-	if len(history) != 1 {
-		t.Fatalf("expected one history record, got %#v", history)
-	}
-	if history[0].RequestedModel != "cx/gpt-5.4" || history[0].FinalStatus != "success" || history[0].Status != "success" {
-		t.Fatalf("unexpected stored history: %#v", history[0])
-	}
-	if len(history[0].Attempts) != 1 || history[0].Attempts[0].ConnectionID != "codex-1" {
-		t.Fatalf("unexpected stored attempts: %#v", history[0].Attempts)
-	}
-	if history[0].AttemptCount != 1 || history[0].LastConnectionID != "codex-1" {
-		t.Fatalf("unexpected request history metadata: %#v", history[0])
 	}
 }

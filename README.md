@@ -61,7 +61,6 @@ Currently implemented endpoints:
 - `DELETE /admin/api/connections/{id}` (admin-only)
 - `GET /admin/api/connections/{id}/usage` (admin-only, Codex usage lookup)
 - `POST /admin/api/connections/oauth` (admin-only)
-- `GET /debug/requests` (admin-only, requires `Authorization: Bearer <server.auth_token>`)
 
 ## Example Usage
 
@@ -95,7 +94,7 @@ Current implemented shape:
 }
 ```
 
-`server.auth_token` is required and protects admin-only backend routes such as request history.
+`server.auth_token` is required and protects admin-only backend routes.
 `server.web_ui_dir` defaults to `web/dist`; when that folder exists, `goroute` also serves the built admin UI from the same server.
 Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API or UI.
 

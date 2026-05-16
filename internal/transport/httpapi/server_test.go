@@ -168,14 +168,14 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 	if err != nil {
 		t.Fatalf("build provider registry: %v", err)
 	}
-	registry := chatcompletion.NewConnectionRegistryWithEntriesAndHistory(map[string][]chatcompletion.ConnectionEntry{
+	registry := chatcompletion.NewConnectionRegistryWithEntries(map[string][]chatcompletion.ConnectionEntry{
 		"cx": {{
 			ID:         "codex-1",
 			Name:       "codex-user",
 			ProviderID: "cx",
 			Connection: connectionClient,
 		}},
-	}, &logger, store)
+	}, &logger)
 	service := connectionsusecase.NewService(initialConnections, store, testRuntime{registry: &registry}, providers, &logger)
 	return NewServer(testCatalog(), &registry, service, testAdminToken, webUIRoot, &logger)
 }
@@ -475,105 +475,15 @@ func TestChatCompletionsAcceptsCommonOpenAIFields(t *testing.T) {
 	}
 }
 
-func TestDebugRequestsReturnsStructuredAttemptHistory(t *testing.T) {
-	provider := &testProvider{
-		response: openaiwire.ChatCompletionsResponse{
-			ID:     "chatcmpl-3",
-			Object: "chat.completion",
-			Model:  "gpt-5.4",
-			Choices: []openaiwire.ChatChoice{{
-				Index:   0,
-				Message: openaiwire.ChatMessage{Role: "assistant", Content: "ok"},
-			}},
-		},
-	}
-	handler := testServer(t, provider)
-
-	requestBody := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(requestBody))
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
-
-	req := httptest.NewRequest(http.MethodGet, "/debug/requests?limit=1", nil)
-	req.Header.Set("Authorization", "Bearer "+testAdminToken)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, `"requested_model":"cx/gpt-5.4"`) {
-		t.Fatalf("expected requested model in history, got body=%s", body)
-	}
-	if !strings.Contains(body, `"final_status":"success"`) {
-		t.Fatalf("expected success final status in history, got body=%s", body)
-	}
-}
-
-func TestDebugRequestsPersistsAcrossServerRestart(t *testing.T) {
-	databasePath := filepath.Join(t.TempDir(), "goroute.db")
-	provider := &testProvider{
-		response: openaiwire.ChatCompletionsResponse{
-			ID:     "chatcmpl-4",
-			Object: "chat.completion",
-			Model:  "gpt-5.4",
-			Choices: []openaiwire.ChatChoice{{
-				Index:   0,
-				Message: openaiwire.ChatMessage{Role: "assistant", Content: "ok"},
-			}},
-		},
-	}
-
-	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, provider, nil, databasePath)
-	requestBody := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(requestBody))
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
-
-	restartedHandler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, provider, nil, databasePath)
-	req := httptest.NewRequest(http.MethodGet, "/debug/requests?limit=1", nil)
-	req.Header.Set("Authorization", "Bearer "+testAdminToken)
-	rec := httptest.NewRecorder()
-	restartedHandler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, `"requested_model":"cx/gpt-5.4"`) {
-		t.Fatalf("expected persisted requested model in history, got body=%s", body)
-	}
-	if !strings.Contains(body, `"final_status":"success"`) {
-		t.Fatalf("expected persisted success status in history, got body=%s", body)
-	}
-}
-
-func TestDebugRequestsRequiresBearerToken(t *testing.T) {
+func TestDebugRequestsRouteIsNotRegistered(t *testing.T) {
 	handler := testServer(t, &testProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/debug/requests", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected %d, got %d body=%s", http.StatusUnauthorized, rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), `"code":"unauthorized"`) {
-		t.Fatalf("expected unauthorized error envelope, got body=%s", rec.Body.String())
-	}
-}
-
-func TestDebugRequestsRejectsInvalidBearerToken(t *testing.T) {
-	handler := testServer(t, &testProvider{})
-	req := httptest.NewRequest(http.MethodGet, "/debug/requests", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	rec := httptest.NewRecorder()
-
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected %d, got %d body=%s", http.StatusUnauthorized, rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNotFound, rec.Code, rec.Body.String())
 	}
 }
 

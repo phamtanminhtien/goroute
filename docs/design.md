@@ -154,7 +154,7 @@ Expected behavior:
 - classify upstream failure
 - retry the same connection only when policy allows
 - move to next fallback only for retryable / fallback-eligible failures
-- return a final error with enough context for debugging
+- return a final error with enough context for logs and operator diagnosis
 
 Examples of fallback-eligible failures:
 

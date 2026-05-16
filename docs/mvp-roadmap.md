@@ -32,7 +32,6 @@ Not implemented yet:
 - OpenAI adapter streaming support
 - full OpenAI chat completions request/response compatibility
 - richer request/response passthrough normalization
-- structured request attempt history
 - debuggable attempt-order logs and final route decision logs
 - connection availability/config diagnostics at startup
 - admin API or UI
@@ -72,11 +71,8 @@ Suggested scope:
 - improve `/v1/models` to reflect system catalog models more completely
 - expose connection availability/config validation issues clearly at startup
 - tighten error responses and add more table-driven tests
-- add structured request attempt history
-- keep request history persisted in SQLite so admin diagnostics survive restarts
-
 ## Small but important fixes already worth landing
 
-- document the current config schema as implemented, including that `config.json` stores only local server settings while connections and request history live in SQLite
+- document the current config schema as implemented, including that `config.json` stores only local server settings while connections live in SQLite
 - decide how custom OpenAI-compatible base URLs should be configured, if needed
 - keep bootstrap architecture simple while adding policy and observability incrementally

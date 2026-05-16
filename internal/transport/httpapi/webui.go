@@ -56,9 +56,7 @@ func isReservedBackendPath(requestPath string) bool {
 		requestPath == "/v1" ||
 		strings.HasPrefix(requestPath, "/v1/") ||
 		requestPath == "/admin" ||
-		strings.HasPrefix(requestPath, "/admin/") ||
-		requestPath == "/debug" ||
-		strings.HasPrefix(requestPath, "/debug/")
+		strings.HasPrefix(requestPath, "/admin/")
 }
 
 func webUIFileExists(root fs.FS, requestPath string) bool {
