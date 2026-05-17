@@ -13,6 +13,7 @@ import {
   generateProviderOAuthURL,
   getConnectionUsage,
   listProviders,
+  testProviderModel,
   updateConnection,
 } from "@/features/providers/api";
 import { renderWithQueryClient } from "@/test/test-utils";
@@ -30,6 +31,7 @@ vi.mock("@/features/providers/api", () => ({
   getConnectionUsage: vi.fn(),
   listProviders: vi.fn(),
   providersQueryKey: ["providers"],
+  testProviderModel: vi.fn(),
   updateConnection: vi.fn(),
 }));
 
@@ -40,6 +42,7 @@ const deleteConnectionMock = vi.mocked(deleteConnection);
 const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
 const getConnectionUsageMock = vi.mocked(getConnectionUsage);
 const listProvidersMock = vi.mocked(listProviders);
+const testProviderModelMock = vi.mocked(testProviderModel);
 const updateConnectionMock = vi.mocked(updateConnection);
 
 const baseProviders = [
@@ -115,6 +118,13 @@ describe("providers pages", () => {
       sessionID: "oauth-session-1",
       url: "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
     });
+    testProviderModelMock.mockResolvedValue({
+      message: "Model test succeeded.",
+      model: "cx/gpt-5.4",
+      output_text: "OK",
+      provider_id: "cx",
+      status: "success",
+    });
   });
 
   it("groups providers by category and computes connection status text", async () => {
@@ -152,6 +162,50 @@ describe("providers pages", () => {
     expect(screen.getByText(/^default$/i)).toBeInTheDocument();
     expect(screen.getByText(/codex-user/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /test/i })).toBeInTheDocument();
+  });
+
+  it("runs a model test and renders inline success on the selected model card", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /available models/i });
+
+    await user.click(screen.getByRole("button", { name: /^test$/i }));
+
+    await waitFor(() => {
+      expect(testProviderModelMock).toHaveBeenCalledWith("cx", {
+        model: "cx/gpt-5.4",
+      });
+    });
+
+    expect(
+      await screen.findByText(/model test succeeded\./i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^ok$/i)).toBeInTheDocument();
+  });
+
+  it("renders an inline error when the model test fails", async () => {
+    const user = userEvent.setup();
+    testProviderModelMock.mockRejectedValueOnce({
+      message: "Upstream timeout",
+    });
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /available models/i });
+
+    await user.click(screen.getByRole("button", { name: /^test$/i }));
+
+    expect(await screen.findByText(/upstream timeout/i)).toBeInTheDocument();
   });
 
   it("creates a connection from provider detail and refetches providers", async () => {

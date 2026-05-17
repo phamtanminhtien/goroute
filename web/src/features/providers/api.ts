@@ -50,6 +50,18 @@ export type ProviderUsage = {
   reviewLimitReached: boolean;
 };
 
+export type ProviderModelTestPayload = {
+  model: string;
+};
+
+export type ProviderModelTestResult = {
+  message: string;
+  model: string;
+  output_text?: string;
+  provider_id: string;
+  status: "success" | "error";
+};
+
 type ProviderOAuthURLResponse = {
   provider_id: string;
   session_id: string;
@@ -133,6 +145,17 @@ export async function completeOAuthConnection(
 export async function getConnectionUsage(connectionID: string) {
   const response = await apiClient.get<ProviderUsage>(
     `/connections/${connectionID}/usage`,
+  );
+  return response.data;
+}
+
+export async function testProviderModel(
+  providerID: string,
+  payload: ProviderModelTestPayload,
+) {
+  const response = await apiClient.post<ProviderModelTestResult>(
+    `/providers/${providerID}/test`,
+    payload,
   );
   return response.data;
 }

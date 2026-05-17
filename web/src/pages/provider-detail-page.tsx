@@ -11,7 +11,9 @@ import {
   listProviders,
   type ProviderConnection,
   type ProviderItem,
+  type ProviderModelTestResult,
   providersQueryKey,
+  testProviderModel,
   updateConnection,
 } from "@/features/providers/api";
 import {
@@ -42,6 +44,11 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 
 type FeedbackState = ConnectionFormFeedback;
+type ModelTestState = {
+  pending: boolean;
+  result: ProviderModelTestResult | null;
+  error: string | null;
+};
 
 type ConnectionModalState =
   | { kind: "closed" }
@@ -56,6 +63,9 @@ export function ProviderDetailPage() {
     kind: "closed",
   });
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [modelTests, setModelTests] = useState<Record<string, ModelTestState>>(
+    {},
+  );
 
   const providersQuery = useQuery({
     queryFn: listProviders,
@@ -158,6 +168,48 @@ export function ProviderDetailPage() {
           provider,
         })
       : null;
+
+  async function handleModelTest(modelID: string) {
+    if (!provider) {
+      return;
+    }
+
+    setModelTests((currentState) => ({
+      ...currentState,
+      [modelID]: {
+        error: null,
+        pending: true,
+        result: null,
+      },
+    }));
+
+    try {
+      const result = await testProviderModel(provider.id, { model: modelID });
+      setModelTests((currentState) => ({
+        ...currentState,
+        [modelID]: {
+          error: null,
+          pending: false,
+          result,
+        },
+      }));
+    } catch (error) {
+      setModelTests((currentState) => ({
+        ...currentState,
+        [modelID]: {
+          error:
+            typeof error === "object" &&
+            error !== null &&
+            "message" in error &&
+            typeof error.message === "string"
+              ? error.message
+              : "Request failed",
+          pending: false,
+          result: null,
+        },
+      }));
+    }
+  }
 
   return (
     <section className="space-y-6 pb-6">
@@ -309,6 +361,8 @@ export function ProviderDetailPage() {
                     isDefault={model.id === provider.default_model}
                     key={model.id}
                     model={model}
+                    onTest={() => void handleModelTest(model.id)}
+                    testState={modelTests[model.id] ?? null}
                   />
                 ))}
               </div>
@@ -452,26 +506,54 @@ function buildAuthLabel(authType: string) {
 function ModelChip({
   isDefault,
   model,
+  onTest,
+  testState,
 }: {
   isDefault: boolean;
   model: ProviderItem["models"][number];
+  onTest: () => void;
+  testState: ModelTestState | null;
 }) {
   return (
-    <div className="border-border/85 bg-bg-primary/72 flex max-w-full min-w-[240px] items-center gap-3 rounded-[18px] border px-3.5 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-fg-primary truncate text-sm font-semibold">
-          {model.name}
-        </p>
-        <p className="text-fg-secondary truncate text-sm">{model.id}</p>
+    <div className="border-border/85 bg-bg-primary/72 flex max-w-full min-w-[240px] flex-col gap-3 rounded-[18px] border px-3.5 py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-fg-primary truncate text-sm font-semibold">
+            {model.name}
+          </p>
+          <p className="text-fg-secondary truncate text-sm">{model.id}</p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {isDefault ? <StatusBadge tone="success">Default</StatusBadge> : null}
+          {!isDefault ? <StatusBadge tone="info">Ready</StatusBadge> : null}
+          <Button
+            disabled={testState?.pending === true}
+            leadingIcon={<Play className="size-[15px]" />}
+            onClick={onTest}
+            tone="secondary"
+          >
+            {testState?.pending ? "Testing..." : "Test"}
+          </Button>
+        </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
-        {isDefault ? <StatusBadge tone="success">Default</StatusBadge> : null}
-        {!isDefault ? <StatusBadge tone="info">Ready</StatusBadge> : null}
-        <Button leadingIcon={<Play className="size-[15px]" />} tone="secondary">
-          Test
-        </Button>
-      </div>
+      {testState?.error ? (
+        <InlineAlert tone="error">{testState.error}</InlineAlert>
+      ) : null}
+
+      {testState?.result ? (
+        <InlineAlert tone="success">
+          <div className="space-y-1">
+            <p>{testState.result.message}</p>
+            {testState.result.output_text ? (
+              <p className="text-xs break-words opacity-80">
+                {testState.result.output_text}
+              </p>
+            ) : null}
+          </div>
+        </InlineAlert>
+      ) : null}
     </div>
   );
 }

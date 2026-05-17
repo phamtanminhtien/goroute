@@ -42,7 +42,7 @@ export function Select({
       <SelectPrimitive.Trigger
         className={cn(
           controlBaseClassName,
-          "inline-flex w-full items-center justify-between gap-3 text-left",
+          "inline-flex w-full cursor-pointer items-center justify-between gap-3 text-left",
           className,
         )}
       >
