@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestLoadPathDefaultsLLMLoggingWhenMissing(t *testing.T) {
+func TestLoadPathDefaultsLoggingAndRTKWhenMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeConfigFile(t, path, `{"server":{"listen":":2232","auth_token":"secret","web_ui_dir":"web/dist"}}`)
 
@@ -17,8 +17,8 @@ func TestLoadPathDefaultsLLMLoggingWhenMissing(t *testing.T) {
 	if !cfg.LLMLogging.Flow || !cfg.LLMLogging.ThirdParty {
 		t.Fatalf("expected llm logging defaults to be enabled, got %#v", cfg.LLMLogging)
 	}
-	if cfg.RTK.Enabled {
-		t.Fatalf("expected rtk default to be disabled, got %#v", cfg.RTK)
+	if !cfg.RTK.Enabled {
+		t.Fatalf("expected rtk default to be enabled, got %#v", cfg.RTK)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestSavePathCanonicalizesDisabledLLMLoggingToFalse(t *testing.T) {
 		t.Fatalf("SavePath returned error: %v", err)
 	}
 
-	assertConfigFile(t, path, "{\n  \"server\": {\n    \"listen\": \":2232\",\n    \"auth_token\": \"secret\",\n    \"web_ui_dir\": \"web/dist\"\n  },\n  \"llmLogging\": false,\n  \"rtk\": false\n}\n")
+	assertConfigFile(t, path, "{\n  \"server\": {\n    \"listen\": \":2232\",\n    \"auth_token\": \"secret\",\n    \"web_ui_dir\": \"web/dist\"\n  },\n  \"llmLogging\": false,\n  \"rtk\": {\n    \"enabled\": true\n  }\n}\n")
 }
 
 func TestLoadPathParsesRTKObject(t *testing.T) {

@@ -564,6 +564,9 @@ func (r *FlowRecorder) SnapshotRTK(runID uint) (airequestlog.RTKRecord, bool) {
 	if !r.rtkSet {
 		return airequestlog.RTKRecord{}, false
 	}
+	if !r.rtkSummary.Applied {
+		return airequestlog.RTKRecord{}, false
+	}
 
 	return airequestlog.RTKRecord{
 		RunID:        runID,

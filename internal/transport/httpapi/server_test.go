@@ -882,6 +882,50 @@ func TestChatCompletionsPersistsRTKRecordWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsSkipsRTKRecordWhenNotApplied(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	cfg := testSettingsConfig()
+	cfg.RTK = config.NewRTKConfig(true)
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &rtkLoggingTestProvider{
+		loggingTestProvider: loggingTestProvider{
+			testProvider: testProvider{
+				response: openaiwire.ChatCompletionsResponse{
+					ID:     "chatcmpl-1",
+					Object: "chat.completion",
+					Model:  "gpt-5.4",
+					Choices: []openaiwire.ChatChoice{{
+						Index:   0,
+						Message: openaiwire.Message{Role: "assistant", Content: "hello back"},
+					}},
+				},
+			},
+		},
+	}, nil, databasePath, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	rtkRecords, err := repo.ListRTKRecords()
+	if err != nil {
+		t.Fatalf("list rtk records: %v", err)
+	}
+
+	if len(rtkRecords) != 0 {
+		t.Fatalf("expected no rtk records when compression does not apply, got %#v", rtkRecords)
+	}
+}
+
 func TestSettingsUpdateChangesLogPersistenceForSubsequentRequests(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
 	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
