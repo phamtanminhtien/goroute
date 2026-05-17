@@ -106,7 +106,7 @@ describe("admin layout", () => {
       screen.getByRole("button", { name: /sign out/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { level: 1, name: /goroute proxy/i }),
+      screen.getByRole("heading", { level: 1, name: /goroute/i }),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(/operational control surface/i),

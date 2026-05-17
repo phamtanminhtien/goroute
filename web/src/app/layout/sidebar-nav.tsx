@@ -1,6 +1,5 @@
 import {
   Box,
-  Cable,
   ChartNoAxesColumn,
   Layers3,
   PanelsTopLeft,
@@ -87,11 +86,14 @@ function SidebarNavContent({
     <div className="dashboard-sidebar-frame flex h-full flex-col border-r">
       <div className="flex min-h-[60px] items-center justify-between gap-3 border-b border-[var(--dashboard-sidebar-border)] px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="bg-primary flex size-8 shrink-0 items-center justify-center rounded-[14px] text-white shadow-[var(--shadow-button)]">
-            <Cable className="size-4" />
-          </div>
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-9 shrink-0 object-contain"
+            src="/images/goroute-logo.svg"
+          />
           <h1 className="truncate text-[14px] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)]">
-            GoRoute Proxy
+            GoRoute
           </h1>
         </div>
         <div className="shrink-0">
