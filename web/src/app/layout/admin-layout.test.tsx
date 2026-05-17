@@ -51,6 +51,9 @@ describe("admin layout", () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.dataset.theme = "light";
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise(() => undefined) as Promise<Response>,
+    );
     connectionUsageQueryKeyMock.mockImplementation((connectionID: string) => [
       "connections",
       connectionID,
@@ -176,6 +179,26 @@ describe("admin layout", () => {
       level: 1,
       name: /quota tracker/i,
     });
+  });
+
+  it("opens the live console log screen from the sidebar", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers"]}>
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /console log/i }));
+
+    await screen.findByRole("heading", {
+      level: 1,
+      name: /console log/i,
+    });
+    expect(screen.getByText(/waiting for backend logs/i)).toBeInTheDocument();
   });
 
   it("opens the mobile navigation drawer from the header", async () => {

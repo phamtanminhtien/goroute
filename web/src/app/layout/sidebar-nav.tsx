@@ -1,7 +1,5 @@
 import {
-  Box,
   ChartNoAxesColumn,
-  Layers3,
   PanelsTopLeft,
   Settings,
   TerminalSquare,
@@ -127,20 +125,24 @@ function SidebarNavContent({
           </p>
           <div className="mt-2.5 space-y-1">
             {[
-              { icon: Layers3, label: "Model Catalog" },
-              { icon: TerminalSquare, label: "Console Log" },
-              { icon: Box, label: "Proxy Pools" },
+              // { icon: Layers3, label: "Model Catalog" },
+              {
+                description: "Live backend app and request logging stream",
+                icon: TerminalSquare,
+                label: "Console Log",
+                to: "/logs",
+              },
+              // { icon: Box, label: "Proxy Pools" },
             ].map((item) => {
-              const Icon = item.icon;
-
               return (
-                <div
-                  className="dashboard-static-item flex items-center gap-2.5 rounded-[14px] px-2.5 py-2 text-[13px] text-[var(--dashboard-subtle-text)] transition-colors duration-150"
+                <SidebarNavItem
+                  description={item.description}
+                  icon={item.icon}
                   key={item.label}
-                >
-                  <Icon className="size-[15px]" />
-                  <span>{item.label}</span>
-                </div>
+                  label={item.label}
+                  onNavigate={onNavigate}
+                  to={item.to}
+                />
               );
             })}
           </div>

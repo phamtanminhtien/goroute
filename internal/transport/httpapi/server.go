@@ -49,6 +49,7 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Handle("/admin/api/analytics/usage/timeseries", analyticsUsageTimeseriesHandler(analyticsService))
 		r.Handle("/admin/api/analytics/usage/provider-breakdown", analyticsUsageProviderBreakdownHandler(analyticsService))
 		r.Handle("/admin/api/analytics/usage/recent-requests", analyticsUsageRecentRequestsHandler(analyticsService))
+		r.Handle("/admin/api/logs/stream", logsStreamHandler())
 	})
 
 	if webUIRoot != nil {

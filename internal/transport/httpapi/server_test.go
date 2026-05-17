@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
@@ -1528,4 +1531,167 @@ func TestConnectionUsageReturnsTemporaryUnavailableMessage(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `Usage API temporarily unavailable (502)`) {
 		t.Fatalf("expected unavailable message in body=%s", rec.Body.String())
 	}
+}
+
+func TestLogsStreamRequiresBearerToken(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/logs/stream", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+}
+
+func TestLogsStreamEmitsSSEFrames(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/logs/stream", nil).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer "+testAdminToken)
+	recorder := newStreamResponseRecorder()
+	done := make(chan struct{})
+
+	go func() {
+		handler.ServeHTTP(recorder, request)
+		close(done)
+	}()
+
+	if status := waitForStreamStatus(t, recorder, time.Second); status != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, status)
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		t.Fatalf("expected text/event-stream content type, got %q", got)
+	}
+
+	expected := fmt.Sprintf("stream test %d", time.Now().UnixNano())
+	logging.DefaultBroadcaster().Publish(expected)
+
+	if body := waitForStreamBodyContains(t, recorder, expected, time.Second); !strings.Contains(body, "event: log") || !strings.Contains(body, "data: "+expected) {
+		t.Fatalf("expected SSE log frame, got %q", body)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream handler shutdown")
+	}
+}
+
+func TestLogsStreamWritesHeartbeatWhileIdle(t *testing.T) {
+	originalInterval := logsStreamHeartbeatInterval
+	logsStreamHeartbeatInterval = 20 * time.Millisecond
+	defer func() {
+		logsStreamHeartbeatInterval = originalInterval
+	}()
+
+	handler := testServer(t, &testProvider{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/logs/stream", nil).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer "+testAdminToken)
+	recorder := newStreamResponseRecorder()
+	done := make(chan struct{})
+
+	go func() {
+		handler.ServeHTTP(recorder, request)
+		close(done)
+	}()
+
+	body := waitForStreamBodyContains(t, recorder, ": keepalive", time.Second)
+	if !strings.Contains(body, ": keepalive") {
+		t.Fatalf("expected heartbeat frame, got %q", body)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream handler shutdown")
+	}
+}
+
+func waitForStreamBodyContains(t *testing.T, recorder *streamResponseRecorder, needle string, timeout time.Duration) string {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		body := recorder.BodyString()
+		if strings.Contains(body, needle) {
+			return body
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %q", needle)
+	return ""
+}
+
+func waitForStreamStatus(t *testing.T, recorder *streamResponseRecorder, timeout time.Duration) int {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status := recorder.StatusCode()
+		if status != 0 {
+			return status
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Fatal("timed out waiting for stream status")
+	return 0
+}
+
+type streamResponseRecorder struct {
+	mu         sync.Mutex
+	body       strings.Builder
+	header     http.Header
+	statusCode int
+}
+
+func newStreamResponseRecorder() *streamResponseRecorder {
+	return &streamResponseRecorder{
+		header: make(http.Header),
+	}
+}
+
+func (r *streamResponseRecorder) Header() http.Header {
+	return r.header
+}
+
+func (r *streamResponseRecorder) WriteHeader(statusCode int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.statusCode = statusCode
+}
+
+func (r *streamResponseRecorder) Write(body []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.statusCode == 0 {
+		r.statusCode = http.StatusOK
+	}
+	return r.body.Write(body)
+}
+
+func (r *streamResponseRecorder) Flush() {}
+
+func (r *streamResponseRecorder) BodyString() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.String()
+}
+
+func (r *streamResponseRecorder) StatusCode() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.statusCode
 }
