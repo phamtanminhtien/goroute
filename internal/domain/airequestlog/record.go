@@ -1,7 +1,8 @@
 package airequestlog
 
 type RunRecord struct {
-	RequestID           string `json:"request_id" gorm:"column:request_id;primaryKey"`
+	ID                  uint   `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
+	RequestID           string `json:"request_id" gorm:"column:request_id;not null;uniqueIndex"`
 	Type                string `json:"type" gorm:"column:type;not null;index:idx_ai_request_runs_type_mode_created_at,priority:1"`
 	RequestMode         string `json:"request_mode" gorm:"column:request_mode;not null;index:idx_ai_request_runs_type_mode_created_at,priority:2"`
 	ProviderRequestMode string `json:"provider_request_mode" gorm:"column:provider_request_mode;not null;default:''"`
@@ -33,7 +34,9 @@ func (RunRecord) TableName() string {
 }
 
 type FlowRecord struct {
-	RequestID              string `json:"request_id" gorm:"column:request_id;primaryKey"`
+	ID                     uint   `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
+	RunID                  uint   `json:"run_id" gorm:"column:run_id;not null;index"`
+	RequestID              string `json:"request_id" gorm:"column:request_id;not null;index"`
 	Type                   string `json:"type" gorm:"column:type;not null;index:idx_ai_request_flows_type_mode_created_at,priority:1"`
 	RequestMode            string `json:"request_mode" gorm:"column:request_mode;not null;index:idx_ai_request_flows_type_mode_created_at,priority:2"`
 	ProviderRequestMode    string `json:"provider_request_mode" gorm:"column:provider_request_mode;not null;default:''"`
@@ -69,7 +72,8 @@ func (FlowRecord) TableName() string {
 
 type ThirdPartyRequestLogRecord struct {
 	ID                  uint   `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
-	FlowRequestID       string `json:"flow_request_id" gorm:"column:flow_request_id;not null;index:idx_third_party_request_logs_flow_attempt,priority:1"`
+	RunID               uint   `json:"run_id" gorm:"column:run_id;not null;index:idx_third_party_request_logs_run_attempt,priority:1"`
+	RequestID           string `json:"request_id" gorm:"column:request_id;not null;index"`
 	Type                string `json:"type" gorm:"column:type;not null"`
 	RequestMode         string `json:"request_mode" gorm:"column:request_mode;not null"`
 	ProviderRequestMode string `json:"provider_request_mode" gorm:"column:provider_request_mode;not null;default:''"`
@@ -77,7 +81,7 @@ type ThirdPartyRequestLogRecord struct {
 	ProviderName        string `json:"provider_name" gorm:"column:provider_name;not null;default:''"`
 	ConnectionID        string `json:"connection_id" gorm:"column:connection_id;not null;default:''"`
 	ConnectionName      string `json:"connection_name" gorm:"column:connection_name;not null;default:''"`
-	AttemptIndex        int    `json:"attempt_index" gorm:"column:attempt_index;not null;default:0;index:idx_third_party_request_logs_flow_attempt,priority:2"`
+	AttemptIndex        int    `json:"attempt_index" gorm:"column:attempt_index;not null;default:0;index:idx_third_party_request_logs_run_attempt,priority:2"`
 	RequestMethod       string `json:"request_method" gorm:"column:request_method;not null"`
 	RequestURL          string `json:"request_url" gorm:"column:request_url;not null;default:''"`
 	RequestHeaders      string `json:"request_headers" gorm:"column:request_headers;not null;default:''"`

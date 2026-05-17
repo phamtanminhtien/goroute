@@ -650,10 +650,10 @@ func TestResponsesPersistsSyncLogs(t *testing.T) {
 		t.Fatalf("list ai request flows: %v", err)
 	}
 
-	if len(runs) != 1 || runs[0].Type != chatcompletion.RequestTypeResponses || runs[0].TotalTokens != 15 {
+	if len(runs) != 1 || runs[0].ID == 0 || runs[0].Type != chatcompletion.RequestTypeResponses || runs[0].TotalTokens != 15 {
 		t.Fatalf("unexpected run records %#v", runs)
 	}
-	if len(flows) != 1 || flows[0].Type != chatcompletion.RequestTypeResponses {
+	if len(flows) != 1 || flows[0].ID == 0 || flows[0].RunID != runs[0].ID || flows[0].Type != chatcompletion.RequestTypeResponses {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
 	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
@@ -706,7 +706,7 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 		t.Fatalf("list third party request logs: %v", err)
 	}
 
-	if len(runs) != 1 || runs[0].RequestMode != chatcompletion.RequestModeSync || runs[0].TotalTokens != 15 {
+	if len(runs) != 1 || runs[0].ID == 0 || runs[0].RequestMode != chatcompletion.RequestModeSync || runs[0].TotalTokens != 15 {
 		t.Fatalf("unexpected run records %#v", runs)
 	}
 	if runs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
@@ -714,6 +714,9 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	}
 	if len(flows) != 1 {
 		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if flows[0].ID == 0 || flows[0].RunID != runs[0].ID || flows[0].RequestID != runs[0].RequestID {
+		t.Fatalf("unexpected flow linkage %#v runs=%#v", flows, runs)
 	}
 	if flows[0].ProviderRequestMode != chatcompletion.RequestModeSync {
 		t.Fatalf("unexpected flow provider request mode %#v", flows)
@@ -730,7 +733,7 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
-	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
+	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
 	}
 }
@@ -864,6 +867,9 @@ func TestSettingsUpdateChangesLogPersistenceForSubsequentRequests(t *testing.T) 
 	if len(runs) != 1 || len(flows) != 0 || len(thirdPartyLogs) != 1 {
 		t.Fatalf("unexpected persisted records runs=%#v flows=%#v third_party=%#v", runs, flows, thirdPartyLogs)
 	}
+	if thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID {
+		t.Fatalf("unexpected third party linkage %#v runs=%#v", thirdPartyLogs, runs)
+	}
 }
 
 func TestChatCompletionsRedactsImageURLsInPersistedLogs(t *testing.T) {
@@ -920,6 +926,9 @@ func TestChatCompletionsRedactsImageURLsInPersistedLogs(t *testing.T) {
 	}
 	if len(thirdPartyLogs) != 1 {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
+	}
+	if thirdPartyLogs[0].RequestID == "" || thirdPartyLogs[0].RunID == 0 {
+		t.Fatalf("unexpected third party linkage %#v", thirdPartyLogs[0])
 	}
 	if strings.Contains(thirdPartyLogs[0].RequestBody, "data:image/png;base64,abc123") || strings.Contains(thirdPartyLogs[0].RequestBody, "https://signed.example.com/private.png") {
 		t.Fatalf("expected third party request body to redact image urls, got %#v", thirdPartyLogs[0].RequestBody)
@@ -1090,7 +1099,7 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 		t.Fatalf("list third party request logs: %v", err)
 	}
 
-	if len(runs) != 1 || runs[0].RequestMode != chatcompletion.RequestModeStream {
+	if len(runs) != 1 || runs[0].ID == 0 || runs[0].RequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("unexpected run records %#v", runs)
 	}
 	if runs[0].ProviderRequestMode != chatcompletion.RequestModeStream {
@@ -1098,6 +1107,9 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 	}
 	if len(flows) != 1 {
 		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if flows[0].ID == 0 || flows[0].RunID != runs[0].ID || flows[0].RequestID != runs[0].RequestID {
+		t.Fatalf("unexpected flow linkage %#v runs=%#v", flows, runs)
 	}
 	if flows[0].ProviderRequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("unexpected flow provider request mode %#v", flows)
@@ -1111,7 +1123,7 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 	if !strings.Contains(flows[0].TranslatedResponseBody, `"content":"first"`) {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
-	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeStream || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
+	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeStream || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
 	}
 }

@@ -39,7 +39,7 @@ type AttemptTrace struct {
 }
 
 type ThirdPartyLog struct {
-	FlowRequestID       string
+	RequestID           string
 	Type                string
 	RequestMode         string
 	ProviderRequestMode string
@@ -377,8 +377,8 @@ func (r *FlowRecorder) AddThirdPartyLog(log ThirdPartyLog) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if log.FlowRequestID == "" {
-		log.FlowRequestID = r.requestID
+	if log.RequestID == "" {
+		log.RequestID = r.requestID
 	}
 	if log.Type == "" {
 		log.Type = r.requestType
@@ -413,9 +413,9 @@ func (r *FlowRecorder) ResolvedModel() string {
 	return r.resolvedModel
 }
 
-func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, airequestlog.FlowRecord, []airequestlog.ThirdPartyRequestLogRecord) {
+func (r *FlowRecorder) SnapshotRun(completedAt time.Time) airequestlog.RunRecord {
 	if r == nil {
-		return airequestlog.RunRecord{}, airequestlog.FlowRecord{}, nil
+		return airequestlog.RunRecord{}
 	}
 
 	r.mu.Lock()
@@ -425,9 +425,8 @@ func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, 
 		completedAt = time.Now().UTC()
 	}
 
-	attemptTrace := marshalJSON(r.attemptTrace)
 	durationMs := completedAt.Sub(r.startedAt).Milliseconds()
-	run := airequestlog.RunRecord{
+	return airequestlog.RunRecord{
 		RequestID:           r.requestID,
 		Type:                r.requestType,
 		RequestMode:         r.requestMode,
@@ -452,8 +451,24 @@ func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, 
 		CompletedAt:         completedAt.UnixMilli(),
 		DurationMs:          durationMs,
 	}
+}
 
+func (r *FlowRecorder) SnapshotDetails(completedAt time.Time, runID uint) (airequestlog.FlowRecord, []airequestlog.ThirdPartyRequestLogRecord) {
+	if r == nil {
+		return airequestlog.FlowRecord{}, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if completedAt.IsZero() {
+		completedAt = time.Now().UTC()
+	}
+
+	attemptTrace := marshalJSON(r.attemptTrace)
+	durationMs := completedAt.Sub(r.startedAt).Milliseconds()
 	flow := airequestlog.FlowRecord{
+		RunID:                  runID,
 		RequestID:              r.requestID,
 		Type:                   r.requestType,
 		RequestMode:            r.requestMode,
@@ -485,7 +500,8 @@ func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, 
 	thirdPartyLogs := make([]airequestlog.ThirdPartyRequestLogRecord, 0, len(r.thirdPartyLogs))
 	for _, current := range r.thirdPartyLogs {
 		thirdPartyLogs = append(thirdPartyLogs, airequestlog.ThirdPartyRequestLogRecord{
-			FlowRequestID:       current.FlowRequestID,
+			RunID:               runID,
+			RequestID:           current.RequestID,
 			Type:                current.Type,
 			RequestMode:         current.RequestMode,
 			ProviderRequestMode: defaultString(current.ProviderRequestMode, current.RequestMode),
@@ -509,7 +525,7 @@ func (r *FlowRecorder) Snapshot(completedAt time.Time) (airequestlog.RunRecord, 
 		})
 	}
 
-	return run, flow, thirdPartyLogs
+	return flow, thirdPartyLogs
 }
 
 func CaptureStream(body io.ReadCloser, finalize func([]byte, error)) io.ReadCloser {

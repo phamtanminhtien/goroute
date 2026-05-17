@@ -428,7 +428,7 @@ func seedAnalyticsRuns(t *testing.T, repo *gormsqlite.Repository, runs ...airequ
 		run.Method = http.MethodPost
 		run.StartedAt = run.CreatedAt
 		run.CompletedAt = run.CreatedAt + run.DurationMs
-		if err := repo.CreateAIRequestRun(run); err != nil {
+		if err := repo.CreateAIRequestRun(&run); err != nil {
 			t.Fatalf("seed ai request run %q: %v", run.RequestID, err)
 		}
 	}

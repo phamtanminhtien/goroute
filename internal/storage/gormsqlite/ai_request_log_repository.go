@@ -6,8 +6,8 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
 )
 
-func (r *Repository) CreateAIRequestRun(record airequestlog.RunRecord) error {
-	if err := r.db.Create(&record).Error; err != nil {
+func (r *Repository) CreateAIRequestRun(record *airequestlog.RunRecord) error {
+	if err := r.db.Create(record).Error; err != nil {
 		return fmt.Errorf("create ai request run %q: %w", record.RequestID, err)
 	}
 
@@ -24,7 +24,7 @@ func (r *Repository) CreateAIRequestFlow(record airequestlog.FlowRecord) error {
 
 func (r *Repository) CreateThirdPartyRequestLog(record airequestlog.ThirdPartyRequestLogRecord) error {
 	if err := r.db.Create(&record).Error; err != nil {
-		return fmt.Errorf("create third party request log for %q: %w", record.FlowRequestID, err)
+		return fmt.Errorf("create third party request log for run %d request %q: %w", record.RunID, record.RequestID, err)
 	}
 
 	return nil

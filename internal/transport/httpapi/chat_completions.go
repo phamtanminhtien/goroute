@@ -109,10 +109,13 @@ func persistAIRequestLog(repo aiRequestLogRepository, settingsManager *config.Se
 	}
 
 	recorder.SetHTTPResponse(bodyWriter.statusCode, bodyWriter.headerSnapshot(), bodyWriter.bodyString())
-	runRecord, flowRecord, thirdPartyLogs := recorder.Snapshot(time.Now().UTC())
-	if err := repo.CreateAIRequestRun(runRecord); err != nil {
+	completedAt := time.Now().UTC()
+	runRecord := recorder.SnapshotRun(completedAt)
+	if err := repo.CreateAIRequestRun(&runRecord); err != nil {
 		logger.Error().Err(err).Str("request_id", runRecord.RequestID).Msg("persist_ai_request_run_failed")
+		return
 	}
+	flowRecord, thirdPartyLogs := recorder.SnapshotDetails(completedAt, runRecord.ID)
 
 	logSettings := config.LLMLoggingState{
 		FlowEnabled:       true,
