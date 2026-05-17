@@ -30,6 +30,12 @@ func ApplyDefaults(cfg Config) Config {
 			present:    true,
 		}
 	}
+	if !cfg.RTK.IsPresent() {
+		cfg.RTK = RTKConfig{
+			Enabled: true,
+			present: true,
+		}
+	}
 
 	return cfg
 }

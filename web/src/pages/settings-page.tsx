@@ -18,11 +18,15 @@ import { StatusBadge } from "@/shared/ui/status-badge";
 import { Switch } from "@/shared/ui/switch";
 
 type LoggingDraft = UpdateSettingsPayload["llmLogging"]["enabled"];
+type RTKDraft = UpdateSettingsPayload["rtk"];
 type FeedbackState = null | { text: string; tone: "error" | "success" };
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<LoggingDraft | null>(null);
+  const [draft, setDraft] = useState<{
+    llmLogging: LoggingDraft;
+    rtk: RTKDraft;
+  } | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const settingsQuery = useQuery({
@@ -45,10 +49,17 @@ export function SettingsPage() {
     },
   });
 
-  const current = settingsQuery.data?.llmLogging.enabled ?? null;
+  const current = settingsQuery.data
+    ? {
+        llmLogging: settingsQuery.data.llmLogging.enabled,
+        rtk: settingsQuery.data.rtk,
+      }
+    : null;
   const effectiveDraft = draft ?? current;
   const updateDraft = (
-    updater: (currentDraft: LoggingDraft) => LoggingDraft,
+    updater: (
+      currentDraft: NonNullable<typeof effectiveDraft>,
+    ) => NonNullable<typeof effectiveDraft>,
   ) => {
     setDraft((currentDraft) => {
       const baseDraft = currentDraft ?? current;
@@ -62,7 +73,9 @@ export function SettingsPage() {
   const hasChanges =
     draft !== null &&
     current !== null &&
-    (draft.flow !== current.flow || draft.thirdParty !== current.thirdParty);
+    (draft.llmLogging.flow !== current.llmLogging.flow ||
+      draft.llmLogging.thirdParty !== current.llmLogging.thirdParty ||
+      draft.rtk.enabled !== current.rtk.enabled);
 
   return (
     <section className="space-y-6 pb-6">
@@ -132,6 +145,12 @@ export function SettingsPage() {
                     : "Disabled"
                 }
               />
+              <RuntimePanel
+                description="Controls deterministic request compression before upstream dispatch."
+                icon={<DatabaseZap className="size-4" />}
+                label="RTK compression"
+                value={settingsQuery.data.rtk.enabled ? "Enabled" : "Disabled"}
+              />
             </div>
           ) : null}
         </SectionCard>
@@ -170,7 +189,8 @@ export function SettingsPage() {
                 setFeedback(null);
                 try {
                   await updateSettingsMutation.mutateAsync({
-                    llmLogging: { enabled: effectiveDraft },
+                    llmLogging: { enabled: effectiveDraft.llmLogging },
+                    rtk: effectiveDraft.rtk,
                   });
                 } catch {
                   // onError already surfaces the failure to the user.
@@ -193,11 +213,14 @@ export function SettingsPage() {
                   </div>
                   <Switch
                     aria-label="Flow log toggle"
-                    checked={effectiveDraft.flow}
+                    checked={effectiveDraft.llmLogging.flow}
                     onCheckedChange={(checked) =>
                       updateDraft((currentDraft) => ({
                         ...currentDraft,
-                        flow: checked,
+                        llmLogging: {
+                          ...currentDraft.llmLogging,
+                          flow: checked,
+                        },
                       }))
                     }
                   />
@@ -220,11 +243,41 @@ export function SettingsPage() {
                   </div>
                   <Switch
                     aria-label="Third-party log toggle"
-                    checked={effectiveDraft.thirdParty}
+                    checked={effectiveDraft.llmLogging.thirdParty}
                     onCheckedChange={(checked) =>
                       updateDraft((currentDraft) => ({
                         ...currentDraft,
-                        thirdParty: checked,
+                        llmLogging: {
+                          ...currentDraft.llmLogging,
+                          thirdParty: checked,
+                        },
+                      }))
+                    }
+                  />
+                </div>
+              </Field>
+
+              <Field
+                help="Compresses large machine-generated user/tool text before goroute forwards the request upstream."
+                label="RTK compression"
+              >
+                <div className="border-border/85 bg-bg-primary/72 flex items-center justify-between rounded-[20px] border px-4 py-3">
+                  <div className="space-y-1 pr-4">
+                    <p className="text-fg-primary text-sm font-semibold">
+                      Enable request compression
+                    </p>
+                    <p className="text-fg-secondary text-sm leading-6">
+                      Apply deterministic RTK filters to noisy user and tool
+                      payloads while leaving system and assistant text alone.
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label="RTK compression toggle"
+                    checked={effectiveDraft.rtk.enabled}
+                    onCheckedChange={(checked) =>
+                      updateDraft((currentDraft) => ({
+                        ...currentDraft,
+                        rtk: { enabled: checked },
                       }))
                     }
                   />
@@ -238,7 +291,7 @@ export function SettingsPage() {
                 <p className="text-fg-secondary mt-1 text-sm leading-6">
                   If both switches are off, goroute persists only
                   `ai_request_runs`. Changes here affect new requests right
-                  after save.
+                  after save. RTK compression is controlled independently.
                 </p>
               </div>
 

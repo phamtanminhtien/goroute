@@ -26,6 +26,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 		startedAt := time.Now().UTC()
 		recorder := chatcompletion.NewFlowRecorder(chatcompletion.RequestID(r.Context()), startedAt)
 		ctx := chatcompletion.WithFlowRecorder(r.Context(), recorder)
+		ctx = config.WithSettingsManager(ctx, settingsManager)
 		r = r.WithContext(ctx)
 
 		bodyWriter := newBodyCaptureResponseWriter(w)
@@ -116,6 +117,7 @@ func persistAIRequestLog(repo aiRequestLogRepository, settingsManager *config.Se
 		return
 	}
 	flowRecord, thirdPartyLogs := recorder.SnapshotDetails(completedAt, runRecord.ID)
+	rtkRecord, hasRTKRecord := recorder.SnapshotRTK(runRecord.ID)
 
 	logSettings := config.LLMLoggingState{
 		FlowEnabled:       true,
@@ -135,6 +137,11 @@ func persistAIRequestLog(repo aiRequestLogRepository, settingsManager *config.Se
 			if err := repo.CreateThirdPartyRequestLog(current); err != nil {
 				logger.Error().Err(err).Str("request_id", flowRecord.RequestID).Msg("persist_third_party_request_log_failed")
 			}
+		}
+	}
+	if hasRTKRecord {
+		if err := repo.CreateRTKRecord(&rtkRecord); err != nil {
+			logger.Error().Err(err).Str("request_id", flowRecord.RequestID).Msg("persist_rtk_record_failed")
 		}
 	}
 }

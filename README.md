@@ -145,13 +145,15 @@ Current implemented shape:
   "llmLogging": {
     "flow": true,
     "thirdParty": true
-  }
+  },
+  "rtk": false
 }
 ```
 
 `server.auth_token` is required and protects admin-only backend routes.
 `server.web_ui_dir` defaults to `web/dist`; when that folder exists, `goroute` also serves the built admin UI from the same server.
 When `llmLogging` is omitted, both `flow` and `thirdParty` default to enabled. `llmLogging: false` or `llmLogging: {}` disables both optional LLM log stores while still keeping `ai_request_runs`.
+`rtk` defaults to disabled. When enabled, it applies deterministic compression to large machine-generated user/tool request text before upstream dispatch and persists diagnostics in `rtk_records`.
 Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API or UI.
 
 Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
@@ -200,6 +202,7 @@ See [Configuration and data model](./docs/configuration.md) for the fuller contr
 
 - [Design overview](./docs/design.md)
 - [Configuration and data model](./docs/configuration.md)
+- [RTK request compression](./docs/rtk.md)
 - [Implementation plan](./docs/implementation-plan.md)
 
 ## License

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -250,6 +251,93 @@ func TestClientResponsesPassesThroughRawBody(t *testing.T) {
 	}
 	if response.ID != "resp_1" || response.Usage == nil || response.Usage.TotalTokens != 15 {
 		t.Fatalf("unexpected response %#v", response)
+	}
+}
+
+func TestClientChatCompletionsAppliesRTKCompressionWhenEnabled(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"chatcmpl-1","object":"chat.completion","created":123,"model":"gpt-4.1","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`,
+			)),
+		}, nil
+	})}
+
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	settingsManager := config.NewSettingsManager("", config.Config{RTK: config.NewRTKConfig(true)})
+	ctx := config.WithSettingsManager(context.Background(), settingsManager)
+
+	_, err := client.ChatCompletions(ctx, openaiwire.ChatCompletionsRequest{
+		Model: "opena/gpt-4.1",
+		Messages: []openaiwire.ChatMessage{{
+			Role:    "user",
+			Content: openaiwire.TextContent(strings.Repeat("same line\n", 120)),
+		}},
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("chat completions: %v", err)
+	}
+
+	messages := upstreamBody["messages"].([]any)
+	message := messages[0].(map[string]any)
+	content := message["content"].(string)
+	if !strings.Contains(content, "... (119 duplicate lines)") {
+		t.Fatalf("expected compressed content, got %q", content)
+	}
+}
+
+func TestClientResponsesCompressesRawBodyWhenRTKEnabled(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"resp_1","object":"response","created_at":123,"status":"completed","model":"gpt-4.1","output":[]}`,
+			)),
+		}, nil
+	})}
+
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	settingsManager := config.NewSettingsManager("", config.Config{RTK: config.NewRTKConfig(true)})
+	ctx := config.WithSettingsManager(context.Background(), settingsManager)
+
+	_, err := client.Responses(ctx, openaiwire.ResponsesRequest{
+		Model: "opena/gpt-4.1",
+		RawBody: json.RawMessage([]byte(`{
+			"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"` + strings.Repeat("same line\\n", 120) + `"}]}],
+			"metadata":{"keep":"me"}
+		}`)),
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("responses: %v", err)
+	}
+
+	if upstreamBody["metadata"].(map[string]any)["keep"] != "me" {
+		t.Fatalf("expected raw body fields to survive, got %#v", upstreamBody["metadata"])
+	}
+	input := upstreamBody["input"].([]any)
+	item := input[0].(map[string]any)
+	content := item["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(content, "... (119 duplicate lines)") {
+		t.Fatalf("expected compressed responses content, got %q", content)
 	}
 }
 

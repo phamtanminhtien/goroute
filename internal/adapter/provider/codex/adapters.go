@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/rtk"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 )
@@ -66,7 +68,18 @@ func (a *ResponsesAdapter) ResponsesStream(ctx context.Context, req openaiwire.R
 
 func (a *ResponsesAdapter) streamResponses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target, capture func([]byte, *chatcompletion.FlowRecorder)) (io.ReadCloser, error) {
 	body := normalizeResponsesRequest(req)
+	return a.streamPreparedResponses(ctx, body, target, capture)
+}
+
+func (a *ResponsesAdapter) streamPreparedResponses(ctx context.Context, body openaiwire.ResponsesRequest, target routing.Target, capture func([]byte, *chatcompletion.FlowRecorder)) (io.ReadCloser, error) {
 	body.Stream = true
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressResponses(body)
+		body = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
 	return a.core.executeResponsesRequest(ctx, body, target, capture)
 }
 
@@ -97,8 +110,16 @@ func (a *ChatCompletionsAdapter) ChatCompletionsStream(ctx context.Context, req 
 func (a *ChatCompletionsAdapter) streamChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
 	body := req
 	body.Stream = true
+	upstreamRequest := chatCompletionsToCodexResponses(body, target.RequestedModel)
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressResponses(upstreamRequest)
+		upstreamRequest = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
 
-	return a.responses.streamResponses(ctx, chatCompletionsToCodexResponses(body, target.RequestedModel), target, func(captured []byte, recorder *chatcompletion.FlowRecorder) {
+	return a.responses.streamPreparedResponses(ctx, upstreamRequest, target, func(captured []byte, recorder *chatcompletion.FlowRecorder) {
 		recorder.SetFlowResponse(reconstructStreamResponse(target, captured), true)
 	})
 }

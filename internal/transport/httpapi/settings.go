@@ -10,6 +10,7 @@ import (
 type settingsResponse struct {
 	Server     settingsServerResponse     `json:"server"`
 	LLMLogging settingsLLMLoggingResponse `json:"llmLogging"`
+	RTK        settingsRTKResponse        `json:"rtk"`
 }
 
 type settingsServerResponse struct {
@@ -26,8 +27,13 @@ type settingsLLMLoggingEnabledResponse struct {
 	ThirdParty bool `json:"thirdParty"`
 }
 
+type settingsRTKResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
 type updateSettingsRequest struct {
 	LLMLogging *updateSettingsLLMLoggingRequest `json:"llmLogging"`
+	RTK        *updateSettingsRTKRequest        `json:"rtk"`
 }
 
 type updateSettingsLLMLoggingRequest struct {
@@ -37,6 +43,10 @@ type updateSettingsLLMLoggingRequest struct {
 type updateSettingsLLMLoggingEnabledRequest struct {
 	Flow       *bool `json:"flow"`
 	ThirdParty *bool `json:"thirdParty"`
+}
+
+type updateSettingsRTKRequest struct {
+	Enabled *bool `json:"enabled"`
 }
 
 func settingsHandler(settingsManager *config.SettingsManager) http.Handler {
@@ -56,14 +66,16 @@ func settingsHandler(settingsManager *config.SettingsManager) http.Handler {
 				return
 			}
 
-			if input.LLMLogging == nil || input.LLMLogging.Enabled == nil || input.LLMLogging.Enabled.Flow == nil || input.LLMLogging.Enabled.ThirdParty == nil {
-				writeError(r, w, http.StatusBadRequest, "invalid_request", "llmLogging.enabled.flow and llmLogging.enabled.thirdParty are required")
+			if input.LLMLogging == nil || input.LLMLogging.Enabled == nil || input.LLMLogging.Enabled.Flow == nil || input.LLMLogging.Enabled.ThirdParty == nil || input.RTK == nil || input.RTK.Enabled == nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "llmLogging.enabled.flow, llmLogging.enabled.thirdParty, and rtk.enabled are required")
 				return
 			}
 
-			cfg, err := settingsManager.UpdateLLMLogging(config.LLMLoggingState{
+			cfg, err := settingsManager.UpdateSettings(config.LLMLoggingState{
 				FlowEnabled:       *input.LLMLogging.Enabled.Flow,
 				ThirdPartyEnabled: *input.LLMLogging.Enabled.ThirdParty,
+			}, config.RTKState{
+				Enabled: *input.RTK.Enabled,
 			})
 			if err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -88,6 +100,9 @@ func buildSettingsResponse(cfg config.Config) settingsResponse {
 				Flow:       cfg.LLMLogging.Flow,
 				ThirdParty: cfg.LLMLogging.ThirdParty,
 			},
+		},
+		RTK: settingsRTKResponse{
+			Enabled: cfg.RTK.Enabled,
 		},
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/rtk"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
@@ -139,6 +141,22 @@ func (p *loggingTestProvider) Responses(ctx context.Context, req openaiwire.Resp
 type loggingStreamingTestProvider struct {
 	*testProvider
 	body string
+}
+
+type rtkLoggingTestProvider struct {
+	loggingTestProvider
+}
+
+func (p *rtkLoggingTestProvider) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressChatCompletions(req)
+		req = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
+
+	return p.loggingTestProvider.ChatCompletions(ctx, req, target)
 }
 
 func (p loggingStreamingTestProvider) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {

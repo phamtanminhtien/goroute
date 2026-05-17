@@ -101,3 +101,23 @@ type ThirdPartyRequestLogRecord struct {
 func (ThirdPartyRequestLogRecord) TableName() string {
 	return "third_party_request_logs"
 }
+
+type RTKRecord struct {
+	ID           uint   `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
+	RunID        uint   `json:"run_id" gorm:"column:run_id;not null;uniqueIndex"`
+	RequestID    string `json:"request_id" gorm:"column:request_id;not null;index"`
+	Applied      bool   `json:"applied" gorm:"column:applied;not null;default:false"`
+	BytesBefore  int    `json:"bytes_before" gorm:"column:bytes_before;not null;default:0"`
+	BytesAfter   int    `json:"bytes_after" gorm:"column:bytes_after;not null;default:0"`
+	SavedBytes   int    `json:"saved_bytes" gorm:"column:saved_bytes;not null;default:0"`
+	SavedPercent int    `json:"saved_percent" gorm:"column:saved_percent;not null;default:0"`
+	FilterChain  string `json:"filter_chain" gorm:"column:filter_chain;not null;default:''"`
+	HitCount     int    `json:"hit_count" gorm:"column:hit_count;not null;default:0"`
+	FieldCount   int    `json:"field_count" gorm:"column:field_count;not null;default:0"`
+	CreatedAt    int64  `json:"created_at" gorm:"column:created_at;not null;autoCreateTime:milli;index"`
+	UpdatedAt    int64  `json:"updated_at" gorm:"column:updated_at;not null;autoUpdateTime:milli"`
+}
+
+func (RTKRecord) TableName() string {
+	return "rtk_records"
+}

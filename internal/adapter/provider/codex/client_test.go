@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -236,6 +237,52 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "data: [DONE]") {
 		t.Fatalf("unexpected stream body %q", data)
+	}
+}
+
+func TestClientCompressesTranslatedCodexPayloadWhenRTKEnabled(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"completed\"}}\n\n",
+			)),
+		}, nil
+	})}
+
+	client := newTestChatAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	settingsManager := config.NewSettingsManager("", config.Config{RTK: config.NewRTKConfig(true)})
+	ctx := config.WithSettingsManager(context.Background(), settingsManager)
+
+	_, err := client.ChatCompletions(ctx, openaiwire.ChatCompletionsRequest{
+		Model: "cx/gpt-5.3-codex",
+		Messages: []openaiwire.ChatMessage{
+			{Role: "system", Content: openaiwire.TextContent("keep this")},
+			{Role: "user", Content: openaiwire.TextContent(strings.Repeat("same line\n", 120))},
+		},
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("chat completions: %v", err)
+	}
+
+	if upstreamBody["instructions"] != "keep this" {
+		t.Fatalf("expected instructions to remain unchanged, got %#v", upstreamBody["instructions"])
+	}
+	input := upstreamBody["input"].([]any)
+	item := input[0].(map[string]any)
+	content := item["content"].([]any)[0].(map[string]any)["text"].(string)
+	if !strings.Contains(content, "... (119 duplicate lines)") {
+		t.Fatalf("expected compressed translated payload, got %q", content)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Server     ServerConfig     `json:"server"`
 	LLMLogging LLMLoggingConfig `json:"llmLogging"`
+	RTK        RTKConfig        `json:"rtk"`
 }
 
 type ServerConfig struct {
@@ -32,11 +33,13 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	type rawConfig struct {
 		Server     ServerConfig     `json:"server"`
 		LLMLogging LLMLoggingConfig `json:"llmLogging"`
+		RTK        RTKConfig        `json:"rtk"`
 	}
 
 	return json.Marshal(rawConfig{
 		Server:     c.Server,
 		LLMLogging: c.LLMLogging,
+		RTK:        c.RTK,
 	})
 }
 
@@ -62,6 +65,11 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	if payload, ok := raw["llmLogging"]; ok {
 		if err := c.LLMLogging.UnmarshalJSON(payload); err != nil {
 			return fmt.Errorf("decode config.llmLogging: %w", err)
+		}
+	}
+	if payload, ok := raw["rtk"]; ok {
+		if err := c.RTK.UnmarshalJSON(payload); err != nil {
+			return fmt.Errorf("decode config.rtk: %w", err)
 		}
 	}
 

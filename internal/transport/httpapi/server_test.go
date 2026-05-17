@@ -63,6 +63,7 @@ func testSettingsConfig() config.Config {
 			WebUIDir:  "web/dist",
 		},
 		LLMLogging: config.NewLLMLoggingConfig(true, true),
+		RTK:        config.NewRTKConfig(false),
 	}
 }
 
@@ -302,6 +303,9 @@ func TestSettingsHandlerReturnsNormalizedLLMLoggingState(t *testing.T) {
 	if !response.LLMLogging.Enabled.Flow || response.LLMLogging.Enabled.ThirdParty {
 		t.Fatalf("unexpected settings response %#v", response)
 	}
+	if response.RTK.Enabled {
+		t.Fatalf("expected rtk to be disabled, got %#v", response.RTK)
+	}
 	if response.Server.Listen != cfg.Server.Listen || response.Server.WebUIDir != cfg.Server.WebUIDir {
 		t.Fatalf("unexpected server response %#v", response.Server)
 	}
@@ -315,7 +319,7 @@ func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
 	}
 	settingsManager := config.NewSettingsManager(configPath, cfg)
 	handler := authMiddleware(testAdminToken, settingsHandler(settingsManager))
-	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}}}`))
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}},"rtk":{"enabled":true}}`))
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -332,10 +336,16 @@ func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
 	if updated.LLMLogging.Flow || !updated.LLMLogging.ThirdParty {
 		t.Fatalf("expected updated llm logging config, got %#v", updated.LLMLogging)
 	}
+	if !updated.RTK.Enabled {
+		t.Fatalf("expected updated rtk config, got %#v", updated.RTK)
+	}
 
 	state := settingsManager.LLMLogging()
 	if state.FlowEnabled || !state.ThirdPartyEnabled {
 		t.Fatalf("expected settings manager to apply immediately, got %#v", state)
+	}
+	if !settingsManager.RTK().Enabled {
+		t.Fatalf("expected rtk settings manager state to apply immediately")
 	}
 }
 
@@ -347,7 +357,7 @@ func TestSettingsHandlerRejectsInvalidPayload(t *testing.T) {
 	}
 
 	handler := authMiddleware(testAdminToken, settingsHandler(config.NewSettingsManager(configPath, cfg)))
-	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":true}}}`))
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":true}},"rtk":{"enabled":true}}`))
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -812,6 +822,63 @@ func TestChatCompletionsPersistsLogsBasedOnLLMLoggingSettings(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsPersistsRTKRecordWhenEnabled(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	cfg := testSettingsConfig()
+	cfg.RTK = config.NewRTKConfig(true)
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &rtkLoggingTestProvider{
+		loggingTestProvider: loggingTestProvider{
+			testProvider: testProvider{
+				response: openaiwire.ChatCompletionsResponse{
+					ID:     "chatcmpl-1",
+					Object: "chat.completion",
+					Model:  "gpt-5.4",
+					Choices: []openaiwire.ChatChoice{{
+						Index:   0,
+						Message: openaiwire.Message{Role: "assistant", Content: "hello back"},
+					}},
+				},
+			},
+		},
+	}, nil, databasePath, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"`+strings.Repeat("same line\\n", 120)+`"}]}`)))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+	rtkRecords, err := repo.ListRTKRecords()
+	if err != nil {
+		t.Fatalf("list rtk records: %v", err)
+	}
+
+	if len(flows) != 1 || !strings.Contains(flows[0].TranslatedRequestBody, "... (119 duplicate lines)") {
+		t.Fatalf("expected compressed translated request body, got %#v", flows)
+	}
+	if len(rtkRecords) != 1 {
+		t.Fatalf("expected one rtk record, got %#v", rtkRecords)
+	}
+	if rtkRecords[0].ID == 0 || rtkRecords[0].RunID == 0 || rtkRecords[0].RequestID == "" {
+		t.Fatalf("expected persisted ids on rtk record, got %#v", rtkRecords[0])
+	}
+	if !rtkRecords[0].Applied || rtkRecords[0].SavedBytes <= 0 {
+		t.Fatalf("expected applied rtk savings, got %#v", rtkRecords[0])
+	}
+}
+
 func TestSettingsUpdateChangesLogPersistenceForSubsequentRequests(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
 	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
@@ -828,7 +895,7 @@ func TestSettingsUpdateChangesLogPersistenceForSubsequentRequests(t *testing.T) 
 		},
 	}, nil, databasePath, testSettingsConfig())
 
-	settingsReq := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}}}`))
+	settingsReq := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}},"rtk":{"enabled":false}}`))
 	settingsReq.Header.Set("Authorization", "Bearer "+testAdminToken)
 	settingsRec := httptest.NewRecorder()
 	handler.ServeHTTP(settingsRec, settingsReq)

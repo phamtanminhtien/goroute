@@ -27,6 +27,7 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 		recorder := chatcompletion.NewFlowRecorder(chatcompletion.RequestID(r.Context()), startedAt)
 		recorder.SetRequestType(chatcompletion.RequestTypeResponses)
 		ctx := chatcompletion.WithFlowRecorder(r.Context(), recorder)
+		ctx = config.WithSettingsManager(ctx, settingsManager)
 		r = r.WithContext(ctx)
 
 		bodyWriter := newBodyCaptureResponseWriter(w)

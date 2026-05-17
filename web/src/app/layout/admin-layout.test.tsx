@@ -143,7 +143,7 @@ describe("admin layout", () => {
       level: 1,
       name: /system configuration/i,
     });
-    expect(screen.getByText(/ingress and server binding/i)).toBeInTheDocument();
+    expect(screen.getByText(/runtime overview/i)).toBeInTheDocument();
   });
 
   it("opens the dedicated quota screen from navigation", async () => {

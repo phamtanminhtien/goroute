@@ -19,6 +19,7 @@ type aiRequestLogRepository interface {
 	CreateAIRequestRun(record *airequestlog.RunRecord) error
 	CreateAIRequestFlow(record airequestlog.FlowRecord) error
 	CreateThirdPartyRequestLog(record airequestlog.ThirdPartyRequestLogRecord) error
+	CreateRTKRecord(record *airequestlog.RTKRecord) error
 	analytics.Repository
 }
 

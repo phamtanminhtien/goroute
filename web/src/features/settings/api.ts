@@ -9,6 +9,9 @@ export type SettingsResponse = {
       thirdParty: boolean;
     };
   };
+  rtk: {
+    enabled: boolean;
+  };
   server: {
     listen: string;
     web_ui_dir: string;
@@ -21,6 +24,9 @@ export type UpdateSettingsPayload = {
       flow: boolean;
       thirdParty: boolean;
     };
+  };
+  rtk: {
+    enabled: boolean;
   };
 };
 

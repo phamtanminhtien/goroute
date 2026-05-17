@@ -38,6 +38,9 @@ describe("settings page", () => {
           thirdParty: false,
         },
       },
+      rtk: {
+        enabled: false,
+      },
       server: {
         listen: ":2232",
         web_ui_dir: "web/dist",
@@ -49,6 +52,9 @@ describe("settings page", () => {
           flow: false,
           thirdParty: true,
         },
+      },
+      rtk: {
+        enabled: true,
       },
       server: {
         listen: ":2232",
@@ -73,6 +79,9 @@ describe("settings page", () => {
     expect(
       screen.getByRole("switch", { name: /third-party log toggle/i }),
     ).toHaveAttribute("data-state", "unchecked");
+    expect(
+      screen.getByRole("switch", { name: /rtk compression toggle/i }),
+    ).toHaveAttribute("data-state", "unchecked");
   });
 
   it("submits updated logging settings and shows success feedback", async () => {
@@ -90,9 +99,13 @@ describe("settings page", () => {
     const thirdPartySwitch = screen.getByRole("switch", {
       name: /third-party log toggle/i,
     });
+    const rtkSwitch = screen.getByRole("switch", {
+      name: /rtk compression toggle/i,
+    });
 
     await user.click(flowSwitch);
     await user.click(thirdPartySwitch);
+    await user.click(rtkSwitch);
     await user.click(screen.getByRole("button", { name: /save settings/i }));
 
     await waitFor(() => {
@@ -103,6 +116,9 @@ describe("settings page", () => {
             flow: false,
             thirdParty: true,
           },
+        },
+        rtk: {
+          enabled: true,
         },
       });
     });

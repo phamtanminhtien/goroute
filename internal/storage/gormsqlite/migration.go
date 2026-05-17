@@ -13,6 +13,7 @@ func (r *Repository) Migrate() error {
 		&airequestlog.RunRecord{},
 		&airequestlog.FlowRecord{},
 		&airequestlog.ThirdPartyRequestLogRecord{},
+		&airequestlog.RTKRecord{},
 	); err != nil {
 		return fmt.Errorf("migrate sqlite database: %w", err)
 	}

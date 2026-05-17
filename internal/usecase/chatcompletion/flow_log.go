@@ -61,6 +61,17 @@ type ThirdPartyLog struct {
 	CompletedAt         time.Time
 }
 
+type RTKSummary struct {
+	Applied      bool
+	BytesBefore  int
+	BytesAfter   int
+	SavedBytes   int
+	SavedPercent int
+	FilterChain  []string
+	HitCount     int
+	FieldCount   int
+}
+
 type FlowRecorder struct {
 	mu sync.Mutex
 
@@ -101,6 +112,9 @@ type FlowRecorder struct {
 	promptTokens     int
 	completionTokens int
 	totalTokens      int
+
+	rtkSet     bool
+	rtkSummary RTKSummary
 
 	thirdPartyLogs []ThirdPartyLog
 }
@@ -317,6 +331,17 @@ func (r *FlowRecorder) SetUsage(usage *openaiwire.Usage) {
 	r.totalTokens = usage.TotalTokens
 }
 
+func (r *FlowRecorder) SetRTKSummary(summary RTKSummary) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rtkSet = true
+	r.rtkSummary = summary
+}
+
 func (r *FlowRecorder) SetResponseUsage(usage *openaiwire.ResponseUsage) {
 	if r == nil || usage == nil {
 		return
@@ -526,6 +551,32 @@ func (r *FlowRecorder) SnapshotDetails(completedAt time.Time, runID uint) (aireq
 	}
 
 	return flow, thirdPartyLogs
+}
+
+func (r *FlowRecorder) SnapshotRTK(runID uint) (airequestlog.RTKRecord, bool) {
+	if r == nil {
+		return airequestlog.RTKRecord{}, false
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.rtkSet {
+		return airequestlog.RTKRecord{}, false
+	}
+
+	return airequestlog.RTKRecord{
+		RunID:        runID,
+		RequestID:    r.requestID,
+		Applied:      r.rtkSummary.Applied,
+		BytesBefore:  r.rtkSummary.BytesBefore,
+		BytesAfter:   r.rtkSummary.BytesAfter,
+		SavedBytes:   r.rtkSummary.SavedBytes,
+		SavedPercent: r.rtkSummary.SavedPercent,
+		FilterChain:  marshalJSON(r.rtkSummary.FilterChain),
+		HitCount:     r.rtkSummary.HitCount,
+		FieldCount:   r.rtkSummary.FieldCount,
+	}, true
 }
 
 func CaptureStream(body io.ReadCloser, finalize func([]byte, error)) io.ReadCloser {

@@ -9,6 +9,7 @@ The current schema has one top-level domain:
 
 - server
 - llmLogging
+- rtk
 
 Example `~/.goroute/config.json`:
 
@@ -22,7 +23,8 @@ Example `~/.goroute/config.json`:
   "llmLogging": {
     "flow": true,
     "thirdParty": true
-  }
+  },
+  "rtk": false
 }
 ```
 
@@ -37,6 +39,16 @@ Example `~/.goroute/config.json`:
 - `llmLogging.flow` controls persistence to `ai_request_flows`
 - `llmLogging.thirdParty` controls persistence to `third_party_request_logs`
 - `ai_request_runs` is always persisted and is not controlled by `llmLogging`
+
+`rtk` controls optional deterministic request compression:
+
+- when `rtk` is omitted, it defaults to disabled
+- `rtk: false` disables RTK compression
+- `rtk: true` enables RTK compression
+- `rtk: { "enabled": true }` also enables RTK compression
+- RTK only compresses large machine-generated user/tool text before upstream dispatch
+- RTK does not rewrite `system`, `assistant`, or `instructions` content
+- RTK diagnostics are persisted to `rtk_records` when request logging completes
 
 Connections are persisted in `~/.goroute/goroute.db`.
 Connection credentials are validated lazily by the selected adapter during request execution.
@@ -89,11 +101,14 @@ Current admin routes:
       "flow": true,
       "thirdParty": true
     }
+  },
+  "rtk": {
+    "enabled": false
   }
 }
 ```
 
-`PUT /admin/api/settings` accepts the same normalized `llmLogging.enabled` booleans and applies them immediately to new requests after saving `config.json`.
+`PUT /admin/api/settings` accepts the same normalized `llmLogging.enabled` booleans plus `rtk.enabled`, then applies them immediately to new requests after saving `config.json`.
 
 ### Codex usage lookup
 
@@ -249,6 +264,22 @@ Implemented fields:
 - refresh_token
 - token_type
 - expires_in
+
+### RTK record
+
+Implemented fields:
+
+- id
+- run_id
+- request_id
+- applied
+- bytes_before
+- bytes_after
+- saved_bytes
+- saved_percent
+- filter_chain
+- hit_count
+- field_count
 
 ### System provider definition
 

@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/rtk"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 )
@@ -45,6 +47,13 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 
 	upstreamRequest := req
 	upstreamRequest.Model = target.RequestedModel
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressChatCompletions(upstreamRequest)
+		upstreamRequest = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
 	payload, err := json.Marshal(upstreamRequest)
 	if err != nil {
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("encode upstream request: %w", err)
@@ -102,6 +111,13 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 	upstreamRequest := req
 	upstreamRequest.Model = target.RequestedModel
 	upstreamRequest.Stream = true
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressChatCompletions(upstreamRequest)
+		upstreamRequest = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
 	payload, err := json.Marshal(upstreamRequest)
 	if err != nil {
 		return nil, fmt.Errorf("encode upstream request: %w", err)
@@ -152,7 +168,15 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 		}
 	}
 
-	payload, err := marshalResponsesUpstreamRequest(req, target.RequestedModel, nil)
+	upstreamRequest := req
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressResponses(upstreamRequest)
+		upstreamRequest = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
+	payload, err := marshalResponsesUpstreamRequest(upstreamRequest, target.RequestedModel, nil)
 	if err != nil {
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("encode upstream request: %w", err)
 	}
@@ -207,7 +231,15 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 	}
 
 	stream := true
-	payload, err := marshalResponsesUpstreamRequest(req, target.RequestedModel, &stream)
+	upstreamRequest := req
+	if config.RTKEnabledFromContext(ctx) {
+		compressed, summary := rtk.NewService().CompressResponses(upstreamRequest)
+		upstreamRequest = compressed
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			recorder.SetRTKSummary(summary)
+		}
+	}
+	payload, err := marshalResponsesUpstreamRequest(upstreamRequest, target.RequestedModel, &stream)
 	if err != nil {
 		return nil, fmt.Errorf("encode upstream request: %w", err)
 	}

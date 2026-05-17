@@ -30,6 +30,14 @@ func (r *Repository) CreateThirdPartyRequestLog(record airequestlog.ThirdPartyRe
 	return nil
 }
 
+func (r *Repository) CreateRTKRecord(record *airequestlog.RTKRecord) error {
+	if err := r.db.Create(record).Error; err != nil {
+		return fmt.Errorf("create rtk record for run %d request %q: %w", record.RunID, record.RequestID, err)
+	}
+
+	return nil
+}
+
 func (r *Repository) ListAIRequestRuns() ([]airequestlog.RunRecord, error) {
 	var records []airequestlog.RunRecord
 	if err := r.db.Order("created_at ASC, request_id ASC").Find(&records).Error; err != nil {
@@ -52,6 +60,15 @@ func (r *Repository) ListThirdPartyRequestLogs() ([]airequestlog.ThirdPartyReque
 	var records []airequestlog.ThirdPartyRequestLogRecord
 	if err := r.db.Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
 		return nil, fmt.Errorf("list third party request logs: %w", err)
+	}
+
+	return records, nil
+}
+
+func (r *Repository) ListRTKRecords() ([]airequestlog.RTKRecord, error) {
+	var records []airequestlog.RTKRecord
+	if err := r.db.Order("created_at ASC, id ASC").Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list rtk records: %w", err)
 	}
 
 	return records, nil
