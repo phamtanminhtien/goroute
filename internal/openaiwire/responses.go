@@ -1,6 +1,9 @@
 package openaiwire
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"reflect"
+)
 
 type ResponsesStatus string
 
@@ -28,11 +31,63 @@ type ResponsesRequest struct {
 	Model        string              `json:"model"`
 	Instructions string              `json:"instructions"`
 	Input        []ResponseInputItem `json:"input"`
+	InputText    string              `json:"-"`
 	Stream       bool                `json:"stream"`
 	Store        bool                `json:"store"`
 	Reasoning    any                 `json:"reasoning,omitempty"`
 	Text         *ResponseText       `json:"text,omitempty"`
 	Include      []string            `json:"include,omitempty"`
+	RawBody      json.RawMessage     `json:"-"`
+}
+
+func (r *ResponsesRequest) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Model        string          `json:"model"`
+		Instructions string          `json:"instructions"`
+		Input        json.RawMessage `json:"input"`
+		Stream       bool            `json:"stream"`
+		Store        bool            `json:"store"`
+		Reasoning    any             `json:"reasoning,omitempty"`
+		Text         *ResponseText   `json:"text,omitempty"`
+		Include      []string        `json:"include,omitempty"`
+	}
+
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	r.Model = decoded.Model
+	r.Instructions = decoded.Instructions
+	r.Stream = decoded.Stream
+	r.Store = decoded.Store
+	r.Reasoning = decoded.Reasoning
+	r.Text = decoded.Text
+	r.Include = decoded.Include
+	r.Input = nil
+	r.InputText = ""
+
+	if len(decoded.Input) == 0 || string(decoded.Input) == "null" {
+		return nil
+	}
+
+	var inputText string
+	if err := json.Unmarshal(decoded.Input, &inputText); err == nil {
+		r.InputText = inputText
+		return nil
+	}
+
+	var inputItems []ResponseInputItem
+	if err := json.Unmarshal(decoded.Input, &inputItems); err == nil {
+		r.Input = inputItems
+		return nil
+	}
+
+	return &json.UnmarshalTypeError{
+		Value: "input",
+		Type:  reflect.TypeOf([]ResponseInputItem{}),
+		Field: "input",
+	}
 }
 
 type ResponseInputItem struct {
@@ -84,6 +139,8 @@ type ResponsesResponse struct {
 type OutputItem struct {
 	ID        string                `json:"id,omitempty"`
 	Type      OutputItemType        `json:"type"`
+	Status    string                `json:"status,omitempty"`
+	Phase     string                `json:"phase,omitempty"`
 	Role      string                `json:"role,omitempty"`
 	Content   []OutputContent       `json:"content,omitempty"`
 	CallID    string                `json:"call_id,omitempty"`
@@ -95,7 +152,8 @@ type OutputItem struct {
 type OutputContent struct {
 	Type        OutputContentType `json:"type"`
 	Text        string            `json:"text,omitempty"`
-	Annotations []any             `json:"annotations,omitempty"`
+	Annotations []any             `json:"annotations"`
+	LogProbs    []any             `json:"logprobs"`
 }
 
 type ResponseSummaryPart struct {

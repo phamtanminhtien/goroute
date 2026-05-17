@@ -169,6 +169,151 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 	}
 }
 
+func TestClientResponsesReconstructsSyncResponse(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/backend-api/codex/responses" {
+			t.Fatalf("expected codex responses path, got %q", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678}}\n\n" +
+					"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello back\"}]}}\n\n" +
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n",
+			)),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	response, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model: "cx/gpt-5.3-codex",
+		Input: []openaiwire.ResponseInputItem{{
+			Type:    "message",
+			Role:    "user",
+			Content: []openaiwire.ResponseInputContentPart{{Type: "input_text", Text: "hello"}},
+		}},
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("responses: %v", err)
+	}
+	if response.ID != "resp_123" || response.Status != openaiwire.ResponsesStatusCompleted {
+		t.Fatalf("unexpected response %#v", response)
+	}
+	if response.Usage == nil || response.Usage.TotalTokens != 12 {
+		t.Fatalf("unexpected usage %#v", response.Usage)
+	}
+}
+
+func TestClientResponsesNormalizesStringInput(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"completed\"}}\n\n",
+			)),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	_, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model:     "cx/gpt-5.3-codex",
+		InputText: "hello",
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("responses: %v", err)
+	}
+
+	input, ok := upstreamBody["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("unexpected upstream input %#v", upstreamBody["input"])
+	}
+	if upstreamBody["instructions"] != defaultInstruction {
+		t.Fatalf("expected default instructions %q, got %#v", defaultInstruction, upstreamBody["instructions"])
+	}
+}
+
+func TestClientResponsesIncludesDefaultInstructionsWhenEmpty(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"completed\"}}\n\n",
+			)),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	_, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model: "cx/gpt-5.3-codex",
+		Input: []openaiwire.ResponseInputItem{{
+			Type:    "message",
+			Role:    "user",
+			Content: []openaiwire.ResponseInputContentPart{{Type: "input_text", Text: "hello"}},
+		}},
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("responses: %v", err)
+	}
+
+	if upstreamBody["instructions"] != defaultInstruction {
+		t.Fatalf("expected default instructions %q, got %#v", defaultInstruction, upstreamBody["instructions"])
+	}
+}
+
+func TestClientResponsesStreamPassesThroughBody(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\"}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	body, err := client.ResponsesStream(context.Background(), openaiwire.ResponsesRequest{
+		Model: "cx/gpt-5.3-codex",
+		Input: []openaiwire.ResponseInputItem{{
+			Type:    "message",
+			Role:    "user",
+			Content: []openaiwire.ResponseInputContentPart{{Type: "input_text", Text: "hello"}},
+		}},
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("responses stream: %v", err)
+	}
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	if string(data) != "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\"}}\n\ndata: [DONE]\n\n" {
+		t.Fatalf("unexpected body %q", data)
+	}
+}
+
 func TestClientIncludesDefaultInstructionsWhenNoSystemMessage(t *testing.T) {
 	t.Setenv("MACHINE_ID", "test-machine")
 

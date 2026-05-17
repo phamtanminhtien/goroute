@@ -148,3 +148,94 @@ func TestClientRequiresCredential(t *testing.T) {
 		t.Fatalf("expected connection configuration error, got %v", err)
 	}
 }
+
+func TestClientResponsesPassesThroughRawBody(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("expected responses path, got %q", r.URL.Path)
+		}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"resp_1","object":"response","created_at":123,"model":"gpt-4.1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`,
+			)),
+		}, nil
+	})}
+
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	response, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model:   "opena/gpt-4.1",
+		RawBody: json.RawMessage(`{"model":"opena/gpt-4.1","input":"hello","temperature":0.3}`),
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("responses: %v", err)
+	}
+
+	if upstreamBody["model"] != "gpt-4.1" {
+		t.Fatalf("unexpected upstream model %#v", upstreamBody["model"])
+	}
+	if upstreamBody["temperature"] != 0.3 {
+		t.Fatalf("expected passthrough field, got %#v", upstreamBody["temperature"])
+	}
+	if response.ID != "resp_1" || response.Usage == nil || response.Usage.TotalTokens != 15 {
+		t.Fatalf("unexpected response %#v", response)
+	}
+}
+
+func TestClientStreamsResponses(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("expected responses path, got %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Fatalf("expected event stream accept header, got %q", got)
+		}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"created_at\":123}}\n\n" +
+					"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"created_at\":123,\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"total_tokens\":15}}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		}, nil
+	})}
+
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	body, err := client.ResponsesStream(context.Background(), openaiwire.ResponsesRequest{
+		Model:   "opena/gpt-4.1",
+		RawBody: json.RawMessage(`{"model":"opena/gpt-4.1","input":"hello"}`),
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("responses stream: %v", err)
+	}
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	if !strings.Contains(string(data), `"type":"response.completed"`) {
+		t.Fatalf("unexpected stream body %q", data)
+	}
+	if upstreamBody["stream"] != true {
+		t.Fatalf("expected stream request, got %#v", upstreamBody["stream"])
+	}
+}

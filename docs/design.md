@@ -71,11 +71,11 @@ Core idea: keep the data path simple and explicit.
 Initial target endpoints:
 
 - `POST /v1/chat/completions`
+- `POST /v1/responses`
 - `GET /v1/models`
 
 Possible later endpoints:
 
-- `POST /v1/responses`
 - embeddings
 - streaming variants / SSE handling
 - additional OpenAI-compatible endpoints as needed

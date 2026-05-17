@@ -29,6 +29,7 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 	router.Handle("/healthz", health.Handler())
 	router.Handle("/v1/models", modelsHandler(catalog))
 	router.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, logger))
+	router.Handle("/v1/responses", responsesHandler(catalog, connectionRegistry, requestLogRepo, logger))
 
 	router.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {

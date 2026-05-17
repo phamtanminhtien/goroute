@@ -17,6 +17,7 @@ import (
 
 const (
 	RequestTypeCompletions = "completions"
+	RequestTypeResponses   = "responses"
 	RequestModeSync        = "sync"
 	RequestModeStream      = "stream"
 )
@@ -152,6 +153,16 @@ func (r *FlowRecorder) SetRequestedModel(model string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.requestedModel = model
+}
+
+func (r *FlowRecorder) SetRequestType(requestType string) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requestType = requestType
 }
 
 func (r *FlowRecorder) SetRequestMode(stream bool) {
@@ -306,6 +317,18 @@ func (r *FlowRecorder) SetUsage(usage *openaiwire.Usage) {
 	r.totalTokens = usage.TotalTokens
 }
 
+func (r *FlowRecorder) SetResponseUsage(usage *openaiwire.ResponseUsage) {
+	if r == nil || usage == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.promptTokens = usage.InputTokens
+	r.completionTokens = usage.OutputTokens
+	r.totalTokens = usage.TotalTokens
+}
+
 func (r *FlowRecorder) SetFlowResponse(response openaiwire.ChatCompletionsResponse, normalizeModel bool) {
 	if r == nil {
 		return
@@ -324,6 +347,26 @@ func (r *FlowRecorder) SetFlowResponse(response openaiwire.ChatCompletionsRespon
 
 	r.SetTranslatedResponseBody(string(payload))
 	r.SetUsage(response.Usage)
+}
+
+func (r *FlowRecorder) SetResponsesResponse(response openaiwire.ResponsesResponse, normalizeModel bool) {
+	if r == nil {
+		return
+	}
+
+	if normalizeModel {
+		if model := r.ResolvedModel(); model != "" {
+			response.Model = model
+		}
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return
+	}
+
+	r.SetTranslatedResponseBody(string(payload))
+	r.SetResponseUsage(response.Usage)
 }
 
 func (r *FlowRecorder) AddThirdPartyLog(log ThirdPartyLog) {

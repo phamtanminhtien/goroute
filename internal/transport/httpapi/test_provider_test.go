@@ -13,14 +13,22 @@ import (
 )
 
 type testProvider struct {
-	response openaiwire.ChatCompletionsResponse
-	err      error
-	lastReq  openaiwire.ChatCompletionsRequest
+	response          openaiwire.ChatCompletionsResponse
+	err               error
+	lastReq           openaiwire.ChatCompletionsRequest
+	responsesResponse openaiwire.ResponsesResponse
+	responsesErr      error
+	lastResponsesReq  openaiwire.ResponsesRequest
 }
 
 func (p *testProvider) ChatCompletions(_ context.Context, req openaiwire.ChatCompletionsRequest, _ routing.Target) (openaiwire.ChatCompletionsResponse, error) {
 	p.lastReq = req
 	return p.response, p.err
+}
+
+func (p *testProvider) Responses(_ context.Context, req openaiwire.ResponsesRequest, _ routing.Target) (openaiwire.ResponsesResponse, error) {
+	p.lastResponsesReq = req
+	return p.responsesResponse, p.responsesErr
 }
 
 type streamingTestProvider struct {
@@ -33,6 +41,13 @@ func (p streamingTestProvider) ChatCompletionsStream(_ context.Context, req open
 		p.testProvider.lastReq = req
 	}
 	return io.NopCloser(strings.NewReader(p.body)), p.err
+}
+
+func (p streamingTestProvider) ResponsesStream(_ context.Context, req openaiwire.ResponsesRequest, _ routing.Target) (io.ReadCloser, error) {
+	if p.testProvider != nil {
+		p.testProvider.lastResponsesReq = req
+	}
+	return io.NopCloser(strings.NewReader(p.body)), p.responsesErr
 }
 
 type loggingTestProvider struct {
@@ -59,6 +74,33 @@ func (p *loggingTestProvider) ChatCompletions(ctx context.Context, req openaiwir
 			ResponseStatusCode:  200,
 			ResponseHeaders:     `{"Content-Type":["application/json"]}`,
 			ResponseBody:        `{"id":"upstream-1"}`,
+			StartedAt:           time.Now().UTC(),
+			CompletedAt:         time.Now().UTC(),
+		})
+	}
+	return response, err
+}
+
+func (p *loggingTestProvider) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
+	response, err := p.testProvider.Responses(ctx, req, target)
+	if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+		if payload, err := json.Marshal(map[string]any{"model": target.RequestedModel}); err == nil {
+			recorder.SetTranslatedRequestBody(string(payload))
+		}
+		recorder.AddThirdPartyLog(chatcompletion.ThirdPartyLog{
+			ProviderID:          target.ProviderID,
+			ProviderName:        target.ProviderName,
+			ConnectionID:        "codex-1",
+			ConnectionName:      "codex-user",
+			AttemptIndex:        0,
+			ProviderRequestMode: chatcompletion.RequestModeSync,
+			RequestMethod:       "POST",
+			RequestURL:          "https://provider.example/v1/responses",
+			RequestHeaders:      `{"Authorization":["[REDACTED]"]}`,
+			RequestBody:         `{"model":"gpt-5.4"}`,
+			ResponseStatusCode:  200,
+			ResponseHeaders:     `{"Content-Type":["application/json"]}`,
+			ResponseBody:        `{"id":"upstream-resp-1"}`,
 			StartedAt:           time.Now().UTC(),
 			CompletedAt:         time.Now().UTC(),
 		})
@@ -103,4 +145,51 @@ func (p loggingStreamingTestProvider) ChatCompletionsStream(ctx context.Context,
 			})
 		}
 	}), p.err
+}
+
+func (p loggingStreamingTestProvider) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (io.ReadCloser, error) {
+	if p.testProvider != nil {
+		p.testProvider.lastResponsesReq = req
+	}
+	body := io.NopCloser(strings.NewReader(p.body))
+	return chatcompletion.CaptureStream(body, func(streamBody []byte, _ error) {
+		if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
+			if payload, err := json.Marshal(map[string]any{"model": target.RequestedModel, "stream": true}); err == nil {
+				recorder.SetTranslatedRequestBody(string(payload))
+			}
+			recorder.SetResponsesResponse(openaiwire.ResponsesResponse{
+				ID:        "resp_1",
+				Object:    "response",
+				CreatedAt: 1712345678,
+				Model:     target.RequestedModel,
+				Status:    openaiwire.ResponsesStatusCompleted,
+				Output: []openaiwire.OutputItem{{
+					Type: openaiwire.OutputItemTypeMessage,
+					Role: string(openaiwire.ChatRoleAssistant),
+					Content: []openaiwire.OutputContent{{
+						Type: openaiwire.OutputContentTypeOutputText,
+						Text: "first",
+					}},
+				}},
+			}, true)
+			recorder.AddThirdPartyLog(chatcompletion.ThirdPartyLog{
+				ProviderID:          target.ProviderID,
+				ProviderName:        target.ProviderName,
+				ConnectionID:        "codex-1",
+				ConnectionName:      "codex-user",
+				AttemptIndex:        0,
+				RequestMode:         chatcompletion.RequestModeStream,
+				ProviderRequestMode: chatcompletion.RequestModeStream,
+				RequestMethod:       "POST",
+				RequestURL:          "https://provider.example/v1/responses",
+				RequestHeaders:      `{"Authorization":["[REDACTED]"]}`,
+				RequestBody:         `{"model":"gpt-5.4","stream":true}`,
+				ResponseStatusCode:  200,
+				ResponseHeaders:     `{"Content-Type":["text/event-stream"]}`,
+				ResponseBody:        string(streamBody),
+				StartedAt:           time.Now().UTC(),
+				CompletedAt:         time.Now().UTC(),
+			})
+		}
+	}), p.responsesErr
 }

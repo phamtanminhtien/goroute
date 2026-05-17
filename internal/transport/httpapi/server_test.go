@@ -329,6 +329,163 @@ func TestChatCompletionsPassesThroughUpstreamErrors(t *testing.T) {
 	}
 }
 
+func TestResponsesAcceptsPrefixedModel(t *testing.T) {
+	handler := testServer(t, &testProvider{responsesResponse: openaiwire.ResponsesResponse{
+		ID:        "resp_1",
+		Object:    "response",
+		CreatedAt: 1712345678,
+		Model:     "gpt-5.4",
+		Status:    openaiwire.ResponsesStatusCompleted,
+		Output: []openaiwire.OutputItem{{
+			ID:     "msg_1",
+			Type:   openaiwire.OutputItemTypeMessage,
+			Status: "completed",
+			Phase:  "final_answer",
+			Role:   string(openaiwire.ChatRoleAssistant),
+			Content: []openaiwire.OutputContent{{
+				Type:        openaiwire.OutputContentTypeOutputText,
+				Text:        "hello back",
+				Annotations: []any{},
+				LogProbs:    []any{},
+			}},
+		}},
+	}})
+	body := []byte(`{"model":"cx/gpt-5.4","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"model":"cx/gpt-5.4"`) {
+		t.Fatalf("expected response model to stay prefixed, got body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"completed"`) || !strings.Contains(rec.Body.String(), `"phase":"final_answer"`) || !strings.Contains(rec.Body.String(), `"annotations":[]`) || !strings.Contains(rec.Body.String(), `"logprobs":[]`) {
+		t.Fatalf("expected response output fields to be preserved, got body=%s", rec.Body.String())
+	}
+}
+
+func TestResponsesAcceptsStringInput(t *testing.T) {
+	handler := testServer(t, &testProvider{responsesResponse: openaiwire.ResponsesResponse{
+		ID:        "resp_1",
+		Object:    "response",
+		CreatedAt: 1712345678,
+		Model:     "gpt-5.4",
+		Status:    openaiwire.ResponsesStatusCompleted,
+		Output: []openaiwire.OutputItem{{
+			Type: openaiwire.OutputItemTypeMessage,
+			Role: string(openaiwire.ChatRoleAssistant),
+			Content: []openaiwire.OutputContent{{
+				Type: openaiwire.OutputContentTypeOutputText,
+				Text: "hello back",
+			}},
+		}},
+	}})
+	body := []byte(`{"model":"cx/gpt-5.4","input":"hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
+func TestResponsesStreamsSSE(t *testing.T) {
+	handler := testServer(t, streamingTestProvider{testProvider: &testProvider{}, body: "data: {\"type\":\"response.created\"}\n\ndata: [DONE]\n\n"})
+	body := []byte(`{"model":"cx/gpt-5.4","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		t.Fatalf("expected text/event-stream content type, got %q", got)
+	}
+	if rec.Body.String() != "data: {\"type\":\"response.created\"}\n\ndata: [DONE]\n\n" {
+		t.Fatalf("unexpected stream body %q", rec.Body.String())
+	}
+}
+
+func TestResponsesRejectsInvalidJSON(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4",`)))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"type":"invalid_request"`) {
+		t.Fatalf("expected invalid request body=%s", rec.Body.String())
+	}
+}
+
+func TestResponsesPersistsSyncLogs(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
+		testProvider: testProvider{
+			responsesResponse: openaiwire.ResponsesResponse{
+				ID:        "resp_1",
+				Object:    "response",
+				CreatedAt: 1712345678,
+				Model:     "gpt-5.4",
+				Status:    openaiwire.ResponsesStatusCompleted,
+				Output: []openaiwire.OutputItem{{
+					Type: openaiwire.OutputItemTypeMessage,
+					Role: string(openaiwire.ChatRoleAssistant),
+					Content: []openaiwire.OutputContent{{
+						Type: openaiwire.OutputContentTypeOutputText,
+						Text: "hello back",
+					}},
+				}},
+				Usage: &openaiwire.ResponseUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
+			},
+		},
+	}, nil, databasePath)
+	body := []byte(`{"model":"cx/gpt-5.4","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	runs, err := repo.ListAIRequestRuns()
+	if err != nil {
+		t.Fatalf("list ai request runs: %v", err)
+	}
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+
+	if len(runs) != 1 || runs[0].Type != chatcompletion.RequestTypeResponses || runs[0].TotalTokens != 15 {
+		t.Fatalf("unexpected run records %#v", runs)
+	}
+	if len(flows) != 1 || flows[0].Type != chatcompletion.RequestTypeResponses {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+}
+
 func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
 	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{

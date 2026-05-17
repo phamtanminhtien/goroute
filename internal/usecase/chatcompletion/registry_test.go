@@ -114,6 +114,24 @@ func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 	}
 }
 
+func TestConnectionRegistryDispatchesResponsesByTargetProviderID(t *testing.T) {
+	codexConnection := recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp_cx"}}
+	openaiConnection := recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp_openai"}}
+	registry := newTestRegistry(map[string][]Connection{
+		"cx":    {codexConnection},
+		"opena": {openaiConnection},
+	})
+
+	response, err := registry.Responses(context.Background(), openaiwire.ResponsesRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+
+	if response.ID != "resp_cx" {
+		t.Fatalf("expected codex response, got %q", response.ID)
+	}
+}
+
 func newTestRegistry(connections map[string][]Connection) ConnectionRegistry {
 	return NewConnectionRegistryWithEntries(wrapConnections(connections), loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})))
 }
@@ -135,9 +153,10 @@ func wrapConnections(connections map[string][]Connection) map[string][]Connectio
 }
 
 type recordingConnection struct {
-	response openaiwire.ChatCompletionsResponse
-	err      error
-	onCall   func()
+	response          openaiwire.ChatCompletionsResponse
+	responsesResponse openaiwire.ResponsesResponse
+	err               error
+	onCall            func()
 }
 
 func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCompletionsRequest, routing.Target) (openaiwire.ChatCompletionsResponse, error) {
@@ -149,6 +168,17 @@ func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCom
 	}
 
 	return c.response, nil
+}
+
+func (c recordingConnection) Responses(context.Context, openaiwire.ResponsesRequest, routing.Target) (openaiwire.ResponsesResponse, error) {
+	if c.onCall != nil {
+		c.onCall()
+	}
+	if c.err != nil {
+		return openaiwire.ResponsesResponse{}, c.err
+	}
+
+	return c.responsesResponse, nil
 }
 
 func loggerPtr(logger zerolog.Logger) *zerolog.Logger {

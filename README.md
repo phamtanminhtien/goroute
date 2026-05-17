@@ -14,10 +14,13 @@ The repository has the first request path in place:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
+- `POST /v1/responses`
 - model prefix resolution from built-in provider packages
 - configured connection registry for `codex` and `openai`
 - OpenAI-compatible upstream execution for non-streaming chat completions
+- OpenAI-compatible upstream execution for sync and streaming responses
 - Codex responses execution for non-streaming and streaming chat completions
+- Codex responses passthrough for streaming and sync reconstruction for `/v1/responses`
 - admin APIs and UI for provider/connection management
 - Codex connection usage lookup from the admin API
 - request ID and request logging middleware
@@ -50,6 +53,7 @@ The first useful version should focus on:
 Currently implemented endpoints:
 
 - `POST /v1/chat/completions`
+- `POST /v1/responses`
 - `GET /v1/models`
 - `GET /healthz`
 - `GET /admin/api/providers` (admin-only)
@@ -76,6 +80,8 @@ A local client might be configured with:
 - `gpt-5.4` -> the model passed to user-configured connections for provider `cx`
 
 The client remains unchanged while routing policy evolves server-side.
+
+`/v1/responses` follows the same prefixed-model routing behavior. For OpenAI connections the request and response body are passed through in Responses shape. For Codex connections streaming is passed through as Responses SSE and sync responses are reconstructed from the upstream event stream.
 
 ## Configuration Direction
 
