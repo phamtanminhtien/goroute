@@ -22,8 +22,16 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
 
+func newTestChatAdapter(httpClient *http.Client, connectionConfig connection.Record) *ChatCompletionsAdapter {
+	return newProtocolConnectionsWithHTTPClient(httpClient, connectionConfig).ChatCompletions.(*ChatCompletionsAdapter)
+}
+
+func newTestResponsesAdapter(httpClient *http.Client, connectionConfig connection.Record) *ResponsesAdapter {
+	return newProtocolConnectionsWithHTTPClient(httpClient, connectionConfig).Responses.(*ResponsesAdapter)
+}
+
 func TestClientRequiresCredential(t *testing.T) {
-	client := NewClient(connection.Record{ProviderID: "cx", Name: "codex-user"})
+	client := newTestChatAdapter(nil, connection.Record{ProviderID: "cx", Name: "codex-user"})
 
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4"})
 	if err == nil {
@@ -77,7 +85,7 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestChatAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model: "cx/gpt-5.3-codex",
@@ -136,7 +144,7 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestChatAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "cx/gpt-5.3-codex",
@@ -185,7 +193,7 @@ func TestClientResponsesReconstructsSyncResponse(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestResponsesAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 	response, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
 		Model: "cx/gpt-5.3-codex",
 		Input: []openaiwire.ResponseInputItem{{
@@ -224,7 +232,7 @@ func TestClientResponsesNormalizesStringInput(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestResponsesAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 	_, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
 		Model:     "cx/gpt-5.3-codex",
 		InputText: "hello",
@@ -237,12 +245,12 @@ func TestClientResponsesNormalizesStringInput(t *testing.T) {
 	if !ok || len(input) != 1 {
 		t.Fatalf("unexpected upstream input %#v", upstreamBody["input"])
 	}
-	if upstreamBody["instructions"] != defaultInstruction {
-		t.Fatalf("expected default instructions %q, got %#v", defaultInstruction, upstreamBody["instructions"])
+	if upstreamBody["instructions"] != "" {
+		t.Fatalf("expected responses lane to avoid implicit default instructions, got %#v", upstreamBody["instructions"])
 	}
 }
 
-func TestClientResponsesIncludesDefaultInstructionsWhenEmpty(t *testing.T) {
+func TestClientResponsesLeavesInstructionsUnsetWhenEmpty(t *testing.T) {
 	var upstreamBody map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		data, err := io.ReadAll(r.Body)
@@ -261,7 +269,7 @@ func TestClientResponsesIncludesDefaultInstructionsWhenEmpty(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestResponsesAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 	_, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
 		Model: "cx/gpt-5.3-codex",
 		Input: []openaiwire.ResponseInputItem{{
@@ -274,8 +282,8 @@ func TestClientResponsesIncludesDefaultInstructionsWhenEmpty(t *testing.T) {
 		t.Fatalf("responses: %v", err)
 	}
 
-	if upstreamBody["instructions"] != defaultInstruction {
-		t.Fatalf("expected default instructions %q, got %#v", defaultInstruction, upstreamBody["instructions"])
+	if upstreamBody["instructions"] != "" {
+		t.Fatalf("expected responses lane to keep instructions empty, got %#v", upstreamBody["instructions"])
 	}
 }
 
@@ -291,7 +299,7 @@ func TestClientResponsesStreamPassesThroughBody(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestResponsesAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 	body, err := client.ResponsesStream(context.Background(), openaiwire.ResponsesRequest{
 		Model: "cx/gpt-5.3-codex",
 		Input: []openaiwire.ResponseInputItem{{
@@ -336,7 +344,7 @@ func TestClientIncludesDefaultInstructionsWhenNoSystemMessage(t *testing.T) {
 		}, nil
 	})}
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	client := newTestChatAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
 
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model: "cx/gpt-5.3-codex",
@@ -391,7 +399,7 @@ func TestClientRefreshesTokenProactivelyBeforeRequest(t *testing.T) {
 	})}
 	oauthHTTPClient = httpClient
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{
+	client := newTestChatAdapter(httpClient, connection.Record{
 		ProviderID:           "cx",
 		Name:                 "codex-user",
 		AccessToken:          "stale-token",
@@ -460,7 +468,7 @@ func TestClientRefreshesTokenAfterUnauthorizedResponse(t *testing.T) {
 	})}
 	oauthHTTPClient = httpClient
 
-	client := NewClientWithHTTPClient(httpClient, connection.Record{
+	client := newTestChatAdapter(httpClient, connection.Record{
 		ProviderID:           "cx",
 		Name:                 "codex-user",
 		AccessToken:          "stale-token",

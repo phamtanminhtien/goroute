@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -13,12 +14,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestConnectionRegistryDispatchesByTargetProviderID(t *testing.T) {
+func TestConnectionRegistryDispatchesChatCompletionsByTargetProviderID(t *testing.T) {
 	codexConnection := recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "codex-response"}}
 	openaiConnection := recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "openai-response"}}
-	registry := newTestRegistry(map[string][]Connection{
-		"cx":    {codexConnection},
-		"opena": {openaiConnection},
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx":    {newConnectionEntry("cx", 1, codexConnection, codexConnection)},
+		"opena": {newConnectionEntry("opena", 1, openaiConnection, openaiConnection)},
 	})
 
 	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
@@ -31,11 +32,11 @@ func TestConnectionRegistryDispatchesByTargetProviderID(t *testing.T) {
 	}
 }
 
-func TestConnectionRegistryFallsBackAcrossConnectionsOfSameProvider(t *testing.T) {
-	registry := newTestRegistry(map[string][]Connection{
+func TestConnectionRegistryFallsBackAcrossChatCompletionsConnections(t *testing.T) {
+	registry := newTestRegistry(map[string][]ConnectionEntry{
 		"cx": {
-			recordingConnection{err: UpstreamError{StatusCode: 503, Message: "first failed"}},
-			recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "second-response"}},
+			newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 503, Message: "first failed"}}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "second-response"}}, nil),
 		},
 	})
 
@@ -51,15 +52,15 @@ func TestConnectionRegistryFallsBackAcrossConnectionsOfSameProvider(t *testing.T
 
 func TestConnectionRegistryStopsFallbackOnTerminalErrors(t *testing.T) {
 	secondCalled := false
-	registry := newTestRegistry(map[string][]Connection{
+	registry := newTestRegistry(map[string][]ConnectionEntry{
 		"cx": {
-			recordingConnection{err: ConnectionConfigurationError{ConnectionID: "codex-1", Message: "missing token"}},
-			recordingConnection{
+			newConnectionEntry("cx", 1, recordingConnection{err: ConnectionConfigurationError{ConnectionID: "codex-1", Message: "missing token"}}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{
 				response: openaiwire.ChatCompletionsResponse{ID: "should-not-run"},
 				onCall: func() {
 					secondCalled = true
 				},
-			},
+			}, nil),
 		},
 	})
 
@@ -79,12 +80,16 @@ func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 			ID:         "codex-primary",
 			Name:       "Codex Primary",
 			ProviderID: "cx",
-			Connection: recordingConnection{err: UpstreamError{StatusCode: 429, Message: "rate limited"}},
+			ProtocolConnections: ProtocolConnections{
+				ChatCompletions: recordingConnection{err: UpstreamError{StatusCode: 429, Message: "rate limited"}},
+			},
 		}, {
 			ID:         "codex-secondary",
 			Name:       "Codex Secondary",
 			ProviderID: "cx",
-			Connection: recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}},
+			ProtocolConnections: ProtocolConnections{
+				ChatCompletions: recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}},
+			},
 		}},
 	}, loggerPtr(logging.NewWithWriter("prod", &logs)))
 
@@ -117,9 +122,9 @@ func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 func TestConnectionRegistryDispatchesResponsesByTargetProviderID(t *testing.T) {
 	codexConnection := recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp_cx"}}
 	openaiConnection := recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp_openai"}}
-	registry := newTestRegistry(map[string][]Connection{
-		"cx":    {codexConnection},
-		"opena": {openaiConnection},
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx":    {newConnectionEntry("cx", 1, nil, codexConnection)},
+		"opena": {newConnectionEntry("opena", 1, nil, openaiConnection)},
 	})
 
 	response, err := registry.Responses(context.Background(), openaiwire.ResponsesRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
@@ -132,24 +137,51 @@ func TestConnectionRegistryDispatchesResponsesByTargetProviderID(t *testing.T) {
 	}
 }
 
-func newTestRegistry(connections map[string][]Connection) ConnectionRegistry {
-	return NewConnectionRegistryWithEntries(wrapConnections(connections), loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})))
+func TestConnectionRegistryResponsesOnlyUsesResponsesCapability(t *testing.T) {
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {newConnectionEntry("cx", 1, nil, recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp"}})},
+	})
+
+	response, err := registry.Responses(context.Background(), openaiwire.ResponsesRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+	if response.ID != "resp" {
+		t.Fatalf("unexpected response id %q", response.ID)
+	}
 }
 
-func wrapConnections(connections map[string][]Connection) map[string][]ConnectionEntry {
-	entries := make(map[string][]ConnectionEntry, len(connections))
-	for providerID, configuredConnections := range connections {
-		for i, connection := range configuredConnections {
-			entries[providerID] = append(entries[providerID], ConnectionEntry{
-				ID:         fmt.Sprintf("%s-%d", providerID, i+1),
-				Name:       fmt.Sprintf("%s-%d", providerID, i+1),
-				ProviderID: providerID,
-				Connection: connection,
-			})
-		}
-	}
+func TestConnectionRegistryFallsBackWhenProtocolUnsupported(t *testing.T) {
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {
+			newConnectionEntry("cx", 1, nil, recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp"}}),
+			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "chat"}}, nil),
+		},
+	})
 
-	return entries
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if response.ID != "chat" {
+		t.Fatalf("expected fallback chat response, got %q", response.ID)
+	}
+}
+
+func newTestRegistry(connections map[string][]ConnectionEntry) ConnectionRegistry {
+	return NewConnectionRegistryWithEntries(connections, loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})))
+}
+
+func newConnectionEntry(providerID string, index int, chat ChatCompletionsConnection, responses ResponsesConnection) ConnectionEntry {
+	return ConnectionEntry{
+		ID:         fmt.Sprintf("%s-%d", providerID, index),
+		Name:       fmt.Sprintf("%s-%d", providerID, index),
+		ProviderID: providerID,
+		ProtocolConnections: ProtocolConnections{
+			ChatCompletions: chat,
+			Responses:       responses,
+		},
+	}
 }
 
 type recordingConnection struct {
@@ -170,6 +202,17 @@ func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCom
 	return c.response, nil
 }
 
+func (c recordingConnection) ChatCompletionsStream(context.Context, openaiwire.ChatCompletionsRequest, routing.Target) (io.ReadCloser, error) {
+	if c.onCall != nil {
+		c.onCall()
+	}
+	if c.err != nil {
+		return nil, c.err
+	}
+
+	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil
+}
+
 func (c recordingConnection) Responses(context.Context, openaiwire.ResponsesRequest, routing.Target) (openaiwire.ResponsesResponse, error) {
 	if c.onCall != nil {
 		c.onCall()
@@ -179,6 +222,17 @@ func (c recordingConnection) Responses(context.Context, openaiwire.ResponsesRequ
 	}
 
 	return c.responsesResponse, nil
+}
+
+func (c recordingConnection) ResponsesStream(context.Context, openaiwire.ResponsesRequest, routing.Target) (io.ReadCloser, error) {
+	if c.onCall != nil {
+		c.onCall()
+	}
+	if c.err != nil {
+		return nil, c.err
+	}
+
+	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil
 }
 
 func loggerPtr(logger zerolog.Logger) *zerolog.Logger {

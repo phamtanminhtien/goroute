@@ -111,15 +111,15 @@ func buildConnectionEntries(connectionConfigs []connection.Record, providers pro
 	for _, connectionConfig := range connectionConfigs {
 		logConnectionDiagnostic(logger, providers, connectionConfig)
 
-		connection, err := providers.BuildConnection(connectionConfig)
+		connections, err := providers.BuildConnection(connectionConfig)
 		if err != nil {
 			return nil, err
 		}
 		connectionsByProvider[connectionConfig.ProviderID] = append(connectionsByProvider[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
-			ID:         connectionConfig.ID,
-			Name:       connectionConfig.Name,
-			ProviderID: connectionConfig.ProviderID,
-			Connection: connection,
+			ID:                  connectionConfig.ID,
+			Name:                connectionConfig.Name,
+			ProviderID:          connectionConfig.ProviderID,
+			ProtocolConnections: connections,
 		})
 	}
 

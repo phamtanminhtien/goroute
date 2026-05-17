@@ -25,8 +25,12 @@ func Registration() providerregistry.Registration {
 				OutputPricePerMillionUSD: 8,
 			}},
 		},
-		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.Connection, error) {
-			return NewClient(nil, connectionConfig), nil
+		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
+			client := NewClient(nil, connectionConfig)
+			return chatcompletion.ProtocolConnections{
+				ChatCompletions: client,
+				Responses:       client,
+			}, nil
 		},
 		ValidateConnection: func(connectionConfig connection.Record) []string {
 			if strings.TrimSpace(connectionConfig.APIKey) == "" && strings.TrimSpace(connectionConfig.AccessToken) == "" {

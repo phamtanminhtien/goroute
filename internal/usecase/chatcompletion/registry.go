@@ -16,7 +16,7 @@ type ConnectionEntry struct {
 	ID         string
 	Name       string
 	ProviderID string
-	Connection Connection
+	ProtocolConnections
 }
 
 type ConnectionRegistry struct {
@@ -25,20 +25,8 @@ type ConnectionRegistry struct {
 	logger      *zerolog.Logger
 }
 
-func NewConnectionRegistry(connections map[string][]Connection) ConnectionRegistry {
-	entries := make(map[string][]ConnectionEntry, len(connections))
-	for providerID, configuredConnections := range connections {
-		for i, connection := range configuredConnections {
-			entries[providerID] = append(entries[providerID], ConnectionEntry{
-				ID:         fmt.Sprintf("%s-%d", providerID, i+1),
-				Name:       fmt.Sprintf("%s-%d", providerID, i+1),
-				ProviderID: providerID,
-				Connection: connection,
-			})
-		}
-	}
-
-	return NewConnectionRegistryWithEntries(entries, nil)
+func NewConnectionRegistry(connections map[string][]ConnectionEntry) ConnectionRegistry {
+	return NewConnectionRegistryWithEntries(connections, nil)
 }
 
 func NewConnectionRegistryWithEntries(connections map[string][]ConnectionEntry, logger *zerolog.Logger) ConnectionRegistry {
@@ -54,171 +42,112 @@ func NewConnectionRegistryWithEntries(connections map[string][]ConnectionEntry, 
 }
 
 func (r *ConnectionRegistry) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
-	connections := r.connectionsForProvider(target.ProviderID)
-	requestID := RequestID(ctx)
-	if len(connections) == 0 {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("no executor configured for provider %q", target.ProviderID)
-	}
-
-	var lastErr error
-	var lastPolicy FailurePolicy
-	for i, connection := range connections {
-		started := time.Now().UTC()
-		response, err := connection.Connection.ChatCompletions(ctx, req, target)
-		completedAt := time.Now().UTC()
-		latency := completedAt.Sub(started)
-		if err == nil {
-			r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, "success", "none", false)
-			return response, nil
-		}
-
-		policy := ClassifyError(err)
-		r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
-		lastErr = err
-		lastPolicy = policy
-		if !policy.AllowFallback {
-			r.logFinalFailure(ctx, requestID, req.Model, target, policy.Category)
-			return openaiwire.ChatCompletionsResponse{}, err
-		}
-	}
-
-	if lastErr != nil {
-		r.logFinalFailure(ctx, requestID, req.Model, target, lastPolicy.Category)
-	}
-
-	return openaiwire.ChatCompletionsResponse{}, lastErr
+	return executeProtocol(
+		r,
+		ctx,
+		req.Model,
+		target,
+		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil },
+		func(entry ConnectionEntry) (openaiwire.ChatCompletionsResponse, error) {
+			return entry.ChatCompletions.ChatCompletions(ctx, req, target)
+		},
+		"chat_completions_unsupported",
+	)
 }
 
 func (r *ConnectionRegistry) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
+	return executeProtocol(
+		r,
+		ctx,
+		req.Model,
+		target,
+		func(entry ConnectionEntry) bool { return entry.Responses != nil },
+		func(entry ConnectionEntry) (openaiwire.ResponsesResponse, error) {
+			return entry.Responses.Responses(ctx, req, target)
+		},
+		"responses_unsupported",
+	)
+}
+
+func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
+	return executeProtocol(
+		r,
+		ctx,
+		req.Model,
+		target,
+		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil },
+		func(entry ConnectionEntry) (io.ReadCloser, error) {
+			return entry.ChatCompletions.ChatCompletionsStream(ctx, req, target)
+		},
+		"chat_completions_unsupported",
+	)
+}
+
+func (r *ConnectionRegistry) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (io.ReadCloser, error) {
+	return executeProtocol(
+		r,
+		ctx,
+		req.Model,
+		target,
+		func(entry ConnectionEntry) bool { return entry.Responses != nil },
+		func(entry ConnectionEntry) (io.ReadCloser, error) {
+			return entry.Responses.ResponsesStream(ctx, req, target)
+		},
+		"responses_unsupported",
+	)
+}
+
+func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requestedModel string, target routing.Target, supported func(ConnectionEntry) bool, invoke func(ConnectionEntry) (T, error), unsupportedCategory string) (T, error) {
 	connections := r.connectionsForProvider(target.ProviderID)
 	requestID := RequestID(ctx)
 	if len(connections) == 0 {
-		return openaiwire.ResponsesResponse{}, fmt.Errorf("no executor configured for provider %q", target.ProviderID)
+		return zeroValue[T](), fmt.Errorf("no executor configured for provider %q", target.ProviderID)
 	}
 
 	var lastErr error
 	var lastPolicy FailurePolicy
 	for i, connection := range connections {
+		if !supported(connection) {
+			lastErr = fmt.Errorf("connection %q does not support requested protocol", connection.Name)
+			lastPolicy = FailurePolicy{
+				Class:         FailureClassFallbackEligible,
+				Category:      unsupportedCategory,
+				AllowFallback: true,
+			}
+			r.logAttempt(ctx, requestID, requestedModel, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+			continue
+		}
+
 		started := time.Now().UTC()
-		response, err := connection.Connection.Responses(ctx, req, target)
+		response, err := invoke(connection)
 		completedAt := time.Now().UTC()
 		latency := completedAt.Sub(started)
 		if err == nil {
-			r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, "success", "none", false)
+			r.logAttempt(ctx, requestID, requestedModel, target, connection, i, latency, "success", "none", false)
 			return response, nil
 		}
 
 		policy := ClassifyError(err)
-		r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
+		r.logAttempt(ctx, requestID, requestedModel, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
 		lastErr = err
 		lastPolicy = policy
 		if !policy.AllowFallback {
-			r.logFinalFailure(ctx, requestID, req.Model, target, policy.Category)
-			return openaiwire.ResponsesResponse{}, err
+			r.logFinalFailure(ctx, requestID, requestedModel, target, policy.Category)
+			return zeroValue[T](), err
 		}
 	}
 
 	if lastErr != nil {
-		r.logFinalFailure(ctx, requestID, req.Model, target, lastPolicy.Category)
+		r.logFinalFailure(ctx, requestID, requestedModel, target, lastPolicy.Category)
+		return zeroValue[T](), lastErr
 	}
 
-	return openaiwire.ResponsesResponse{}, lastErr
+	return zeroValue[T](), nil
 }
 
-func (r *ConnectionRegistry) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	connections := r.connectionsForProvider(target.ProviderID)
-	requestID := RequestID(ctx)
-	if len(connections) == 0 {
-		return nil, fmt.Errorf("no executor configured for provider %q", target.ProviderID)
-	}
-
-	var lastErr error
-	var lastPolicy FailurePolicy
-	for i, connection := range connections {
-		streamingConnection, ok := connection.Connection.(StreamingConnection)
-		if !ok {
-			lastErr = fmt.Errorf("connection %q does not support streaming", connection.Name)
-			lastPolicy = FailurePolicy{
-				Class:         FailureClassFallbackEligible,
-				Category:      "streaming_unsupported",
-				AllowFallback: true,
-			}
-			r.logAttempt(ctx, requestID, req.Model, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
-			continue
-		}
-
-		started := time.Now().UTC()
-		body, err := streamingConnection.ChatCompletionsStream(ctx, req, target)
-		completedAt := time.Now().UTC()
-		latency := completedAt.Sub(started)
-		if err == nil {
-			r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, "success", "none", false)
-			return body, nil
-		}
-
-		policy := ClassifyError(err)
-		r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
-		lastErr = err
-		lastPolicy = policy
-		if !policy.AllowFallback {
-			r.logFinalFailure(ctx, requestID, req.Model, target, policy.Category)
-			return nil, err
-		}
-	}
-
-	if lastErr != nil {
-		r.logFinalFailure(ctx, requestID, req.Model, target, lastPolicy.Category)
-	}
-
-	return nil, lastErr
-}
-
-func (r *ConnectionRegistry) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (io.ReadCloser, error) {
-	connections := r.connectionsForProvider(target.ProviderID)
-	requestID := RequestID(ctx)
-	if len(connections) == 0 {
-		return nil, fmt.Errorf("no executor configured for provider %q", target.ProviderID)
-	}
-
-	var lastErr error
-	var lastPolicy FailurePolicy
-	for i, connection := range connections {
-		streamingConnection, ok := connection.Connection.(StreamingConnection)
-		if !ok {
-			lastErr = fmt.Errorf("connection %q does not support streaming", connection.Name)
-			lastPolicy = FailurePolicy{
-				Class:         FailureClassFallbackEligible,
-				Category:      "streaming_unsupported",
-				AllowFallback: true,
-			}
-			r.logAttempt(ctx, requestID, req.Model, target, connection, i, 0, string(lastPolicy.Class), lastPolicy.Category, true)
-			continue
-		}
-
-		started := time.Now().UTC()
-		body, err := streamingConnection.ResponsesStream(ctx, req, target)
-		completedAt := time.Now().UTC()
-		latency := completedAt.Sub(started)
-		if err == nil {
-			r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, "success", "none", false)
-			return body, nil
-		}
-
-		policy := ClassifyError(err)
-		r.logAttempt(ctx, requestID, req.Model, target, connection, i, latency, string(policy.Class), policy.Category, policy.AllowFallback)
-		lastErr = err
-		lastPolicy = policy
-		if !policy.AllowFallback {
-			r.logFinalFailure(ctx, requestID, req.Model, target, policy.Category)
-			return nil, err
-		}
-	}
-
-	if lastErr != nil {
-		r.logFinalFailure(ctx, requestID, req.Model, target, lastPolicy.Category)
-	}
-
-	return nil, lastErr
+func zeroValue[T any]() T {
+	var zero T
+	return zero
 }
 
 func (r *ConnectionRegistry) ReplaceConnections(connections map[string][]ConnectionEntry) {
@@ -259,7 +188,7 @@ func (r *ConnectionRegistry) logAttempt(ctx context.Context, requestID string, r
 		Int64("latency_ms", latency.Milliseconds()).
 		Str("error_category", errorCategory).
 		Bool("will_fallback", willFallback).
-		Msg("chat_completion_attempt")
+		Msg("provider_request_attempt")
 }
 
 func (r *ConnectionRegistry) logFinalFailure(ctx context.Context, requestID string, requestedModel string, target routing.Target, finalCategory string) {
@@ -273,5 +202,5 @@ func (r *ConnectionRegistry) logFinalFailure(ctx context.Context, requestID stri
 		Str("provider_id", target.ProviderID).
 		Str("provider_name", target.ProviderName).
 		Str("final_error_category", finalCategory).
-		Msg("chat_completion_result")
+		Msg("provider_request_result")
 }

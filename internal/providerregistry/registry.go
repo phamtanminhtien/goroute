@@ -11,7 +11,7 @@ import (
 
 type Registration struct {
 	Descriptor         provider.Provider
-	BuildConnection    func(connection.Record) (chatcompletion.Connection, error)
+	BuildConnection    func(connection.Record) (chatcompletion.ProtocolConnections, error)
 	ValidateConnection func(connection.Record) []string
 	GetAccessToken     func(connection.Record) (string, error)
 	GetUsage           func(context.Context, connection.Record) (UsageInfo, error)
@@ -101,10 +101,10 @@ func (r Registry) Catalog() provider.Catalog {
 	return provider.Catalog{Providers: providers}
 }
 
-func (r Registry) BuildConnection(connectionConfig connection.Record) (chatcompletion.Connection, error) {
+func (r Registry) BuildConnection(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
-		return nil, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
+		return chatcompletion.ProtocolConnections{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
 	}
 
 	return registration.BuildConnection(connectionConfig)

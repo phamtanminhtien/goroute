@@ -8,13 +8,17 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 )
 
-type Connection interface {
+type ChatCompletionsConnection interface {
 	ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error)
-	Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error)
+	ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error)
 }
 
-type StreamingConnection interface {
-	Connection
-	ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error)
+type ResponsesConnection interface {
+	Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error)
 	ResponsesStream(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (io.ReadCloser, error)
+}
+
+type ProtocolConnections struct {
+	ChatCompletions ChatCompletionsConnection
+	Responses       ResponsesConnection
 }

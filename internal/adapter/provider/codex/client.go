@@ -21,7 +21,6 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
-	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 )
 
 const (
@@ -56,77 +55,7 @@ func NewClientWithHTTPClient(httpClient *http.Client, connection connection.Reco
 	}
 }
 
-func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
-	body := req
-	body.Stream = false
-
-	respBody, err := c.doChatCompletionsResponses(ctx, body, target)
-	if err != nil {
-		return openaiwire.ChatCompletionsResponse{}, err
-	}
-	defer respBody.Close()
-
-	streamBody, err := io.ReadAll(respBody)
-	if err != nil {
-		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("read codex stream response: %w", err)
-	}
-
-	return c.reconstructStreamResponse(target, streamBody), nil
-}
-
-func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	body := req
-	body.Stream = true
-	streamBody, err := c.doChatCompletionsResponses(ctx, body, target)
-	if err != nil {
-		return nil, err
-	}
-	return transformResponsesToChatCompletionsStream(streamBody, target.Prefix+"/"+target.RequestedModel), nil
-}
-
-func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
-	body := req
-	body.Stream = true
-
-	streamBody, err := c.doResponsesRequest(ctx, body, target, nil)
-	if err != nil {
-		return openaiwire.ResponsesResponse{}, err
-	}
-	defer streamBody.Close()
-
-	captured, err := io.ReadAll(streamBody)
-	if err != nil {
-		return openaiwire.ResponsesResponse{}, fmt.Errorf("read codex responses stream: %w", err)
-	}
-
-	response, err := responsesusecase.ParseSSE(captured)
-	if err != nil {
-		return openaiwire.ResponsesResponse{}, err
-	}
-	return response, nil
-}
-
-func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (io.ReadCloser, error) {
-	body := req
-	body.Stream = true
-
-	return c.doResponsesRequest(ctx, body, target, func(captured []byte, recorder *chatcompletion.FlowRecorder) {
-		response, err := responsesusecase.ParseSSE(captured)
-		if err != nil {
-			return
-		}
-		recorder.SetResponsesResponse(response, true)
-	})
-}
-
-func (c *Client) doChatCompletionsResponses(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
-	return c.doResponsesRequest(ctx, chatCompletionsToCodexResponses(req, target.RequestedModel), target, func(captured []byte, recorder *chatcompletion.FlowRecorder) {
-		reconstructed := c.reconstructStreamResponse(target, captured)
-		recorder.SetFlowResponse(reconstructed, true)
-	})
-}
-
-func (c *Client) doResponsesRequest(ctx context.Context, upstreamRequest openaiwire.ResponsesRequest, target routing.Target, capture func([]byte, *chatcompletion.FlowRecorder)) (io.ReadCloser, error) {
+func (c *Client) executeResponsesRequest(ctx context.Context, upstreamRequest openaiwire.ResponsesRequest, target routing.Target, capture func([]byte, *chatcompletion.FlowRecorder)) (io.ReadCloser, error) {
 	credential, err := c.resolveAccessToken(false)
 	if err != nil {
 		return nil, chatcompletion.ConnectionConfigurationError{
@@ -136,7 +65,6 @@ func (c *Client) doResponsesRequest(ctx context.Context, upstreamRequest openaiw
 		}
 	}
 
-	upstreamRequest = normalizeResponsesRequest(upstreamRequest)
 	machineID := machineID()
 	sessionID := c.sessions.resolve(responsesToSessionMessages(upstreamRequest), machineID)
 	upstreamRequest.Model = stripProviderPrefix(target.RequestedModel)
@@ -498,10 +426,6 @@ func responsesToSessionMessages(req openaiwire.ResponsesRequest) []openaiwire.Ch
 }
 
 func normalizeResponsesRequest(req openaiwire.ResponsesRequest) openaiwire.ResponsesRequest {
-	if strings.TrimSpace(req.Instructions) == "" {
-		req.Instructions = defaultInstruction
-	}
-
 	if strings.TrimSpace(req.InputText) == "" || len(req.Input) > 0 {
 		return req
 	}
@@ -677,15 +601,6 @@ func randomBase36(length int) string {
 		builder.WriteByte(alphabet[index.Int64()])
 	}
 	return builder.String()
-}
-
-func (c *Client) reconstructStreamResponse(target routing.Target, streamBody []byte) openaiwire.ChatCompletionsResponse {
-	response, err := parseResponsesSSE(streamBody)
-	if err != nil {
-		text := chatcompletion.ExtractTextFromSSE(streamBody)
-		return chatcompletion.BuildAssistantResponse(target.RequestedModel, text)
-	}
-	return responseToChatCompletion(response, target.RequestedModel)
 }
 
 func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target, requestBody []byte, request *http.Request, response *http.Response, responseBody []byte, startedAt time.Time, completedAt time.Time, err error, attemptIndex int, stream bool) {

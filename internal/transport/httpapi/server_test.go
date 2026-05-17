@@ -32,8 +32,23 @@ func testCatalog() provider.Catalog {
 	}
 }
 
-func testConnectionRegistry(connection chatcompletion.Connection) *chatcompletion.ConnectionRegistry {
-	registry := chatcompletion.NewConnectionRegistry(map[string][]chatcompletion.Connection{"cx": {connection}})
+type protocolTestConnection interface {
+	chatcompletion.ChatCompletionsConnection
+	chatcompletion.ResponsesConnection
+}
+
+func testConnectionRegistry(connection protocolTestConnection) *chatcompletion.ConnectionRegistry {
+	registry := chatcompletion.NewConnectionRegistry(map[string][]chatcompletion.ConnectionEntry{
+		"cx": {{
+			ID:         "cx-1",
+			Name:       "cx-1",
+			ProviderID: "cx",
+			ProtocolConnections: chatcompletion.ProtocolConnections{
+				ChatCompletions: connection,
+				Responses:       connection,
+			},
+		}},
+	})
 	return &registry
 }
 
@@ -60,21 +75,21 @@ func (r testRuntime) ReloadConnections() error {
 			return err
 		}
 		entries[connectionConfig.ProviderID] = append(entries[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
-			ID:         connectionConfig.ID,
-			Name:       connectionConfig.Name,
-			ProviderID: connectionConfig.ProviderID,
-			Connection: connectionClient,
+			ID:                  connectionConfig.ID,
+			Name:                connectionConfig.Name,
+			ProviderID:          connectionConfig.ProviderID,
+			ProtocolConnections: connectionClient,
 		})
 	}
 	r.registry.ReplaceConnections(entries)
 	return nil
 }
 
-func testServer(t *testing.T, connection chatcompletion.Connection) http.Handler {
+func testServer(t *testing.T, connection protocolTestConnection) http.Handler {
 	return testServerWithUsageAndConnection(t, nil, connection)
 }
 
-func testServerWithWebUI(t *testing.T, connection chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
+func testServerWithWebUI(t *testing.T, connection protocolTestConnection, webUIRoot fs.FS) http.Handler {
 	return testServerWithUsageAndConnectionAndWebUI(t, nil, connection, webUIRoot)
 }
 
@@ -82,15 +97,15 @@ func testServerWithUsage(t *testing.T, getUsage func(context.Context, connection
 	return testServerWithUsageAndConnection(t, getUsage, &testProvider{})
 }
 
-func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection) http.Handler {
+func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection) http.Handler {
 	return testServerWithUsageAndConnectionAndWebUI(t, getUsage, connectionClient, nil)
 }
 
-func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection, webUIRoot fs.FS) http.Handler {
+func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection, webUIRoot fs.FS) http.Handler {
 	return testServerWithUsageAndConnectionAndWebUIAtPath(t, getUsage, connectionClient, webUIRoot, filepath.Join(t.TempDir(), "goroute.db"))
 }
 
-func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient chatcompletion.Connection, webUIRoot fs.FS, databasePath string) http.Handler {
+func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection, webUIRoot fs.FS, databasePath string) http.Handler {
 	t.Helper()
 	initialConnections := []connection.Record{{
 		ID:          "codex-1",
@@ -113,8 +128,11 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 	providers, err := providerregistry.New(
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-			BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
-				return connectionClient, nil
+			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+				return chatcompletion.ProtocolConnections{
+					ChatCompletions: connectionClient,
+					Responses:       connectionClient,
+				}, nil
 			},
 			GetUsage: func(ctx context.Context, record connection.Record) (providerregistry.UsageInfo, error) {
 				if getUsage != nil {
@@ -173,8 +191,11 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		},
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "opena", Name: "OpenAI"},
-			BuildConnection: func(connection.Record) (chatcompletion.Connection, error) {
-				return &testProvider{}, nil
+			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+				return chatcompletion.ProtocolConnections{
+					ChatCompletions: &testProvider{},
+					Responses:       &testProvider{},
+				}, nil
 			},
 		},
 	)
@@ -186,7 +207,10 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 			ID:         "codex-1",
 			Name:       "codex-user",
 			ProviderID: "cx",
-			Connection: connectionClient,
+			ProtocolConnections: chatcompletion.ProtocolConnections{
+				ChatCompletions: connectionClient,
+				Responses:       connectionClient,
+			},
 		}},
 	}, &logger)
 	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)

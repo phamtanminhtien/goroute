@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -29,6 +30,29 @@ func (p *testProvider) ChatCompletions(_ context.Context, req openaiwire.ChatCom
 func (p *testProvider) Responses(_ context.Context, req openaiwire.ResponsesRequest, _ routing.Target) (openaiwire.ResponsesResponse, error) {
 	p.lastResponsesReq = req
 	return p.responsesResponse, p.responsesErr
+}
+
+func (p *testProvider) ChatCompletionsStream(_ context.Context, req openaiwire.ChatCompletionsRequest, _ routing.Target) (io.ReadCloser, error) {
+	p.lastReq = req
+	if p.err != nil {
+		return nil, p.err
+	}
+
+	var content string
+	if len(p.response.Choices) > 0 {
+		content = p.response.Choices[0].Message.Content
+	}
+	payload := fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":%q}}]}\n\ndata: [DONE]\n\n", content)
+	return io.NopCloser(strings.NewReader(payload)), nil
+}
+
+func (p *testProvider) ResponsesStream(_ context.Context, req openaiwire.ResponsesRequest, _ routing.Target) (io.ReadCloser, error) {
+	p.lastResponsesReq = req
+	if p.responsesErr != nil {
+		return nil, p.responsesErr
+	}
+
+	return io.NopCloser(strings.NewReader("data: {\"type\":\"response.created\"}\n\ndata: [DONE]\n\n")), nil
 }
 
 type streamingTestProvider struct {
