@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -15,7 +16,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, logger *zerolog.Logger) http.Handler {
+func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -29,7 +30,7 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 		r = r.WithContext(ctx)
 
 		bodyWriter := newBodyCaptureResponseWriter(w)
-		defer persistAIRequestLog(requestLogRepo, logger, recorder, bodyWriter)
+		defer persistAIRequestLog(requestLogRepo, settingsManager, logger, recorder, bodyWriter)
 
 		if r.Method != http.MethodPost {
 			recorder.SetError("method_not_allowed", "method not allowed")

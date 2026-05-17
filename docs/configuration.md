@@ -8,6 +8,7 @@ It configures local runtime behavior only; providers, model namespaces, and mode
 The current schema has one top-level domain:
 
 - server
+- llmLogging
 
 Example `~/.goroute/config.json`:
 
@@ -17,6 +18,10 @@ Example `~/.goroute/config.json`:
     "listen": ":2232",
     "auth_token": "change-me",
     "web_ui_dir": "web/dist"
+  },
+  "llmLogging": {
+    "flow": true,
+    "thirdParty": true
   }
 }
 ```
@@ -24,6 +29,15 @@ Example `~/.goroute/config.json`:
 `server.listen` defaults to `:2232` when omitted.
 `server.auth_token` is required and is used to protect admin-only HTTP routes.
 `server.web_ui_dir` defaults to `web/dist`; when that directory exists, the Go server also serves the built admin UI and SPA routes.
+`llmLogging` controls optional persisted LLM request detail:
+
+- when `llmLogging` is omitted, both `flow` and `thirdParty` default to enabled
+- `llmLogging: false` disables both optional log stores
+- `llmLogging: {}` also disables both optional log stores
+- `llmLogging.flow` controls persistence to `ai_request_flows`
+- `llmLogging.thirdParty` controls persistence to `third_party_request_logs`
+- `ai_request_runs` is always persisted and is not controlled by `llmLogging`
+
 Connections are persisted in `~/.goroute/goroute.db`.
 Connection credentials are validated lazily by the selected adapter during request execution.
 
@@ -59,6 +73,27 @@ Current admin routes:
 - `DELETE /admin/api/connections/{id}`
 - `GET /admin/api/connections/{id}/usage`
 - `POST /admin/api/connections/oauth`
+- `GET /admin/api/settings`
+- `PUT /admin/api/settings`
+
+`GET /admin/api/settings` returns a normalized payload for admin UI use:
+
+```json
+{
+  "server": {
+    "listen": ":2232",
+    "web_ui_dir": "web/dist"
+  },
+  "llmLogging": {
+    "enabled": {
+      "flow": true,
+      "thirdParty": true
+    }
+  }
+}
+```
+
+`PUT /admin/api/settings` accepts the same normalized `llmLogging.enabled` booleans and applies them immediately to new requests after saving `config.json`.
 
 ### Codex usage lookup
 

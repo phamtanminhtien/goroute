@@ -408,7 +408,7 @@ func analyticsTestServer(t *testing.T) (http.Handler, *gormsqlite.Repository) {
 	t.Helper()
 
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
-	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, databasePath)
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, databasePath, testSettingsConfig())
 	repo, err := gormsqlite.Open(databasePath)
 	if err != nil {
 		t.Fatalf("open sqlite repository: %v", err)

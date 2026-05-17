@@ -23,6 +23,13 @@ func ApplyDefaults(cfg Config) Config {
 	if strings.TrimSpace(cfg.Server.WebUIDir) == "" {
 		cfg.Server.WebUIDir = DefaultWebUIDir
 	}
+	if !cfg.LLMLogging.IsPresent() {
+		cfg.LLMLogging = LLMLoggingConfig{
+			Flow:       true,
+			ThirdParty: true,
+			present:    true,
+		}
+	}
 
 	return cfg
 }

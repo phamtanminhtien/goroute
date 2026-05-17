@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/health"
@@ -21,15 +22,15 @@ type aiRequestLogRepository interface {
 	analytics.Repository
 }
 
-func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
+func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
 	analyticsService := analytics.NewService(requestLogRepo, catalog)
 
 	router.Handle("/healthz", health.Handler())
 	router.Handle("/v1/models", modelsHandler(catalog))
-	router.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, logger))
-	router.Handle("/v1/responses", responsesHandler(catalog, connectionRegistry, requestLogRepo, logger))
+	router.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, settingsManager, logger))
+	router.Handle("/v1/responses", responsesHandler(catalog, connectionRegistry, requestLogRepo, settingsManager, logger))
 
 	router.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
@@ -41,6 +42,7 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Handle("/admin/api/connections/{id}", connectionByIDHandler(connectionService))
 		r.Handle("/admin/api/connections/{id}/usage", connectionUsageHandler(connectionService))
 		r.Handle("/admin/api/connections/oauth", connectionOAuthHandler(connectionService))
+		r.Handle("/admin/api/settings", settingsHandler(settingsManager))
 		r.Handle("/admin/api/analytics/usage/summary", analyticsUsageSummaryHandler(analyticsService))
 		r.Handle("/admin/api/analytics/usage/timeseries", analyticsUsageTimeseriesHandler(analyticsService))
 		r.Handle("/admin/api/analytics/usage/provider-breakdown", analyticsUsageProviderBreakdownHandler(analyticsService))

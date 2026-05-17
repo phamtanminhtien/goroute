@@ -36,6 +36,7 @@ func New(logger zerolog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
+	settingsManager := config.NewSettingsManager(configPath, cfg)
 	databasePath, err := config.ResolveDatabasePath()
 	if err != nil {
 		return nil, fmt.Errorf("resolve database path: %w", err)
@@ -79,7 +80,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		appLogger.Info().Str("web_ui_dir", webUIDir).Msg("web_ui_enabled")
 	}
 
-	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, repo, cfg.Server.AuthToken, webUIRoot, &httpLogger)
+	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, repo, settingsManager, cfg.Server.AuthToken, webUIRoot, &httpLogger)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,

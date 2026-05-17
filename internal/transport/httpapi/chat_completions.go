@@ -9,13 +9,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/rs/zerolog"
 )
 
-func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, logger *zerolog.Logger) http.Handler {
+func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -28,7 +29,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 		r = r.WithContext(ctx)
 
 		bodyWriter := newBodyCaptureResponseWriter(w)
-		defer persistAIRequestLog(requestLogRepo, logger, recorder, bodyWriter)
+		defer persistAIRequestLog(requestLogRepo, settingsManager, logger, recorder, bodyWriter)
 
 		if r.Method != http.MethodPost {
 			recorder.SetError("method_not_allowed", "method not allowed")
@@ -102,7 +103,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 	})
 }
 
-func persistAIRequestLog(repo aiRequestLogRepository, logger *zerolog.Logger, recorder *chatcompletion.FlowRecorder, bodyWriter *bodyCaptureResponseWriter) {
+func persistAIRequestLog(repo aiRequestLogRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger, recorder *chatcompletion.FlowRecorder, bodyWriter *bodyCaptureResponseWriter) {
 	if repo == nil || recorder == nil || bodyWriter == nil {
 		return
 	}
@@ -112,12 +113,25 @@ func persistAIRequestLog(repo aiRequestLogRepository, logger *zerolog.Logger, re
 	if err := repo.CreateAIRequestRun(runRecord); err != nil {
 		logger.Error().Err(err).Str("request_id", runRecord.RequestID).Msg("persist_ai_request_run_failed")
 	}
-	if err := repo.CreateAIRequestFlow(flowRecord); err != nil {
-		logger.Error().Err(err).Str("request_id", flowRecord.RequestID).Msg("persist_ai_request_flow_failed")
+
+	logSettings := config.LLMLoggingState{
+		FlowEnabled:       true,
+		ThirdPartyEnabled: true,
 	}
-	for _, current := range thirdPartyLogs {
-		if err := repo.CreateThirdPartyRequestLog(current); err != nil {
-			logger.Error().Err(err).Str("request_id", flowRecord.RequestID).Msg("persist_third_party_request_log_failed")
+	if settingsManager != nil {
+		logSettings = settingsManager.LLMLogging()
+	}
+
+	if logSettings.FlowEnabled {
+		if err := repo.CreateAIRequestFlow(flowRecord); err != nil {
+			logger.Error().Err(err).Str("request_id", flowRecord.RequestID).Msg("persist_ai_request_flow_failed")
+		}
+	}
+	if logSettings.ThirdPartyEnabled {
+		for _, current := range thirdPartyLogs {
+			if err := repo.CreateThirdPartyRequestLog(current); err != nil {
+				logger.Error().Err(err).Str("request_id", flowRecord.RequestID).Msg("persist_third_party_request_log_failed")
+			}
 		}
 	}
 }

@@ -1,178 +1,271 @@
-import {
-  ArrowRightLeft,
-  BadgeCheck,
-  LockKeyhole,
-  Network,
-  Radar,
-  ServerCog,
-} from "lucide-react";
-import type { ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DatabaseZap, Save, ServerCog } from "lucide-react";
+import { type ReactNode, useState } from "react";
 
-import { DetailList, KeyValueRow } from "@/shared/ui/detail-list";
+import {
+  getSettings,
+  settingsQueryKey,
+  updateSettings,
+  type UpdateSettingsPayload,
+} from "@/features/settings/api";
+import { Button } from "@/shared/ui/button";
+import { Field } from "@/shared/ui/field";
+import { InlineAlert } from "@/shared/ui/inline-alert";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
+import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
+import { Switch } from "@/shared/ui/switch";
+
+type LoggingDraft = UpdateSettingsPayload["llmLogging"]["enabled"];
+type FeedbackState = null | { text: string; tone: "error" | "success" };
 
 export function SettingsPage() {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<LoggingDraft | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackState>(null);
+
+  const settingsQuery = useQuery({
+    queryFn: getSettings,
+    queryKey: settingsQueryKey,
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: updateSettings,
+    onError: (error) => {
+      setFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData(settingsQueryKey, next);
+      setDraft(null);
+      setFeedback({ text: "Logging settings saved.", tone: "success" });
+    },
+  });
+
+  const current = settingsQuery.data?.llmLogging.enabled ?? null;
+  const effectiveDraft = draft ?? current;
+  const updateDraft = (
+    updater: (currentDraft: LoggingDraft) => LoggingDraft,
+  ) => {
+    setDraft((currentDraft) => {
+      const baseDraft = currentDraft ?? current;
+      if (!baseDraft) {
+        return currentDraft;
+      }
+
+      return updater(baseDraft);
+    });
+  };
+  const hasChanges =
+    draft !== null &&
+    current !== null &&
+    (draft.flow !== current.flow || draft.thirdParty !== current.thirdParty);
+
   return (
-    <section className="space-y-6">
+    <section className="space-y-6 pb-6">
       <PageHeader
-        description="Review ingress, auth posture, fallback policy, and runtime defaults from a classic admin dashboard layout."
+        description="Control how much request detail goroute persists for LLM traffic without restarting the process."
         eyebrow="Runtime"
         title="System configuration"
       >
-        <StatusBadge tone="info">Read-only phase</StatusBadge>
+        <StatusBadge tone="info">Live admin data</StatusBadge>
       </PageHeader>
 
-      <SectionCard
-        description="Fast operational summary for the current runtime posture."
-        title="Runtime overview"
-        tone="solid"
-      >
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <RuntimeSummaryCard label="Listen address" value=":2232" />
-          <RuntimeSummaryCard label="Auth mode" value="Bearer token" />
-          <RuntimeSummaryCard label="Primary ingress" value="/v1 compatible" />
-          <RuntimeSummaryCard label="Mutation support" value="Deferred" />
-        </div>
-      </SectionCard>
+      {feedback ? (
+        <InlineAlert tone={feedback.tone === "success" ? "success" : "error"}>
+          {feedback.text}
+        </InlineAlert>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <SectionCard
-          description="Core service posture and network shape presented as grouped system information."
-          title="Ingress and server binding"
+          description="Current runtime details that frame how the logging policy applies."
+          title="Runtime overview"
           tone="solid"
         >
-          <div className="grid gap-3 lg:grid-cols-2">
-            <RuntimePanel
-              description="HTTP listener currently exposed on the local admin port."
-              icon={<ServerCog className="size-4" />}
-              label="Listen address"
-              value=":2232"
-            />
-            <RuntimePanel
-              description="Current admin surface assumes a direct OpenAI-compatible ingress."
-              icon={<Network className="size-4" />}
-              label="Ingress profile"
-              value="HTTP /v1 compatibility"
-            />
-            <RuntimePanel
-              description="Routing stays server-side so clients do not carry provider-specific logic."
-              icon={<ArrowRightLeft className="size-4" />}
-              label="Request routing"
-              value="Provider-resolved upstream selection"
-            />
-            <RuntimePanel
-              description="No mutable admin API writes are available in this frontend pass."
-              icon={<Radar className="size-4" />}
-              label="Control surface mode"
-              value="Observe-first"
-            />
-          </div>
+          {settingsQuery.isPending ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton className="min-h-[110px]" key={index} />
+              ))}
+            </div>
+          ) : settingsQuery.isError ? (
+            <InlineAlert tone="error">
+              {settingsQuery.error instanceof Error
+                ? settingsQuery.error.message
+                : "Request failed"}
+            </InlineAlert>
+          ) : settingsQuery.data ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <RuntimePanel
+                description="Admin HTTP bind address loaded from the current config."
+                icon={<ServerCog className="size-4" />}
+                label="Listen address"
+                value={settingsQuery.data.server.listen}
+              />
+              <RuntimePanel
+                description="Static admin UI directory currently configured for the local runtime."
+                icon={<DatabaseZap className="size-4" />}
+                label="Web UI directory"
+                value={settingsQuery.data.server.web_ui_dir}
+              />
+              <RuntimePanel
+                description="When both switches are off, only ai_request_runs remain persisted."
+                icon={<DatabaseZap className="size-4" />}
+                label="Flow log state"
+                value={
+                  settingsQuery.data.llmLogging.enabled.flow
+                    ? "Enabled"
+                    : "Disabled"
+                }
+              />
+              <RuntimePanel
+                description="Controls upstream attempt persistence in third_party_request_logs."
+                icon={<DatabaseZap className="size-4" />}
+                label="Third-party log state"
+                value={
+                  settingsQuery.data.llmLogging.enabled.thirdParty
+                    ? "Enabled"
+                    : "Disabled"
+                }
+              />
+            </div>
+          ) : null}
         </SectionCard>
 
         <SectionCard
-          description="Session handling is intentionally simple today, but exposed with the right operational language."
-          title="Auth and session posture"
+          description="These switches apply immediately to new requests after save."
+          title="LLM logging"
           tone="solid"
         >
-          <DetailList>
-            <KeyValueRow label="Admin auth mode" value="Bearer token" />
-            <KeyValueRow
-              label="Session storage"
-              value="Local browser storage"
-            />
-            <KeyValueRow
-              label="Route protection"
-              value="Frontend guard with redirect to /login"
-            />
-            <KeyValueRow
-              label="Theme support"
-              value="Light and dark console modes"
-            />
-          </DetailList>
-        </SectionCard>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <SectionCard
-          description="Policy is still mock-backed, but the information hierarchy is ready for live admin data."
-          title="Routing defaults"
-          tone="solid"
-        >
-          <div className="space-y-3">
-            {[
-              {
-                label: "Model targeting",
-                text: "Use explicit provider prefixes like cx/... or opena/... to keep upstream intent obvious.",
-              },
-              {
-                label: "Fallback boundary",
-                text: "Fallback should advance only for retryable upstream conditions, not client validation failures.",
-              },
-              {
-                label: "Operator expectation",
-                text: "The admin UI should surface route availability and auth posture before it offers mutation.",
-              },
-            ].map((item) => (
-              <div
-                className="border-border/85 bg-bg-primary/75 rounded-[22px] border px-4 py-4"
-                key={item.label}
+          {settingsQuery.isPending ? (
+            <div className="space-y-3">
+              <Skeleton className="min-h-[88px]" />
+              <Skeleton className="min-h-[88px]" />
+              <Skeleton className="min-h-[56px]" />
+            </div>
+          ) : settingsQuery.isError ? (
+            <div className="space-y-4">
+              <InlineAlert tone="error">
+                {settingsQuery.error instanceof Error
+                  ? settingsQuery.error.message
+                  : "Request failed"}
+              </InlineAlert>
+              <Button
+                onClick={() => settingsQuery.refetch()}
+                tone="secondary"
+                type="button"
               >
+                Retry request
+              </Button>
+            </div>
+          ) : effectiveDraft ? (
+            <form
+              className="space-y-4"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setFeedback(null);
+                try {
+                  await updateSettingsMutation.mutateAsync({
+                    llmLogging: { enabled: effectiveDraft },
+                  });
+                } catch {
+                  // onError already surfaces the failure to the user.
+                }
+              }}
+            >
+              <Field
+                help="Controls persistence for ai_request_flows. Turning it off still keeps ai_request_runs."
+                label="Flow log"
+              >
+                <div className="border-border/85 bg-bg-primary/72 flex items-center justify-between rounded-[20px] border px-4 py-3">
+                  <div className="space-y-1 pr-4">
+                    <p className="text-fg-primary text-sm font-semibold">
+                      Persist `ai_request_flows`
+                    </p>
+                    <p className="text-fg-secondary text-sm leading-6">
+                      Save redacted request and response flow bodies for each
+                      completed request.
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label="Flow log toggle"
+                    checked={effectiveDraft.flow}
+                    onCheckedChange={(checked) =>
+                      updateDraft((currentDraft) => ({
+                        ...currentDraft,
+                        flow: checked,
+                      }))
+                    }
+                  />
+                </div>
+              </Field>
+
+              <Field
+                help="Controls persistence for third_party_request_logs. This can stay on even when flow log is off."
+                label="Third-party log"
+              >
+                <div className="border-border/85 bg-bg-primary/72 flex items-center justify-between rounded-[20px] border px-4 py-3">
+                  <div className="space-y-1 pr-4">
+                    <p className="text-fg-primary text-sm font-semibold">
+                      Persist `third_party_request_logs`
+                    </p>
+                    <p className="text-fg-secondary text-sm leading-6">
+                      Keep upstream attempt metadata and redacted raw provider
+                      exchanges for each try.
+                    </p>
+                  </div>
+                  <Switch
+                    aria-label="Third-party log toggle"
+                    checked={effectiveDraft.thirdParty}
+                    onCheckedChange={(checked) =>
+                      updateDraft((currentDraft) => ({
+                        ...currentDraft,
+                        thirdParty: checked,
+                      }))
+                    }
+                  />
+                </div>
+              </Field>
+
+              <div className="border-border/85 bg-bg-primary/72 rounded-[20px] border px-4 py-3">
                 <p className="text-fg-primary text-sm font-semibold">
-                  {item.label}
+                  Persistence summary
                 </p>
                 <p className="text-fg-secondary mt-1 text-sm leading-6">
-                  {item.text}
+                  If both switches are off, goroute persists only
+                  `ai_request_runs`. Changes here affect new requests right
+                  after save.
                 </p>
               </div>
-            ))}
-          </div>
-        </SectionCard>
 
-        <SectionCard
-          description="Operational notes explain the current implementation boundaries without softening the message."
-          title="Runtime notes"
-          tone="solid"
-        >
-          <div className="space-y-3">
-            {[
-              {
-                icon: <LockKeyhole className="text-primary size-4" />,
-                title: "Auth remains local-first",
-                text: "The token is stored locally and reused for admin requests until backend-issued sessions exist.",
-              },
-              {
-                icon: (
-                  <BadgeCheck className="size-4 text-emerald-600 dark:text-emerald-300" />
-                ),
-                title: "Route paths remain stable",
-                text: "The UX shifts from generic settings language to runtime language without changing the /settings path.",
-              },
-              {
-                icon: (
-                  <Radar className="size-4 text-amber-600 dark:text-amber-300" />
-                ),
-                title: "Mutation is intentionally deferred",
-                text: "This frontend pass does not fake persistence or invent write flows that the admin API does not yet support.",
-              },
-            ].map((item) => (
-              <div
-                className="border-border/85 bg-bg-primary/75 flex gap-3 rounded-[22px] border px-4 py-4"
-                key={item.title}
-              >
-                <div className="mt-0.5">{item.icon}</div>
-                <div>
-                  <h2 className="text-fg-primary text-sm font-semibold">
-                    {item.title}
-                  </h2>
-                  <p className="text-fg-secondary mt-1 text-sm leading-6">
-                    {item.text}
-                  </p>
-                </div>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  disabled={!hasChanges || updateSettingsMutation.isPending}
+                  type="submit"
+                >
+                  <Save className="size-4" />
+                  {updateSettingsMutation.isPending
+                    ? "Saving..."
+                    : "Save settings"}
+                </Button>
+                <Button
+                  disabled={!hasChanges || updateSettingsMutation.isPending}
+                  onClick={() => {
+                    setDraft(null);
+                    setFeedback(null);
+                  }}
+                  tone="secondary"
+                  type="button"
+                >
+                  Reset changes
+                </Button>
               </div>
-            ))}
-          </div>
+            </form>
+          ) : null}
         </SectionCard>
       </div>
     </section>
@@ -200,25 +293,6 @@ function RuntimePanel({
         {value}
       </p>
       <p className="text-fg-secondary mt-2 text-sm leading-6">{description}</p>
-    </div>
-  );
-}
-
-function RuntimeSummaryCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="border-border/90 bg-bg-primary/72 rounded-[22px] border px-4 py-4">
-      <p className="text-fg-muted text-[11px] font-semibold tracking-[0.2em] uppercase">
-        {label}
-      </p>
-      <p className="text-fg-primary mt-3 text-2xl font-semibold tracking-tight">
-        {value}
-      </p>
     </div>
   );
 }

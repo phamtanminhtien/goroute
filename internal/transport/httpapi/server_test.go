@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/logging"
@@ -53,6 +54,17 @@ func testConnectionRegistry(connection protocolTestConnection) *chatcompletion.C
 }
 
 const testAdminToken = "secret"
+
+func testSettingsConfig() config.Config {
+	return config.Config{
+		Server: config.ServerConfig{
+			Listen:    ":2232",
+			AuthToken: testAdminToken,
+			WebUIDir:  "web/dist",
+		},
+		LLMLogging: config.NewLLMLoggingConfig(true, true),
+	}
+}
 
 type testRuntime struct {
 	repo interface {
@@ -102,10 +114,10 @@ func testServerWithUsageAndConnection(t *testing.T, getUsage func(context.Contex
 }
 
 func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection, webUIRoot fs.FS) http.Handler {
-	return testServerWithUsageAndConnectionAndWebUIAtPath(t, getUsage, connectionClient, webUIRoot, filepath.Join(t.TempDir(), "goroute.db"))
+	return testServerWithUsageAndConnectionAndWebUIAtPath(t, getUsage, connectionClient, webUIRoot, filepath.Join(t.TempDir(), "goroute.db"), testSettingsConfig())
 }
 
-func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection, webUIRoot fs.FS, databasePath string) http.Handler {
+func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection, webUIRoot fs.FS, databasePath string, cfg config.Config) http.Handler {
 	t.Helper()
 	initialConnections := []connection.Record{{
 		ID:          "codex-1",
@@ -123,6 +135,11 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 	if err := repo.ReplaceConnections(initialConnections); err != nil {
 		t.Fatalf("seed sqlite connections: %v", err)
 	}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := config.SavePath(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	settingsManager := config.NewSettingsManager(configPath, cfg)
 
 	logger := logging.NewWithWriter("prod", &bytes.Buffer{})
 	providers, err := providerregistry.New(
@@ -214,7 +231,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		}},
 	}, &logger)
 	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)
-	return NewServer(testCatalog(), &registry, service, repo, testAdminToken, webUIRoot, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, settingsManager, testAdminToken, webUIRoot, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {
@@ -255,6 +272,89 @@ func TestModelsDoesNotRequireAuth(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestSettingsHandlerReturnsNormalizedLLMLoggingState(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := testSettingsConfig()
+	cfg.LLMLogging = config.NewLLMLoggingConfig(true, false)
+	if err := config.SavePath(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	handler := authMiddleware(testAdminToken, settingsHandler(config.NewSettingsManager(configPath, cfg)))
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response settingsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if !response.LLMLogging.Enabled.Flow || response.LLMLogging.Enabled.ThirdParty {
+		t.Fatalf("unexpected settings response %#v", response)
+	}
+	if response.Server.Listen != cfg.Server.Listen || response.Server.WebUIDir != cfg.Server.WebUIDir {
+		t.Fatalf("unexpected server response %#v", response.Server)
+	}
+}
+
+func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := testSettingsConfig()
+	if err := config.SavePath(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	settingsManager := config.NewSettingsManager(configPath, cfg)
+	handler := authMiddleware(testAdminToken, settingsHandler(settingsManager))
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}}}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	updated, err := config.LoadPath(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if updated.LLMLogging.Flow || !updated.LLMLogging.ThirdParty {
+		t.Fatalf("expected updated llm logging config, got %#v", updated.LLMLogging)
+	}
+
+	state := settingsManager.LLMLogging()
+	if state.FlowEnabled || !state.ThirdPartyEnabled {
+		t.Fatalf("expected settings manager to apply immediately, got %#v", state)
+	}
+}
+
+func TestSettingsHandlerRejectsInvalidPayload(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := testSettingsConfig()
+	if err := config.SavePath(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	handler := authMiddleware(testAdminToken, settingsHandler(config.NewSettingsManager(configPath, cfg)))
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":true}}}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
 	}
 }
 
@@ -524,7 +624,7 @@ func TestResponsesPersistsSyncLogs(t *testing.T) {
 				Usage: &openaiwire.ResponseUsage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
 			},
 		},
-	}, nil, databasePath)
+	}, nil, databasePath, testSettingsConfig())
 	body := []byte(`{"model":"cx/gpt-5.4","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -576,7 +676,7 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 				Usage: &openaiwire.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
 			},
 		},
-	}, nil, databasePath)
+	}, nil, databasePath, testSettingsConfig())
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -635,6 +735,137 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsPersistsLogsBasedOnLLMLoggingSettings(t *testing.T) {
+	testCases := []struct {
+		name                string
+		flowEnabled         bool
+		thirdPartyEnabled   bool
+		wantFlowCount       int
+		wantThirdPartyCount int
+	}{
+		{name: "both on", flowEnabled: true, thirdPartyEnabled: true, wantFlowCount: 1, wantThirdPartyCount: 1},
+		{name: "flow only", flowEnabled: true, thirdPartyEnabled: false, wantFlowCount: 1, wantThirdPartyCount: 0},
+		{name: "third party only", flowEnabled: false, thirdPartyEnabled: true, wantFlowCount: 0, wantThirdPartyCount: 1},
+		{name: "both off", flowEnabled: false, thirdPartyEnabled: false, wantFlowCount: 0, wantThirdPartyCount: 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			databasePath := filepath.Join(t.TempDir(), "goroute.db")
+			cfg := testSettingsConfig()
+			cfg.LLMLogging = config.NewLLMLoggingConfig(tc.flowEnabled, tc.thirdPartyEnabled)
+			handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
+				testProvider: testProvider{
+					response: openaiwire.ChatCompletionsResponse{
+						ID:     "chatcmpl-1",
+						Object: "chat.completion",
+						Model:  "gpt-5.4",
+						Choices: []openaiwire.ChatChoice{{
+							Index:   0,
+							Message: openaiwire.Message{Role: "assistant", Content: "hello back"},
+						}},
+						Usage: &openaiwire.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+					},
+				},
+			}, nil, databasePath, cfg)
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+			}
+
+			repo, err := gormsqlite.Open(databasePath)
+			if err != nil {
+				t.Fatalf("open sqlite repository: %v", err)
+			}
+			defer repo.Close()
+
+			runs, err := repo.ListAIRequestRuns()
+			if err != nil {
+				t.Fatalf("list ai request runs: %v", err)
+			}
+			flows, err := repo.ListAIRequestFlows()
+			if err != nil {
+				t.Fatalf("list ai request flows: %v", err)
+			}
+			thirdPartyLogs, err := repo.ListThirdPartyRequestLogs()
+			if err != nil {
+				t.Fatalf("list third party request logs: %v", err)
+			}
+
+			if len(runs) != 1 {
+				t.Fatalf("unexpected run records %#v", runs)
+			}
+			if len(flows) != tc.wantFlowCount {
+				t.Fatalf("expected %d flow records, got %#v", tc.wantFlowCount, flows)
+			}
+			if len(thirdPartyLogs) != tc.wantThirdPartyCount {
+				t.Fatalf("expected %d third party logs, got %#v", tc.wantThirdPartyCount, thirdPartyLogs)
+			}
+		})
+	}
+}
+
+func TestSettingsUpdateChangesLogPersistenceForSubsequentRequests(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
+		testProvider: testProvider{
+			response: openaiwire.ChatCompletionsResponse{
+				ID:     "chatcmpl-1",
+				Object: "chat.completion",
+				Model:  "gpt-5.4",
+				Choices: []openaiwire.ChatChoice{{
+					Index:   0,
+					Message: openaiwire.Message{Role: "assistant", Content: "hello back"},
+				}},
+			},
+		},
+	}, nil, databasePath, testSettingsConfig())
+
+	settingsReq := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}}}`))
+	settingsReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	settingsRec := httptest.NewRecorder()
+	handler.ServeHTTP(settingsRec, settingsReq)
+
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, settingsRec.Code, settingsRec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}]}`)))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	runs, err := repo.ListAIRequestRuns()
+	if err != nil {
+		t.Fatalf("list ai request runs: %v", err)
+	}
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+	thirdPartyLogs, err := repo.ListThirdPartyRequestLogs()
+	if err != nil {
+		t.Fatalf("list third party request logs: %v", err)
+	}
+
+	if len(runs) != 1 || len(flows) != 0 || len(thirdPartyLogs) != 1 {
+		t.Fatalf("unexpected persisted records runs=%#v flows=%#v third_party=%#v", runs, flows, thirdPartyLogs)
+	}
+}
+
 func TestChatCompletionsRedactsImageURLsInPersistedLogs(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
 	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
@@ -649,7 +880,7 @@ func TestChatCompletionsRedactsImageURLsInPersistedLogs(t *testing.T) {
 				}},
 			},
 		},
-	}, nil, databasePath)
+	}, nil, databasePath, testSettingsConfig())
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":[{"type":"text","text":"what is in this image?"},{"type":"image_url","image_url":{"url":"data:image/png;base64,abc123","detail":"high"}},{"type":"image_url","image_url":{"url":"https://signed.example.com/private.png","detail":"low"}}]}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -829,7 +1060,7 @@ func TestChatCompletionsStreamsConnectionBody(t *testing.T) {
 
 func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
-	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, loggingStreamingTestProvider{testProvider: &testProvider{}, body: "data: {\"text\":\"first\"}\n\ndata: [DONE]\n\n"}, nil, databasePath)
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, loggingStreamingTestProvider{testProvider: &testProvider{}, body: "data: {\"text\":\"first\"}\n\ndata: [DONE]\n\n"}, nil, databasePath, testSettingsConfig())
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -887,7 +1118,7 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 
 func TestChatCompletionsPersistsMalformedRequestWithoutThirdPartyLogs(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
-	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, databasePath)
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, databasePath, testSettingsConfig())
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4",`)))
 	rec := httptest.NewRecorder()
 
