@@ -18,13 +18,36 @@ func Registration() providerregistry.Registration {
 			AuthType:     provider.AuthTypeOAuth,
 			Category:     "oauth",
 			DefaultModel: "cx/gpt-5.4",
-			Models: []provider.Model{{
-				ID:                       "cx/gpt-5.4",
-				Name:                     "GPT-5.4",
-				Description:              "",
-				InputPricePerMillionUSD:  1.25,
-				OutputPricePerMillionUSD: 10,
-			}},
+			Models: []provider.Model{
+				{
+					ID:                       "cx/gpt-5.4",
+					Name:                     "GPT-5.4",
+					Description:              "",
+					InputPricePerMillionUSD:  1.25,
+					OutputPricePerMillionUSD: 10,
+				},
+				{
+					ID:                       "cx/gpt-5.4-mini",
+					Name:                     "GPT-5.4 Mini",
+					Description:              "",
+					InputPricePerMillionUSD:  0.375,
+					OutputPricePerMillionUSD: 2.25,
+				},
+				{
+					ID:                       "cx/gpt-5.4-nano",
+					Name:                     "GPT-5.4 Nano",
+					Description:              "",
+					InputPricePerMillionUSD:  0.10,
+					OutputPricePerMillionUSD: 0.625,
+				},
+				{
+					ID:                       "cx/gpt-5.3-codex",
+					Name:                     "GPT-5.3 Codex",
+					Description:              "",
+					InputPricePerMillionUSD:  1.75,
+					OutputPricePerMillionUSD: 14,
+				},
+			},
 		},
 		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
 			return NewProtocolConnections(connectionConfig), nil

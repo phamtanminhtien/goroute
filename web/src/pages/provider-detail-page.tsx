@@ -42,6 +42,12 @@ import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
 
 type FeedbackState = ConnectionFormFeedback;
 type ModelTestState = {
@@ -358,6 +364,7 @@ export function ProviderDetailPage() {
               <div className="flex flex-wrap gap-3">
                 {provider.models.map((model) => (
                   <ModelChip
+                    hasConnections={provider.connection_count > 0}
                     isDefault={model.id === provider.default_model}
                     key={model.id}
                     model={model}
@@ -504,16 +511,21 @@ function buildAuthLabel(authType: string) {
 }
 
 function ModelChip({
+  hasConnections,
   isDefault,
   model,
   onTest,
   testState,
 }: {
+  hasConnections: boolean;
   isDefault: boolean;
   model: ProviderItem["models"][number];
   onTest: () => void;
   testState: ModelTestState | null;
 }) {
+  const isTesting = testState?.pending === true;
+  const isDisabled = isTesting || !hasConnections;
+
   return (
     <div className="border-border/85 bg-bg-primary/72 flex max-w-full min-w-[240px] flex-col gap-3 rounded-[18px] border px-3.5 py-3">
       <div className="flex items-center gap-3">
@@ -527,14 +539,31 @@ function ModelChip({
         <div className="flex shrink-0 items-center gap-2">
           {isDefault ? <StatusBadge tone="success">Default</StatusBadge> : null}
           {!isDefault ? <StatusBadge tone="info">Ready</StatusBadge> : null}
-          <Button
-            disabled={testState?.pending === true}
-            leadingIcon={<Play className="size-[15px]" />}
-            onClick={onTest}
-            tone="secondary"
-          >
-            {testState?.pending ? "Testing..." : "Test"}
-          </Button>
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  aria-disabled={isDisabled}
+                  className="inline-flex"
+                  tabIndex={isDisabled ? 0 : -1}
+                >
+                  <Button
+                    disabled={isDisabled}
+                    leadingIcon={<Play className="size-[15px]" />}
+                    onClick={onTest}
+                    tone="secondary"
+                  >
+                    {isTesting ? "Testing..." : "Test"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!hasConnections ? (
+                <TooltipContent>
+                  Add at least one connection to test this model.
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 

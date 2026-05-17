@@ -164,6 +164,36 @@ describe("providers pages", () => {
     expect(screen.getByRole("button", { name: /test/i })).toBeInTheDocument();
   });
 
+  it("disables model testing and shows a tooltip when the provider has no connections", async () => {
+    const user = userEvent.setup();
+    listProvidersMock.mockResolvedValueOnce([
+      baseProviders[0],
+      {
+        ...baseProviders[1],
+        connection_count: 0,
+        connections: [],
+      },
+    ]);
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/openai"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /available models/i });
+
+    const testButton = screen.getByRole("button", { name: /^test$/i });
+    expect(testButton).toBeDisabled();
+
+    await user.hover(testButton.parentElement as HTMLElement);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      /add at least one connection to test this model\./i,
+    );
+    expect(testProviderModelMock).not.toHaveBeenCalled();
+  });
+
   it("runs a model test and renders inline success on the selected model card", async () => {
     const user = userEvent.setup();
 
