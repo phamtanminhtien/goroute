@@ -22,7 +22,7 @@ The repository has the first request path in place:
 - Codex responses execution for non-streaming and streaming chat completions
 - Codex responses passthrough for streaming and sync reconstruction for `/v1/responses`
 - admin APIs and UI for provider/connection management
-- Codex connection usage lookup from the admin API
+- Quota Tracker lookup from the admin API for Codex connections
 - request ID and request logging middleware
 
 The implementation is still intentionally small. Fallback is deterministic across configured connections of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Broader OpenAI wire compatibility is still pending.
@@ -63,7 +63,7 @@ Currently implemented endpoints:
 - `GET /admin/api/connections/{id}` (admin-only)
 - `PUT /admin/api/connections/{id}` (admin-only)
 - `DELETE /admin/api/connections/{id}` (admin-only)
-- `GET /admin/api/connections/{id}/usage` (admin-only, Codex usage lookup)
+- `GET /admin/api/connections/{id}/usage` (admin-only, Quota Tracker lookup for Codex connections)
 - `POST /admin/api/connections/oauth` (admin-only)
 
 ## Example Usage
@@ -178,7 +178,7 @@ After that:
 - admin UI: `http://localhost:2232/`
 - admin API: `http://localhost:2232/admin/api`
 
-The provider detail page fetches Codex usage from `GET /admin/api/connections/{id}/usage` and shows normalized quota buckets for:
+The Quota Tracker page fetches Codex usage from `GET /admin/api/connections/{id}/usage` and shows normalized quota buckets for:
 
 - `session`
 - `weekly`

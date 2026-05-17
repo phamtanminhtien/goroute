@@ -1,5 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -49,7 +50,7 @@ type MockUsageResponse = {
   reviewLimitReached: boolean;
 };
 
-describe("codex usage page", () => {
+describe("quota tracker page", () => {
   beforeEach(() => {
     vi.spyOn(Date, "now").mockReturnValue(
       new Date("2026-05-11T16:05:00.000Z").getTime(),
@@ -88,20 +89,51 @@ describe("codex usage page", () => {
         models: [{ description: "", id: "cx/gpt-5.4", name: "GPT-5.4" }],
         name: "Codex",
       },
-    ]);
-    getConnectionUsageMock.mockResolvedValue({
-      limitReached: false,
-      plan: "plus",
-      quotas: {
-        session: {
-          remaining: 58,
-          resetAt: "2026-05-16T10:00:00.000Z",
-          total: 100,
-          unlimited: false,
-          used: 42,
-        },
+      {
+        auth_type: "api_key",
+        category: "api_key",
+        connection_count: 1,
+        connections: [
+          {
+            has_access_token: false,
+            has_api_key: true,
+            has_refresh_token: false,
+            id: "openai-1",
+            name: "openai-user",
+            problems: [],
+            provider_id: "openai",
+            status: "ready",
+          },
+        ],
+        default_model: "gpt-5.4",
+        id: "openai",
+        models: [{ description: "", id: "gpt-5.4", name: "GPT-5.4" }],
+        name: "OpenAI",
       },
-      reviewLimitReached: false,
+    ]);
+    getConnectionUsageMock.mockImplementation(async (connectionID: string) => {
+      if (connectionID === "openai-1") {
+        return {
+          limitReached: false,
+          message: 'Provider "openai" does not support usage lookup.',
+          reviewLimitReached: false,
+        };
+      }
+
+      return {
+        limitReached: false,
+        plan: "plus",
+        quotas: {
+          session: {
+            remaining: 58,
+            resetAt: "2026-05-16T10:00:00.000Z",
+            total: 100,
+            unlimited: false,
+            used: 42,
+          },
+        },
+        reviewLimitReached: false,
+      };
     });
     updateConnectionMock.mockResolvedValue({
       has_access_token: true,
@@ -119,22 +151,28 @@ describe("codex usage page", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads Codex quota on the dedicated screen", async () => {
+  it("loads quota cards on the shared tracker screen", async () => {
     renderWithQueryClient(
-      <MemoryRouter initialEntries={["/quota/codex"]}>
-        <AppRoutes />
+      <MemoryRouter initialEntries={["/quota"]}>
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
-    await screen.findByRole("heading", { level: 1, name: /codex usage/i });
+    await screen.findByRole("heading", { level: 1, name: /quota tracker/i });
 
     expect(await screen.findByText(/normal ready/i)).toBeInTheDocument();
     expect(screen.getByText(/plan plus/i)).toBeInTheDocument();
+    expect(screen.getByText(/provider filter/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveTextContent(/all providers/i);
+    expect(screen.getByText(/openai-user/i)).toBeInTheDocument();
     expect(screen.getByText(/^session$/i)).toBeInTheDocument();
     expect(screen.getByText(/^42\/100$/i)).toBeInTheDocument();
     expect(screen.getByText(/used quota/i)).toBeInTheDocument();
     expect(screen.getByText(/4d 17h 55m/i)).toBeInTheDocument();
     expect(getConnectionUsageMock).toHaveBeenCalledWith("codex-1");
+    expect(getConnectionUsageMock).toHaveBeenCalledWith("openai-1");
     expect(
       screen.getByRole("button", { name: /refresh codex-user usage/i }),
     ).toBeInTheDocument();
@@ -148,8 +186,10 @@ describe("codex usage page", () => {
     });
 
     renderWithQueryClient(
-      <MemoryRouter initialEntries={["/quota/codex"]}>
-        <AppRoutes />
+      <MemoryRouter initialEntries={["/quota"]}>
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -161,6 +201,30 @@ describe("codex usage page", () => {
   it("shows a visible refreshing state when the refresh action runs", async () => {
     const user = userEvent.setup();
     let resolveRefresh!: (value: MockUsageResponse) => void;
+
+    listProvidersMock.mockResolvedValueOnce([
+      {
+        auth_type: "oauth",
+        category: "oauth",
+        connection_count: 1,
+        connections: [
+          {
+            has_access_token: true,
+            has_api_key: false,
+            has_refresh_token: true,
+            id: "codex-1",
+            name: "codex-user",
+            problems: [],
+            provider_id: "cx",
+            status: "ready",
+          },
+        ],
+        default_model: "cx/gpt-5.4",
+        id: "cx",
+        models: [{ description: "", id: "cx/gpt-5.4", name: "GPT-5.4" }],
+        name: "Codex",
+      },
+    ]);
 
     getConnectionUsageMock
       .mockResolvedValueOnce({
@@ -185,8 +249,10 @@ describe("codex usage page", () => {
       );
 
     renderWithQueryClient(
-      <MemoryRouter initialEntries={["/quota/codex"]}>
-        <AppRoutes />
+      <MemoryRouter initialEntries={["/quota"]}>
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -223,5 +289,28 @@ describe("codex usage page", () => {
         screen.getByRole("button", { name: /refresh codex-user usage/i }),
       ).toHaveTextContent(/^refresh$/i);
     });
+  });
+
+  it("filters quota cards by provider and defaults to all providers", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/quota"]}>
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/openai-user/i);
+    expect(screen.getByText(/codex-user/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox"));
+    await screen.findByRole("option", { name: "Codex" });
+    await user.click(screen.getByRole("option", { name: "Codex" }));
+
+    await screen.findByText(/codex-user/i);
+    expect(screen.queryByText(/openai-user/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveTextContent(/^codex$/i);
   });
 });

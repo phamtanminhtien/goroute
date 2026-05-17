@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import type { PropsWithChildren } from "react";
 import { useEffect } from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
@@ -49,14 +50,16 @@ export function AppProviders({ children }: PropsWithChildren) {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <TooltipProvider delayDuration={120}>
-          <ToastProvider swipeDirection="right">
-            <ThemeBridge />
-            <AuthBridge />
-            {children}
-            <ToastViewport />
-          </ToastProvider>
-        </TooltipProvider>
+        <NuqsAdapter>
+          <TooltipProvider delayDuration={120}>
+            <ToastProvider swipeDirection="right">
+              <ThemeBridge />
+              <AuthBridge />
+              {children}
+              <ToastViewport />
+            </ToastProvider>
+          </TooltipProvider>
+        </NuqsAdapter>
       </BrowserRouter>
     </QueryClientProvider>
   );

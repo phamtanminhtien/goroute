@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, RefreshCcw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Layers3, Pencil, RefreshCcw, Trash2 } from "lucide-react";
+import { parseAsString, useQueryState } from "nuqs";
+import { useEffect, useState } from "react";
 
 import {
   type ConnectionPayload,
@@ -35,6 +36,7 @@ import { InlineAlert } from "@/shared/ui/inline-alert";
 import { Modal, ModalContent, ModalPanel } from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Progress } from "@/shared/ui/progress";
+import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 import { SurfaceCard } from "@/shared/ui/surface-card";
@@ -45,29 +47,78 @@ type ConnectionModalState =
   | { kind: "closed" }
   | { connectionId: string; kind: "edit" };
 
+type QuotaConnectionRecord = {
+  connection: ProviderConnection;
+  providerID: string;
+  providerName: string;
+};
+
 export function CodexUsagePage() {
   const queryClient = useQueryClient();
   const [modalState, setModalState] = useState<ConnectionModalState>({
     kind: "closed",
   });
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [providerFilter, setProviderFilter] = useQueryState(
+    "provider",
+    parseAsString.withDefault("all"),
+  );
 
   const providersQuery = useQuery({
     queryFn: listProviders,
     queryKey: providersQueryKey,
   });
 
-  const codexProvider = (providersQuery.data ?? []).find(
-    (item) => item.id === "cx",
+  const providers = providersQuery.data ?? [];
+  const providerOptions = [
+    { label: "All providers", value: "all" },
+    ...providers.map((provider) => ({
+      label: provider.name,
+      value: provider.id,
+    })),
+  ];
+  const quotaConnections = providers.flatMap((provider) =>
+    provider.connections.map((connection) => ({
+      connection,
+      providerID: provider.id,
+      providerName: provider.name,
+    })),
   );
-  const connections = codexProvider?.connections ?? [];
-  const editingConnection =
+
+  useEffect(() => {
+    if (providerFilter === "all") {
+      return;
+    }
+
+    const providerExists = providers.some(
+      (provider) => provider.id === providerFilter,
+    );
+    if (!providerExists) {
+      void setProviderFilter("all");
+    }
+  }, [providerFilter, providers]);
+
+  const selectedProvider =
+    providerFilter === "all"
+      ? null
+      : (providers.find((provider) => provider.id === providerFilter) ?? null);
+
+  const filteredConnections =
+    providerFilter === "all"
+      ? quotaConnections
+      : quotaConnections.filter((item) => item.providerID === providerFilter);
+  const editingRecord =
     modalState.kind === "edit"
-      ? (connections.find((item) => item.id === modalState.connectionId) ??
-        null)
+      ? (quotaConnections.find(
+          (item) => item.connection.id === modalState.connectionId,
+        ) ?? null)
       : null;
-  const formRegistryEntry = codexProvider
-    ? getProviderConnectionFormEntry(codexProvider.id)
+  const editingProvider = editingRecord
+    ? (providers.find((provider) => provider.id === editingRecord.providerID) ??
+      null)
+    : null;
+  const formRegistryEntry = editingRecord
+    ? getProviderConnectionFormEntry(editingRecord.providerID)
     : null;
 
   const updateConnectionMutation = useMutation({
@@ -105,26 +156,26 @@ export function CodexUsagePage() {
   });
 
   const activeModal =
-    codexProvider && formRegistryEntry && editingConnection
+    editingRecord && editingProvider && formRegistryEntry
       ? {
           content: formRegistryEntry.renderEdit({
             busy: updateConnectionMutation.isPending,
-            connection: editingConnection,
+            connection: editingRecord.connection,
             feedback,
             initialValues: {
               ...emptyConnectionFormValues,
-              id: editingConnection.id,
-              name: editingConnection.name,
+              id: editingRecord.connection.id,
+              name: editingRecord.connection.name,
             },
             onCancel: () => setModalState({ kind: "closed" }),
             onSubmit: async (values) => {
               setFeedback(null);
               await updateConnectionMutation.mutateAsync({
-                id: editingConnection.id,
+                id: editingRecord.connection.id,
                 payload: {
                   id: values.id.trim(),
                   name: values.name.trim(),
-                  provider_id: codexProvider.id,
+                  provider_id: editingRecord.providerID,
                   ...(values.accessToken.trim()
                     ? { access_token: values.accessToken.trim() }
                     : {}),
@@ -137,27 +188,45 @@ export function CodexUsagePage() {
                 },
               });
             },
-            provider: codexProvider,
+            provider: editingProvider,
           }),
           description:
-            formRegistryEntry.getEditMeta?.(codexProvider, editingConnection)
-              .description ?? "Update this Codex connection.",
+            formRegistryEntry.getEditMeta?.(
+              editingProvider,
+              editingRecord.connection,
+            ).description ?? "Update this provider connection.",
           title:
-            formRegistryEntry.getEditMeta?.(codexProvider, editingConnection)
-              .title ?? "Edit connection",
+            formRegistryEntry.getEditMeta?.(
+              editingProvider,
+              editingRecord.connection,
+            ).title ?? "Edit connection",
         }
       : null;
 
   return (
     <section className="space-y-4 pb-5">
       <PageHeader
-        description="Live quota snapshots for your Codex connections."
+        description="Live quota snapshots across your provider connections."
         eyebrow="Quota"
-        title="Codex usage"
+        title="Quota Tracker"
       >
-        <StatusBadge tone="info" size="sm">
-          On-demand only
-        </StatusBadge>
+        <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:items-end">
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+            <StatusBadge tone="info" size="sm">
+              On-demand only
+            </StatusBadge>
+            <ProviderFilterBadge provider={selectedProvider} />
+          </div>
+          <div className="w-full sm:w-[260px]">
+            <Select
+              onValueChange={(value) => {
+                void setProviderFilter(value);
+              }}
+              options={providerOptions}
+              value={providerFilter}
+            />
+          </div>
+        </div>
       </PageHeader>
 
       {feedback ? (
@@ -186,15 +255,15 @@ export function CodexUsagePage() {
 
       {!providersQuery.isPending &&
       !providersQuery.isError &&
-      (!codexProvider || connections.length === 0) ? (
+      quotaConnections.length === 0 ? (
         <SurfaceCard className="p-5" tone="solid">
           <div className="space-y-2">
             <p className="text-fg-primary text-sm font-semibold">
-              No Codex connections
+              No provider connections yet
             </p>
             <p className="text-fg-secondary text-sm leading-6">
-              Add a Codex connection from the provider registry, then return
-              here to inspect quota.
+              Add a provider connection from the registry, then return here to
+              inspect quota.
             </p>
           </div>
         </SurfaceCard>
@@ -202,26 +271,47 @@ export function CodexUsagePage() {
 
       {!providersQuery.isPending &&
       !providersQuery.isError &&
-      connections.length > 0 ? (
+      quotaConnections.length > 0 &&
+      filteredConnections.length === 0 ? (
+        <SurfaceCard className="p-5" tone="solid">
+          <div className="space-y-2">
+            <p className="text-fg-primary text-sm font-semibold">
+              No connections match this filter
+            </p>
+            <p className="text-fg-secondary text-sm leading-6">
+              Switch back to All providers or choose another provider to inspect
+              available quota data.
+            </p>
+          </div>
+        </SurfaceCard>
+      ) : null}
+
+      {!providersQuery.isPending &&
+      !providersQuery.isError &&
+      filteredConnections.length > 0 ? (
         <div className="grid gap-3 md:grid-cols-2">
-          {connections.map((connection) => (
-            <CodexUsageCard
-              busyDeleting={
-                deleteConnectionMutation.isPending &&
-                deleteConnectionMutation.variables === connection.id
-              }
-              connection={connection}
-              key={connection.id}
-              onDelete={async () => {
-                setFeedback(null);
-                await deleteConnectionMutation.mutateAsync(connection.id);
-              }}
-              onEdit={() => {
-                setFeedback(null);
-                setModalState({ connectionId: connection.id, kind: "edit" });
-              }}
-            />
-          ))}
+          {filteredConnections.map(
+            ({ connection, providerID, providerName }) => (
+              <CodexUsageCard
+                busyDeleting={
+                  deleteConnectionMutation.isPending &&
+                  deleteConnectionMutation.variables === connection.id
+                }
+                connection={connection}
+                key={connection.id}
+                providerID={providerID}
+                providerName={providerName}
+                onDelete={async () => {
+                  setFeedback(null);
+                  await deleteConnectionMutation.mutateAsync(connection.id);
+                }}
+                onEdit={() => {
+                  setFeedback(null);
+                  setModalState({ connectionId: connection.id, kind: "edit" });
+                }}
+              />
+            ),
+          )}
         </div>
       ) : null}
 
@@ -248,18 +338,51 @@ export function CodexUsagePage() {
   );
 }
 
+function ProviderFilterBadge({
+  provider,
+}: {
+  provider: { id: string; name: string } | null;
+}) {
+  return (
+    <div className="border-border/70 bg-bg-secondary flex items-center gap-2 rounded-[16px] border px-3 py-2">
+      <div className="border-border/70 flex size-8 items-center justify-center overflow-hidden rounded-[10px] border bg-[#080808]">
+        {provider ? (
+          <img
+            alt=""
+            className="size-full object-cover"
+            src={`/images/providers/${provider.id}.png`}
+          />
+        ) : (
+          <Layers3 className="size-4 text-white" />
+        )}
+      </div>
+      <div className="min-w-0">
+        <p className="text-fg-muted text-[10px] font-semibold tracking-[0.18em] uppercase">
+          Provider filter
+        </p>
+        <p className="text-fg-primary truncate text-sm font-semibold">
+          {provider?.name ?? "All providers"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function CodexUsageCard({
   busyDeleting,
   connection,
+  providerID,
+  providerName,
   onDelete,
   onEdit,
 }: {
   busyDeleting: boolean;
   connection: ProviderConnection;
+  providerID: string;
+  providerName: string;
   onDelete: () => void | Promise<void>;
   onEdit: () => void;
 }) {
-  const queryClient = useQueryClient();
   const usageQuery = useQuery({
     queryFn: () => getConnectionUsage(connection.id),
     queryKey: connectionUsageQueryKey(connection.id),
@@ -273,7 +396,7 @@ function CodexUsageCard({
           <img
             alt=""
             className="size-7 rounded-[7px] object-cover"
-            src="/images/providers/cx.png"
+            src={`/images/providers/${providerID}.png`}
           />
         </div>
 
@@ -284,7 +407,7 @@ function CodexUsageCard({
                 {connection.name}
               </p>
               <p className="text-fg-muted mt-0.5 truncate text-[10px]">
-                {connection.id}
+                {providerName} · {connection.id}
               </p>
             </div>
 
@@ -337,7 +460,7 @@ function CodexUsageCard({
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete connection?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Delete connection "{connection.name}" from Codex usage.
+                      Delete connection "{connection.name}" from Quota Tracker.
                       This removes the stored credential reference and cannot be
                       undone.
                     </AlertDialogDescription>
@@ -379,7 +502,7 @@ function CodexUsageCard({
 
       {usageQuery.isError ? (
         <InlineAlert tone="warning">
-          Usage check failed for this Codex connection.
+          Usage check failed for this provider connection.
         </InlineAlert>
       ) : null}
 

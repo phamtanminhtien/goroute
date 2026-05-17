@@ -70,18 +70,27 @@ describe("settings page", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText(":2232");
+    await screen.findByText("web/dist");
 
+    expect(screen.getByText(/2232/)).toBeInTheDocument();
     expect(screen.getByText("web/dist")).toBeInTheDocument();
     expect(
-      screen.getByRole("switch", { name: /flow log toggle/i }),
+      screen.getByRole("switch", { name: /request history details toggle/i }),
     ).toHaveAttribute("data-state", "checked");
     expect(
-      screen.getByRole("switch", { name: /third-party log toggle/i }),
+      screen.getByRole("switch", { name: /provider exchange details toggle/i }),
     ).toHaveAttribute("data-state", "unchecked");
     expect(
       screen.getByRole("switch", { name: /rtk compression toggle/i }),
     ).toHaveAttribute("data-state", "unchecked");
+    expect(
+      screen.getByRole("link", { name: /learn more about rtk/i }),
+    ).toHaveAttribute("href", "https://github.com/rtk-ai/rtk");
+    expect(screen.queryByText(/ai_request_flows/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/third_party_request_logs/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/ai_request_runs/i)).not.toBeInTheDocument();
   });
 
   it("submits updated logging settings and shows success feedback", async () => {
@@ -94,10 +103,10 @@ describe("settings page", () => {
     );
 
     const flowSwitch = await screen.findByRole("switch", {
-      name: /flow log toggle/i,
+      name: /request history details toggle/i,
     });
     const thirdPartySwitch = screen.getByRole("switch", {
-      name: /third-party log toggle/i,
+      name: /provider exchange details toggle/i,
     });
     const rtkSwitch = screen.getByRole("switch", {
       name: /rtk compression toggle/i,
@@ -106,7 +115,7 @@ describe("settings page", () => {
     await user.click(flowSwitch);
     await user.click(thirdPartySwitch);
     await user.click(rtkSwitch);
-    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledTimes(1);
@@ -124,7 +133,9 @@ describe("settings page", () => {
     });
 
     expect(
-      await screen.findByText(/logging settings saved/i),
+      await screen.findByText(
+        /settings saved\. new requests will use them right away\./i,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -138,11 +149,15 @@ describe("settings page", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByRole("switch", { name: /flow log toggle/i });
+    await screen.findByRole("switch", {
+      name: /request history details toggle/i,
+    });
     await user.click(
-      screen.getByRole("switch", { name: /third-party log toggle/i }),
+      screen.getByRole("switch", {
+        name: /provider exchange details toggle/i,
+      }),
     );
-    await user.click(screen.getByRole("button", { name: /save settings/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     expect(await screen.findByText(/save failed/i)).toBeInTheDocument();
   });

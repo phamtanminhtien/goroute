@@ -27,10 +27,10 @@ const navItems = [
     to: "/usage",
   },
   {
-    description: "On-demand Codex session and review quota checks",
+    description: "On-demand Codex session and review quota tracking",
     icon: PanelsTopLeft,
-    label: "Codex usage",
-    to: "/quota/codex",
+    label: "Quota Tracker",
+    to: "/quota",
   },
   {
     description: "Ingress, auth posture, and runtime defaults",
@@ -128,7 +128,6 @@ function SidebarNavContent({
               { icon: Layers3, label: "Model Catalog" },
               { icon: TerminalSquare, label: "Console Log" },
               { icon: Box, label: "Proxy Pools" },
-              { icon: Settings, label: "Settings" },
             ].map((item) => {
               const Icon = item.icon;
 

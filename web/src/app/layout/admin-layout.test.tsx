@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { NuqsAdapter } from "nuqs/adapters/react-router/v7";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -84,7 +85,9 @@ describe("admin layout", () => {
   it("renders the classic full-width dashboard", async () => {
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers"]}>
-        <AppRoutes />
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -116,7 +119,9 @@ describe("admin layout", () => {
 
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers"]}>
-        <AppRoutes />
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -133,7 +138,9 @@ describe("admin layout", () => {
 
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers"]}>
-        <AppRoutes />
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -141,9 +148,9 @@ describe("admin layout", () => {
 
     await screen.findByRole("heading", {
       level: 1,
-      name: /system configuration/i,
+      name: /request settings/i,
     });
-    expect(screen.getByText(/runtime overview/i)).toBeInTheDocument();
+    expect(screen.getByText(/current environment/i)).toBeInTheDocument();
   });
 
   it("opens the dedicated quota screen from navigation", async () => {
@@ -157,7 +164,9 @@ describe("admin layout", () => {
 
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers"]}>
-        <AppRoutes />
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -165,7 +174,7 @@ describe("admin layout", () => {
 
     await screen.findByRole("heading", {
       level: 1,
-      name: /codex usage/i,
+      name: /quota tracker/i,
     });
   });
 
@@ -174,7 +183,9 @@ describe("admin layout", () => {
 
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers"]}>
-        <AppRoutes />
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
       </MemoryRouter>,
     );
 
@@ -186,7 +197,7 @@ describe("admin layout", () => {
       screen.getByRole("dialog", { name: /navigation menu/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByRole("link", { name: /codex usage/i }).length,
+      screen.getAllByRole("link", { name: /quota tracker/i }).length,
     ).toBeGreaterThan(0);
   });
 });

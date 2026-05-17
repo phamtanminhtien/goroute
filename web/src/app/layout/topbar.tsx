@@ -16,7 +16,7 @@ const topbarMeta = {
   },
   "/settings": {
     eyebrow: "Runtime",
-    title: "Review ingress, auth, and default routing behavior",
+    title: "Control request detail and RTK behavior",
   },
 } as const;
 

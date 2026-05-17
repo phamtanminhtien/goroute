@@ -110,7 +110,7 @@ Current admin routes:
 
 `PUT /admin/api/settings` accepts the same normalized `llmLogging.enabled` booleans plus `rtk.enabled`, then applies them immediately to new requests after saving `config.json`.
 
-### Codex usage lookup
+### Quota Tracker lookup
 
 `GET /admin/api/connections/{id}/usage` currently has special support for Codex connections.
 
