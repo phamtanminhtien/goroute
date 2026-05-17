@@ -219,7 +219,7 @@ export function UsageAnalyticsPage() {
         </div>
 
         {recentRequestsQuery.isError ? (
-          <div className="p-5 pt-0">
+          <div className="p-5">
             <InlineAlert tone="error">
               {recentRequestsQuery.error instanceof Error
                 ? recentRequestsQuery.error.message
@@ -231,7 +231,7 @@ export function UsageAnalyticsPage() {
         {!recentRequestsQuery.isPending &&
         !recentRequestsQuery.isError &&
         recentRequests.length === 0 ? (
-          <div className="p-5 pt-0">
+          <div className="p-5">
             <InlineAlert>
               No matching requests were found for this range.
             </InlineAlert>
