@@ -90,8 +90,8 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model: "cx/gpt-5.3-codex",
 		Messages: []openaiwire.ChatMessage{
-			{Role: "system", Content: "You are helpful."},
-			{Role: "user", Content: "Hello"},
+			{Role: "system", Content: openaiwire.TextContent("You are helpful.")},
+			{Role: "user", Content: openaiwire.TextContent("Hello")},
 		},
 		Stream: true,
 	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
@@ -131,6 +131,68 @@ func TestClientConvertsChatCompletionsToCodexResponses(t *testing.T) {
 	}
 }
 
+func TestClientConvertsChatCompletionsImageContentToInputImage(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_123\",\"created_at\":1712345678,\"status\":\"completed\"}}\n\n",
+			)),
+		}, nil
+	})}
+
+	client := newTestChatAdapter(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", AccessToken: "token"})
+	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
+		Model: "cx/gpt-5.3-codex",
+		Messages: []openaiwire.ChatMessage{{
+			Role: "user",
+			Content: openaiwire.PartsContent(
+				openaiwire.ChatMessageContentPart{Type: "text", Text: "describe this"},
+				openaiwire.ChatMessageContentPart{
+					Type: "image_url",
+					ImageURL: &openaiwire.ChatMessageImageURL{
+						URL:    "https://example.com/cat.png",
+						Detail: "high",
+					},
+				},
+			),
+		}},
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("chat completions: %v", err)
+	}
+
+	input, ok := upstreamBody["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("unexpected upstream input %#v", upstreamBody["input"])
+	}
+	item, ok := input[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected input item %#v", input[0])
+	}
+	content, ok := item["content"].([]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("unexpected input content %#v", item["content"])
+	}
+	imagePart, ok := content[1].(map[string]any)
+	if !ok || imagePart["type"] != "input_image" {
+		t.Fatalf("unexpected image part %#v", content[1])
+	}
+	if imagePart["image_url"] != "https://example.com/cat.png" || imagePart["detail"] != "high" {
+		t.Fatalf("unexpected input_image payload %#v", imagePart)
+	}
+}
+
 func TestClientStreamsCodexResponsesBody(t *testing.T) {
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -148,7 +210,7 @@ func TestClientStreamsCodexResponsesBody(t *testing.T) {
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "cx/gpt-5.3-codex",
-		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "Hello"}},
+		Messages: []openaiwire.ChatMessage{{Role: "user", Content: openaiwire.TextContent("Hello")}},
 		Stream:   true,
 	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
 	if err != nil {
@@ -213,6 +275,24 @@ func TestClientResponsesReconstructsSyncResponse(t *testing.T) {
 	}
 }
 
+func TestClientResponsesRoundTripsInputImageToChatContent(t *testing.T) {
+	chatContent := responseInputContentToChatContent([]openaiwire.ResponseInputContentPart{
+		{Type: "input_text", Text: "describe this"},
+		{Type: "input_image", ImageURL: "https://example.com/cat.png", Detail: "low"},
+	})
+
+	parts := chatContent.Parts()
+	if len(parts) != 2 {
+		t.Fatalf("expected two chat content parts, got %#v", parts)
+	}
+	if parts[0].Type != "text" || parts[0].Text != "describe this" {
+		t.Fatalf("unexpected text part %#v", parts[0])
+	}
+	if parts[1].Type != "image_url" || parts[1].ImageURL == nil || parts[1].ImageURL.URL != "https://example.com/cat.png" || parts[1].ImageURL.Detail != "low" {
+		t.Fatalf("unexpected image part %#v", parts[1])
+	}
+}
+
 func TestClientResponsesNormalizesStringInput(t *testing.T) {
 	var upstreamBody map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -245,12 +325,12 @@ func TestClientResponsesNormalizesStringInput(t *testing.T) {
 	if !ok || len(input) != 1 {
 		t.Fatalf("unexpected upstream input %#v", upstreamBody["input"])
 	}
-	if upstreamBody["instructions"] != "" {
-		t.Fatalf("expected responses lane to avoid implicit default instructions, got %#v", upstreamBody["instructions"])
+	if upstreamBody["instructions"] != defaultInstruction {
+		t.Fatalf("expected responses lane to use default instructions, got %#v", upstreamBody["instructions"])
 	}
 }
 
-func TestClientResponsesLeavesInstructionsUnsetWhenEmpty(t *testing.T) {
+func TestClientResponsesUsesDefaultInstructionsWhenEmpty(t *testing.T) {
 	var upstreamBody map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		data, err := io.ReadAll(r.Body)
@@ -282,8 +362,8 @@ func TestClientResponsesLeavesInstructionsUnsetWhenEmpty(t *testing.T) {
 		t.Fatalf("responses: %v", err)
 	}
 
-	if upstreamBody["instructions"] != "" {
-		t.Fatalf("expected responses lane to keep instructions empty, got %#v", upstreamBody["instructions"])
+	if upstreamBody["instructions"] != defaultInstruction {
+		t.Fatalf("expected responses lane to use default instructions, got %#v", upstreamBody["instructions"])
 	}
 }
 
@@ -349,7 +429,7 @@ func TestClientIncludesDefaultInstructionsWhenNoSystemMessage(t *testing.T) {
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model: "cx/gpt-5.3-codex",
 		Messages: []openaiwire.ChatMessage{
-			{Role: "user", Content: "Hello"},
+			{Role: "user", Content: openaiwire.TextContent("Hello")},
 		},
 	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
 	if err != nil {
@@ -409,7 +489,7 @@ func TestClientRefreshesTokenProactivelyBeforeRequest(t *testing.T) {
 
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "cx/gpt-5.3-codex",
-		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "Hello"}},
+		Messages: []openaiwire.ChatMessage{{Role: "user", Content: openaiwire.TextContent("Hello")}},
 	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
 	if err != nil {
 		t.Fatalf("chat completions: %v", err)
@@ -478,7 +558,7 @@ func TestClientRefreshesTokenAfterUnauthorizedResponse(t *testing.T) {
 
 	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "cx/gpt-5.3-codex",
-		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "Hello"}},
+		Messages: []openaiwire.ChatMessage{{Role: "user", Content: openaiwire.TextContent("Hello")}},
 	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.3-codex"})
 	if err != nil {
 		t.Fatalf("chat completions: %v", err)

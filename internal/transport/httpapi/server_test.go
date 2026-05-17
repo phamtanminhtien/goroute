@@ -331,6 +331,57 @@ func TestChatCompletionsAcceptsPrefixedModel(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsAcceptsMixedTextAndImageContent(t *testing.T) {
+	provider := &testProvider{response: openaiwire.ChatCompletionsResponse{
+		ID:     "chatcmpl-1",
+		Object: "chat.completion",
+		Model:  "gpt-5.4",
+		Choices: []openaiwire.ChatChoice{{
+			Index:   0,
+			Message: openaiwire.Message{Role: "assistant", Content: "looks good"},
+		}},
+	}}
+	handler := testServer(t, provider)
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":[{"type":"text","text":"describe this image"},{"type":"image_url","image_url":{"url":"https://example.com/cat.png","detail":"high"}}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if len(provider.lastReq.Messages) != 1 {
+		t.Fatalf("expected one message, got %#v", provider.lastReq.Messages)
+	}
+	parts := provider.lastReq.Messages[0].Content.Parts()
+	if len(parts) != 2 {
+		t.Fatalf("expected two content parts, got %#v", parts)
+	}
+	if parts[0].Type != "text" || parts[0].Text != "describe this image" {
+		t.Fatalf("unexpected text part %#v", parts[0])
+	}
+	if parts[1].Type != "image_url" || parts[1].ImageURL == nil || parts[1].ImageURL.URL != "https://example.com/cat.png" || parts[1].ImageURL.Detail != "high" {
+		t.Fatalf("unexpected image part %#v", parts[1])
+	}
+}
+
+func TestChatCompletionsRejectsImageContentWithoutURL(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"detail":"high"}}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `messages[0].content[0].image_url.url is required`) {
+		t.Fatalf("expected validation error, got body=%s", rec.Body.String())
+	}
+}
+
 func TestChatCompletionsPassesThroughUpstreamErrors(t *testing.T) {
 	handler := testServer(t, &testProvider{err: chatcompletion.UpstreamError{
 		StatusCode: http.StatusTooManyRequests,
@@ -581,6 +632,66 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	}
 	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
+	}
+}
+
+func TestChatCompletionsRedactsImageURLsInPersistedLogs(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &loggingTestProvider{
+		testProvider: testProvider{
+			response: openaiwire.ChatCompletionsResponse{
+				ID:     "chatcmpl-1",
+				Object: "chat.completion",
+				Model:  "gpt-5.4",
+				Choices: []openaiwire.ChatChoice{{
+					Index:   0,
+					Message: openaiwire.Message{Role: "assistant", Content: "hello back"},
+				}},
+			},
+		},
+	}, nil, databasePath)
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":[{"type":"text","text":"what is in this image?"},{"type":"image_url","image_url":{"url":"data:image/png;base64,abc123","detail":"high"}},{"type":"image_url","image_url":{"url":"https://signed.example.com/private.png","detail":"low"}}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+
+	flows, err := repo.ListAIRequestFlows()
+	if err != nil {
+		t.Fatalf("list ai request flows: %v", err)
+	}
+	thirdPartyLogs, err := repo.ListThirdPartyRequestLogs()
+	if err != nil {
+		t.Fatalf("list third party request logs: %v", err)
+	}
+
+	if len(flows) != 1 {
+		t.Fatalf("unexpected flow records %#v", flows)
+	}
+	if strings.Contains(flows[0].RequestBody, "data:image/png;base64,abc123") || strings.Contains(flows[0].RequestBody, "https://signed.example.com/private.png") {
+		t.Fatalf("expected request body to redact image urls, got %#v", flows[0].RequestBody)
+	}
+	if !strings.Contains(flows[0].RequestBody, "[REDACTED_DATA_URL]") || !strings.Contains(flows[0].RequestBody, "[REDACTED_IMAGE_URL]") {
+		t.Fatalf("expected request body redaction markers, got %#v", flows[0].RequestBody)
+	}
+	if strings.Contains(flows[0].TranslatedRequestBody, "data:image/png;base64,abc123") || strings.Contains(flows[0].TranslatedRequestBody, "https://signed.example.com/private.png") {
+		t.Fatalf("expected translated request body to redact image urls, got %#v", flows[0].TranslatedRequestBody)
+	}
+	if len(thirdPartyLogs) != 1 {
+		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
+	}
+	if strings.Contains(thirdPartyLogs[0].RequestBody, "data:image/png;base64,abc123") || strings.Contains(thirdPartyLogs[0].RequestBody, "https://signed.example.com/private.png") {
+		t.Fatalf("expected third party request body to redact image urls, got %#v", thirdPartyLogs[0].RequestBody)
 	}
 }
 

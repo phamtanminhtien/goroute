@@ -6,6 +6,7 @@ import (
 
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
+	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 )
 
 func Execute(ctx context.Context, catalog provider.Catalog, connectionRegistry *ConnectionRegistry, input Input) (Output, error) {
@@ -21,6 +22,9 @@ func Execute(ctx context.Context, catalog provider.Catalog, connectionRegistry *
 
 	if len(input.Request.Messages) == 0 {
 		return Output{}, fmt.Errorf("messages must contain at least one item")
+	}
+	if err := openaiwire.ValidateChatCompletionsRequest(input.Request); err != nil {
+		return Output{}, err
 	}
 
 	response, err := connectionRegistry.ChatCompletions(ctx, input.Request, target)
@@ -46,6 +50,9 @@ func ExecuteStream(ctx context.Context, catalog provider.Catalog, connectionRegi
 
 	if len(input.Request.Messages) == 0 {
 		return StreamOutput{}, fmt.Errorf("messages must contain at least one item")
+	}
+	if err := openaiwire.ValidateChatCompletionsRequest(input.Request); err != nil {
+		return StreamOutput{}, err
 	}
 
 	body, err := connectionRegistry.ChatCompletionsStream(ctx, input.Request, target)

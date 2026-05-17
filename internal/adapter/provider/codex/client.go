@@ -273,97 +273,75 @@ func stripProviderPrefix(model string) string {
 	return model
 }
 
-func contentToResponsesContent(role openaiwire.ChatRole, content any) []openaiwire.ResponseInputContentPart {
+func contentToResponsesContent(role openaiwire.ChatRole, content openaiwire.ChatMessageContent) []openaiwire.ResponseInputContentPart {
 	textType := "input_text"
 	if role == openaiwire.ChatRoleAssistant {
 		textType = "output_text"
 	}
 
-	switch v := content.(type) {
-	case string:
-		return []openaiwire.ResponseInputContentPart{{Type: textType, Text: v}}
-	case []any:
-		parts := make([]openaiwire.ResponseInputContentPart, 0, len(v))
-		for _, part := range v {
-			partMap, ok := part.(map[string]any)
-			if !ok {
-				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: stringifyContent(part)})
+	if !content.IsParts() {
+		return []openaiwire.ResponseInputContentPart{{Type: textType, Text: content.Text()}}
+	}
+
+	sourceParts := content.Parts()
+	parts := make([]openaiwire.ResponseInputContentPart, 0, len(sourceParts))
+	for _, part := range sourceParts {
+		switch part.Type {
+		case "text":
+			parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: part.Text})
+		case "image_url":
+			imageURL := ""
+			detail := ""
+			if part.ImageURL != nil {
+				imageURL = part.ImageURL.URL
+				detail = part.ImageURL.Detail
+			}
+			parts = append(parts, openaiwire.ResponseInputContentPart{Type: "input_image", ImageURL: imageURL, Detail: defaultString(detail, "auto")})
+		default:
+			data, err := json.Marshal(part)
+			if err != nil {
+				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: ""})
 				continue
 			}
-			switch partMap["type"] {
-			case "text":
-				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: stringField(partMap, "text")})
-			case "image_url":
-				imageURL, detail := imageURLFields(partMap["image_url"])
-				parts = append(parts, openaiwire.ResponseInputContentPart{Type: "input_image", ImageURL: imageURL, Detail: defaultString(detail, "auto")})
-			default:
-				parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: stringifyContent(part)})
-			}
+			parts = append(parts, openaiwire.ResponseInputContentPart{Type: textType, Text: string(data)})
 		}
-		return parts
-	default:
-		return []openaiwire.ResponseInputContentPart{{Type: textType, Text: stringifyContent(content)}}
 	}
+	return parts
 }
 
-func imageURLFields(value any) (string, string) {
-	switch v := value.(type) {
-	case string:
-		return v, ""
-	case map[string]any:
-		return stringField(v, "url"), stringField(v, "detail")
-	default:
-		return "", ""
-	}
-}
-
-func stringField(values map[string]any, key string) string {
-	value, _ := values[key].(string)
-	return value
-}
-
-func stringifyContent(content any) string {
-	switch v := content.(type) {
-	case nil:
-		return ""
-	case string:
-		return v
-	default:
-		data, err := json.Marshal(v)
+func stringifyContent(content openaiwire.ChatMessageContent) string {
+	if content.IsParts() {
+		data, err := json.Marshal(content.Parts())
 		if err != nil {
-			return fmt.Sprint(v)
+			return ""
 		}
 		return string(data)
 	}
+	return content.Text()
 }
 
 func extractMessageText(message openaiwire.ChatMessage) string {
 	return strings.Join(extractTextParts(message.Content), "")
 }
 
-func extractTextParts(content any) []string {
-	switch v := content.(type) {
-	case nil:
-		return nil
-	case string:
-		return []string{v}
-	case []any:
-		parts := make([]string, 0, len(v))
-		for _, part := range v {
-			partMap, ok := part.(map[string]any)
-			if !ok {
-				continue
-			}
-			if text := stringField(partMap, "text"); text != "" {
-				parts = append(parts, text)
-			} else if output := stringField(partMap, "output"); output != "" {
-				parts = append(parts, output)
+func extractTextParts(content openaiwire.ChatMessageContent) []string {
+	if !content.IsParts() {
+		if content.Text() == "" {
+			return nil
+		}
+		return []string{content.Text()}
+	}
+
+	parts := make([]string, 0, len(content.Parts()))
+	for _, part := range content.Parts() {
+		switch part.Type {
+		case "text":
+			if part.Text != "" {
+				parts = append(parts, part.Text)
 			}
 		}
-		return parts
-	default:
-		return []string{stringifyContent(content)}
 	}
+	return parts
 }
 
 func reasoningEffort(reasoning any) string {
@@ -390,7 +368,7 @@ func responsesToSessionMessages(req openaiwire.ResponsesRequest) []openaiwire.Ch
 	if strings.TrimSpace(req.Instructions) != "" {
 		messages = append(messages, openaiwire.ChatMessage{
 			Role:    openaiwire.ChatRoleSystem,
-			Content: req.Instructions,
+			Content: openaiwire.TextContent(req.Instructions),
 		})
 	}
 
@@ -417,7 +395,7 @@ func responsesToSessionMessages(req openaiwire.ResponsesRequest) []openaiwire.Ch
 			messages = append(messages, openaiwire.ChatMessage{
 				Role:       openaiwire.ChatRoleTool,
 				ToolCallID: item.CallID,
-				Content:    item.Output,
+				Content:    openaiwire.TextContent(item.Output),
 			})
 		}
 	}
@@ -426,6 +404,10 @@ func responsesToSessionMessages(req openaiwire.ResponsesRequest) []openaiwire.Ch
 }
 
 func normalizeResponsesRequest(req openaiwire.ResponsesRequest) openaiwire.ResponsesRequest {
+	if strings.TrimSpace(req.Instructions) == "" {
+		req.Instructions = defaultInstruction
+	}
+
 	if strings.TrimSpace(req.InputText) == "" || len(req.Input) > 0 {
 		return req
 	}
@@ -441,34 +423,34 @@ func normalizeResponsesRequest(req openaiwire.ResponsesRequest) openaiwire.Respo
 	return req
 }
 
-func responseInputContentToChatContent(parts []openaiwire.ResponseInputContentPart) any {
+func responseInputContentToChatContent(parts []openaiwire.ResponseInputContentPart) openaiwire.ChatMessageContent {
 	if len(parts) == 0 {
-		return ""
+		return openaiwire.TextContent("")
 	}
-	items := make([]any, 0, len(parts))
+	items := make([]openaiwire.ChatMessageContentPart, 0, len(parts))
 	for _, part := range parts {
 		switch part.Type {
 		case "input_image":
-			items = append(items, map[string]any{
-				"type": "image_url",
-				"image_url": map[string]any{
-					"url":    part.ImageURL,
-					"detail": defaultString(part.Detail, "auto"),
+			items = append(items, openaiwire.ChatMessageContentPart{
+				Type: "image_url",
+				ImageURL: &openaiwire.ChatMessageImageURL{
+					URL:    part.ImageURL,
+					Detail: defaultString(part.Detail, "auto"),
 				},
 			})
 		default:
-			items = append(items, map[string]any{
-				"type": "text",
-				"text": part.Text,
+			items = append(items, openaiwire.ChatMessageContentPart{
+				Type: "text",
+				Text: part.Text,
 			})
 		}
 	}
 	if len(items) == 1 {
-		if text, ok := items[0].(map[string]any); ok && text["type"] == "text" {
-			return text["text"]
+		if items[0].Type == "text" {
+			return openaiwire.TextContent(items[0].Text)
 		}
 	}
-	return items
+	return openaiwire.PartsContent(items...)
 }
 
 func machineID() string {

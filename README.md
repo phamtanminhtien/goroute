@@ -83,6 +83,51 @@ The client remains unchanged while routing policy evolves server-side.
 
 `/v1/responses` follows the same prefixed-model routing behavior. For OpenAI connections the request and response body are passed through in Responses shape. For Codex connections streaming is passed through as Responses SSE and sync responses are reconstructed from the upstream event stream.
 
+`/v1/chat/completions` also accepts mixed text+image user content in OpenAI-compatible form:
+
+```json
+{
+  "model": "cx/gpt-5.4",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "What is in this image?" },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "https://example.com/cat.png",
+            "detail": "high"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Data URLs are supported too, for example `"url": "data:image/png;base64,..."`.
+
+`/v1/responses` keeps the corresponding Responses shape with `input_image` parts:
+
+```json
+{
+  "model": "cx/gpt-5.4",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        { "type": "input_text", "text": "What is in this image?" },
+        { "type": "input_image", "image_url": "https://example.com/cat.png", "detail": "high" }
+      ]
+    }
+  ]
+}
+```
+
+This phase does not add multipart upload or server-side image storage; clients must send a remote URL or data URL inside the JSON payload.
+
 ## Configuration Direction
 
 The user config file is loaded from `~/.goroute/config.json`.

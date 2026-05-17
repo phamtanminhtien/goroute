@@ -667,6 +667,10 @@ func redactValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, current := range typed {
+			if isImageURLKey(key) {
+				typed[key] = redactImageURLValue(current)
+				continue
+			}
 			if isSensitiveKey(key) {
 				typed[key] = "[REDACTED]"
 				continue
@@ -684,6 +688,39 @@ func redactValue(value any) any {
 	}
 }
 
+func redactImageURLValue(value any) any {
+	switch typed := value.(type) {
+	case string:
+		return redactImageURLString(typed)
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, current := range typed {
+			if strings.EqualFold(strings.TrimSpace(key), "url") {
+				if text, ok := current.(string); ok {
+					cloned[key] = redactImageURLString(text)
+				} else {
+					cloned[key] = "[REDACTED_IMAGE_URL]"
+				}
+				continue
+			}
+			cloned[key] = redactValue(current)
+		}
+		if _, ok := cloned["url"]; !ok {
+			cloned["url"] = "[REDACTED_IMAGE_URL]"
+		}
+		return cloned
+	default:
+		return "[REDACTED_IMAGE_URL]"
+	}
+}
+
+func redactImageURLString(value string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "data:") {
+		return "[REDACTED_DATA_URL]"
+	}
+	return "[REDACTED_IMAGE_URL]"
+}
+
 func defaultString(value string, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -694,6 +731,15 @@ func defaultString(value string, fallback string) string {
 func isSensitiveKey(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "authorization", "cookie", "set-cookie", "api_key", "apikey", "access_token", "refreshtoken", "refresh_token":
+		return true
+	default:
+		return false
+	}
+}
+
+func isImageURLKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "image_url":
 		return true
 	default:
 		return false

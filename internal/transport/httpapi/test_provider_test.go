@@ -81,26 +81,28 @@ type loggingTestProvider struct {
 func (p *loggingTestProvider) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
 	response, err := p.testProvider.ChatCompletions(ctx, req, target)
 	if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
-		if payload, err := json.Marshal(map[string]any{"model": target.RequestedModel}); err == nil {
+		upstreamReq := req
+		upstreamReq.Model = target.RequestedModel
+		if payload, err := json.Marshal(upstreamReq); err == nil {
 			recorder.SetTranslatedRequestBody(string(payload))
+			recorder.AddThirdPartyLog(chatcompletion.ThirdPartyLog{
+				ProviderID:          target.ProviderID,
+				ProviderName:        target.ProviderName,
+				ConnectionID:        "codex-1",
+				ConnectionName:      "codex-user",
+				AttemptIndex:        0,
+				ProviderRequestMode: chatcompletion.RequestModeSync,
+				RequestMethod:       "POST",
+				RequestURL:          "https://provider.example/v1/chat/completions",
+				RequestHeaders:      `{"Authorization":["[REDACTED]"]}`,
+				RequestBody:         chatcompletion.RedactBodyForStorage(string(payload)),
+				ResponseStatusCode:  200,
+				ResponseHeaders:     `{"Content-Type":["application/json"]}`,
+				ResponseBody:        `{"id":"upstream-1"}`,
+				StartedAt:           time.Now().UTC(),
+				CompletedAt:         time.Now().UTC(),
+			})
 		}
-		recorder.AddThirdPartyLog(chatcompletion.ThirdPartyLog{
-			ProviderID:          target.ProviderID,
-			ProviderName:        target.ProviderName,
-			ConnectionID:        "codex-1",
-			ConnectionName:      "codex-user",
-			AttemptIndex:        0,
-			ProviderRequestMode: chatcompletion.RequestModeSync,
-			RequestMethod:       "POST",
-			RequestURL:          "https://provider.example/v1/chat/completions",
-			RequestHeaders:      `{"Authorization":["[REDACTED]"]}`,
-			RequestBody:         `{"model":"gpt-5.4"}`,
-			ResponseStatusCode:  200,
-			ResponseHeaders:     `{"Content-Type":["application/json"]}`,
-			ResponseBody:        `{"id":"upstream-1"}`,
-			StartedAt:           time.Now().UTC(),
-			CompletedAt:         time.Now().UTC(),
-		})
 	}
 	return response, err
 }
@@ -108,26 +110,28 @@ func (p *loggingTestProvider) ChatCompletions(ctx context.Context, req openaiwir
 func (p *loggingTestProvider) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
 	response, err := p.testProvider.Responses(ctx, req, target)
 	if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
-		if payload, err := json.Marshal(map[string]any{"model": target.RequestedModel}); err == nil {
+		upstreamReq := req
+		upstreamReq.Model = target.RequestedModel
+		if payload, err := json.Marshal(upstreamReq); err == nil {
 			recorder.SetTranslatedRequestBody(string(payload))
+			recorder.AddThirdPartyLog(chatcompletion.ThirdPartyLog{
+				ProviderID:          target.ProviderID,
+				ProviderName:        target.ProviderName,
+				ConnectionID:        "codex-1",
+				ConnectionName:      "codex-user",
+				AttemptIndex:        0,
+				ProviderRequestMode: chatcompletion.RequestModeSync,
+				RequestMethod:       "POST",
+				RequestURL:          "https://provider.example/v1/responses",
+				RequestHeaders:      `{"Authorization":["[REDACTED]"]}`,
+				RequestBody:         chatcompletion.RedactBodyForStorage(string(payload)),
+				ResponseStatusCode:  200,
+				ResponseHeaders:     `{"Content-Type":["application/json"]}`,
+				ResponseBody:        `{"id":"upstream-resp-1"}`,
+				StartedAt:           time.Now().UTC(),
+				CompletedAt:         time.Now().UTC(),
+			})
 		}
-		recorder.AddThirdPartyLog(chatcompletion.ThirdPartyLog{
-			ProviderID:          target.ProviderID,
-			ProviderName:        target.ProviderName,
-			ConnectionID:        "codex-1",
-			ConnectionName:      "codex-user",
-			AttemptIndex:        0,
-			ProviderRequestMode: chatcompletion.RequestModeSync,
-			RequestMethod:       "POST",
-			RequestURL:          "https://provider.example/v1/responses",
-			RequestHeaders:      `{"Authorization":["[REDACTED]"]}`,
-			RequestBody:         `{"model":"gpt-5.4"}`,
-			ResponseStatusCode:  200,
-			ResponseHeaders:     `{"Content-Type":["application/json"]}`,
-			ResponseBody:        `{"id":"upstream-resp-1"}`,
-			StartedAt:           time.Now().UTC(),
-			CompletedAt:         time.Now().UTC(),
-		})
 	}
 	return response, err
 }

@@ -52,7 +52,7 @@ func TestClientChatCompletionsPassesCommonOpenAIFields(t *testing.T) {
 
 	response, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:       "opena/gpt-4.1",
-		Messages:    []openaiwire.ChatMessage{{Role: "user", Content: "hello"}},
+		Messages:    []openaiwire.ChatMessage{{Role: "user", Content: openaiwire.TextContent("hello")}},
 		Temperature: &temperature,
 		MaxTokens:   &maxTokens,
 		Tools: []openaiwire.Tool{{
@@ -117,7 +117,7 @@ func TestClientStreamsOpenAIResponses(t *testing.T) {
 
 	body, err := client.ChatCompletionsStream(context.Background(), openaiwire.ChatCompletionsRequest{
 		Model:    "opena/gpt-4.1",
-		Messages: []openaiwire.ChatMessage{{Role: "user", Content: "hello"}},
+		Messages: []openaiwire.ChatMessage{{Role: "user", Content: openaiwire.TextContent("hello")}},
 	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
 	if err != nil {
 		t.Fatalf("stream completions: %v", err)
@@ -133,6 +133,68 @@ func TestClientStreamsOpenAIResponses(t *testing.T) {
 	}
 	if upstreamBody["stream"] != true {
 		t.Fatalf("expected stream request, got %#v", upstreamBody["stream"])
+	}
+}
+
+func TestClientChatCompletionsPassesThroughImageContent(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"chatcmpl-1","object":"chat.completion","created":123,"model":"gpt-4.1","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`,
+			)),
+		}, nil
+	})}
+
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
+		Model: "opena/gpt-4.1",
+		Messages: []openaiwire.ChatMessage{{
+			Role: "user",
+			Content: openaiwire.PartsContent(
+				openaiwire.ChatMessageContentPart{Type: "text", Text: "describe this"},
+				openaiwire.ChatMessageContentPart{
+					Type: "image_url",
+					ImageURL: &openaiwire.ChatMessageImageURL{
+						URL:    "https://example.com/cat.png",
+						Detail: "high",
+					},
+				},
+			),
+		}},
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("chat completions: %v", err)
+	}
+
+	messages, ok := upstreamBody["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("unexpected messages payload %#v", upstreamBody["messages"])
+	}
+	message, ok := messages[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected message payload %#v", messages[0])
+	}
+	content, ok := message["content"].([]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("unexpected content payload %#v", message["content"])
+	}
+	imagePart, ok := content[1].(map[string]any)
+	if !ok || imagePart["type"] != "image_url" {
+		t.Fatalf("unexpected image part %#v", content[1])
+	}
+	imageURL, ok := imagePart["image_url"].(map[string]any)
+	if !ok || imageURL["url"] != "https://example.com/cat.png" || imageURL["detail"] != "high" {
+		t.Fatalf("unexpected image url payload %#v", imagePart["image_url"])
 	}
 }
 

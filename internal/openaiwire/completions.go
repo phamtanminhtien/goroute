@@ -1,6 +1,9 @@
 package openaiwire
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 type ChatRole string
 
@@ -36,11 +39,81 @@ type ChatCompletionsRequest struct {
 	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 
+type ChatMessageContent struct {
+	text  string
+	parts []ChatMessageContentPart
+}
+
+func TextContent(text string) ChatMessageContent {
+	return ChatMessageContent{text: text}
+}
+
+func PartsContent(parts ...ChatMessageContentPart) ChatMessageContent {
+	cloned := append([]ChatMessageContentPart(nil), parts...)
+	return ChatMessageContent{parts: cloned}
+}
+
+func (c ChatMessageContent) MarshalJSON() ([]byte, error) {
+	if len(c.parts) > 0 {
+		return json.Marshal(c.parts)
+	}
+	return json.Marshal(c.text)
+}
+
+func (c *ChatMessageContent) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return nil
+	}
+
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) || len(trimmed) == 0 {
+		*c = ChatMessageContent{}
+		return nil
+	}
+
+	var text string
+	if err := json.Unmarshal(trimmed, &text); err == nil {
+		*c = TextContent(text)
+		return nil
+	}
+
+	var parts []ChatMessageContentPart
+	if err := json.Unmarshal(trimmed, &parts); err == nil {
+		*c = PartsContent(parts...)
+		return nil
+	}
+
+	return &json.UnmarshalTypeError{Value: "content", Type: nil, Field: "content"}
+}
+
+func (c ChatMessageContent) Text() string {
+	return c.text
+}
+
+func (c ChatMessageContent) Parts() []ChatMessageContentPart {
+	return append([]ChatMessageContentPart(nil), c.parts...)
+}
+
+func (c ChatMessageContent) IsParts() bool {
+	return len(c.parts) > 0
+}
+
+type ChatMessageContentPart struct {
+	Type     string               `json:"type"`
+	Text     string               `json:"text,omitempty"`
+	ImageURL *ChatMessageImageURL `json:"image_url,omitempty"`
+}
+
+type ChatMessageImageURL struct {
+	URL    string `json:"url,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type ChatMessage struct {
-	Role       ChatRole   `json:"role"`
-	Content    any        `json:"content"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role       ChatRole           `json:"role"`
+	Content    ChatMessageContent `json:"content"`
+	ToolCallID string             `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall         `json:"tool_calls,omitempty"`
 }
 
 type ToolCall struct {
