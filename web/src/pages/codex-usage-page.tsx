@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layers3, Pencil, RefreshCcw, Trash2 } from "lucide-react";
 import { parseAsString, useQueryState } from "nuqs";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   type ConnectionPayload,
@@ -40,6 +40,7 @@ import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 import { SurfaceCard } from "@/shared/ui/surface-card";
+import { Switch } from "@/shared/ui/switch";
 
 type FeedbackState = ConnectionFormFeedback;
 
@@ -63,7 +64,10 @@ export function CodexUsagePage() {
     queryKey: providersQueryKey,
   });
 
-  const providers = providersQuery.data ?? [];
+  const providers = useMemo(
+    () => providersQuery.data ?? [],
+    [providersQuery.data],
+  );
   const providerOptions = [
     { label: "All providers", value: "all" },
     ...providers.map((provider) => ({
@@ -90,7 +94,7 @@ export function CodexUsagePage() {
     if (!providerExists) {
       void setProviderFilter("all");
     }
-  }, [providerFilter, providers]);
+  }, [providerFilter, providers, setProviderFilter]);
 
   const selectedProvider =
     providerFilter === "all"
@@ -146,6 +150,35 @@ export function CodexUsagePage() {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setFeedback({ text: "Connection deleted.", tone: "success" });
       setModalState({ kind: "closed" });
+    },
+  });
+
+  const updateConnectionEnabledMutation = useMutation({
+    mutationFn: ({
+      enabled,
+      connection,
+    }: {
+      connection: ProviderConnection;
+      enabled: boolean;
+    }) =>
+      updateConnection(connection.id, {
+        enabled,
+        id: connection.id,
+        name: connection.name,
+        provider_id: connection.provider_id,
+      }),
+    onError: (error) => {
+      setFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      await queryClient.invalidateQueries({
+        queryKey: connectionUsageQueryKey(variables.connection.id),
+      });
+      setFeedback({ text: "Connection updated.", tone: "success" });
     },
   });
 
@@ -291,6 +324,11 @@ export function CodexUsagePage() {
                   deleteConnectionMutation.isPending &&
                   deleteConnectionMutation.variables === connection.id
                 }
+                busyToggling={
+                  updateConnectionEnabledMutation.isPending &&
+                  updateConnectionEnabledMutation.variables?.connection.id ===
+                    connection.id
+                }
                 connection={connection}
                 key={connection.id}
                 providerID={providerID}
@@ -302,6 +340,13 @@ export function CodexUsagePage() {
                 onEdit={() => {
                   setFeedback(null);
                   setModalState({ connectionId: connection.id, kind: "edit" });
+                }}
+                onToggleEnabled={async (enabled) => {
+                  setFeedback(null);
+                  await updateConnectionEnabledMutation.mutateAsync({
+                    connection,
+                    enabled,
+                  });
                 }}
               />
             ),
@@ -364,18 +409,22 @@ function ProviderFilterBadge({
 
 function CodexUsageCard({
   busyDeleting,
+  busyToggling,
   connection,
   providerID,
   providerName,
   onDelete,
   onEdit,
+  onToggleEnabled,
 }: {
   busyDeleting: boolean;
+  busyToggling: boolean;
   connection: ProviderConnection;
   providerID: string;
   providerName: string;
   onDelete: () => void | Promise<void>;
   onEdit: () => void;
+  onToggleEnabled: (enabled: boolean) => void | Promise<void>;
 }) {
   const usageQuery = useQuery({
     queryFn: () => getConnectionUsage(connection.id),
@@ -469,6 +518,13 @@ function CodexUsageCard({
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              <Switch
+                aria-label={`Enable ${connection.name}`}
+                checked={connection.enabled ?? true}
+                disabled={busyToggling}
+                onCheckedChange={onToggleEnabled}
+                size="sm"
+              />
             </div>
           </div>
 

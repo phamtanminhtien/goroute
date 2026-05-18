@@ -3,18 +3,26 @@ import type { ComponentPropsWithoutRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
 
-type SwitchProps = ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>;
+type SwitchProps = ComponentPropsWithoutRef<typeof SwitchPrimitive.Root> & {
+  size?: "md" | "sm";
+};
 
-export function Switch({ className, ...props }: SwitchProps) {
+export function Switch({ className, size = "md", ...props }: SwitchProps) {
   return (
     <SwitchPrimitive.Root
       className={cn(
         "peer hover:border-primary/25 data-[state=checked]:border-primary/25 data-[state=checked]:bg-primary/18 inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-[var(--field-border)] bg-[var(--field-bg)] p-1 [--tw-ring-color:var(--focus-ring)] transition-[background-color,border-color,box-shadow] duration-150 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:ring-4 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60",
+        size === "sm" && "data-[state=checked]:bg-primary/20 h-5 w-9 p-0.5",
         className,
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="block size-5 rounded-full bg-white shadow-[var(--shadow-sm)] transition-transform duration-150 data-[state=checked]:translate-x-5" />
+      <SwitchPrimitive.Thumb
+        className={cn(
+          "block size-5 rounded-full bg-white shadow-[var(--shadow-sm)] transition-transform duration-150 data-[state=checked]:translate-x-5",
+          size === "sm" && "size-4 data-[state=checked]:translate-x-4",
+        )}
+      />
     </SwitchPrimitive.Root>
   );
 }

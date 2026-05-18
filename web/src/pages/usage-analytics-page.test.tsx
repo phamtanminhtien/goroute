@@ -22,6 +22,21 @@ vi.mock("echarts", () => ({
 }));
 
 vi.mock("@/features/analytics/api", () => ({
+  aiRequestLogDetailQueryKey: vi.fn((requestID: string) => [
+    "analytics",
+    "usage",
+    "requests",
+    requestID,
+  ]),
+  aiRequestLogsQueryKey: vi.fn((filters: unknown, page: number) => [
+    "analytics",
+    "usage",
+    "requests",
+    filters,
+    page,
+  ]),
+  getAIRequestLogDetail: vi.fn(),
+  getAIRequestLogs: vi.fn(),
   getUsageProviderBreakdown: vi.fn(),
   getUsageRecentRequests: vi.fn(),
   getUsageSummary: vi.fn(),

@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 )
 
@@ -17,11 +19,15 @@ const (
 	maxLimit         = 100
 )
 
+var ErrRequestLogNotFound = errors.New("request log not found")
+
 type Repository interface {
 	AnalyticsSummary(filters Filters) ([]SummaryAggregate, error)
 	AnalyticsTimeseries(filters Filters, bucket Bucket) ([]TimeseriesAggregate, error)
 	AnalyticsProviderBreakdown(filters Filters) ([]ProviderBreakdownAggregate, error)
 	AnalyticsRecentRequests(filters Filters, limit int) ([]RecentRequestAggregate, error)
+	AnalyticsRequestLogs(filters Filters, limit int, offset int) ([]RecentRequestAggregate, error)
+	AnalyticsRequestLogDetail(requestID string) (RequestLogRecords, error)
 }
 
 type Bucket string
@@ -126,6 +132,21 @@ type RecentRequestsPage struct {
 	Returned int
 	HasMore  bool
 	Limit    int
+	Page     int
+}
+
+type RequestLogRecords struct {
+	Run            airequestlog.RunRecord
+	Flow           *airequestlog.FlowRecord
+	ThirdPartyLogs []airequestlog.ThirdPartyRequestLogRecord
+	RTK            *airequestlog.RTKRecord
+}
+
+type RequestLogDetail struct {
+	RequestLogRecords
+	Model         string
+	Status        string
+	EstimatedCost float64
 }
 
 type Service struct {
@@ -179,6 +200,49 @@ func ParseFilters(values url.Values) (Filters, error) {
 	}, nil
 }
 
+func ParseOptionalFilters(values url.Values) (Filters, error) {
+	var from time.Time
+	var to time.Time
+	var err error
+
+	if strings.TrimSpace(values.Get("from")) != "" {
+		from, err = parseUTCTimestamp(values.Get("from"), "from")
+		if err != nil {
+			return Filters{}, err
+		}
+	}
+	if strings.TrimSpace(values.Get("to")) != "" {
+		to, err = parseUTCTimestamp(values.Get("to"), "to")
+		if err != nil {
+			return Filters{}, err
+		}
+	}
+
+	if !from.IsZero() || !to.IsZero() {
+		if from.IsZero() {
+			return Filters{}, fmt.Errorf("missing from")
+		}
+		if to.IsZero() {
+			return Filters{}, fmt.Errorf("missing to")
+		}
+		if !to.After(from) {
+			return Filters{}, fmt.Errorf("from must be before to")
+		}
+		if to.Sub(from) > maxRangeDuration {
+			return Filters{}, fmt.Errorf("range too large")
+		}
+	}
+
+	return Filters{
+		From:         from,
+		To:           to,
+		ProviderID:   strings.TrimSpace(values.Get("provider_id")),
+		ConnectionID: strings.TrimSpace(values.Get("connection_id")),
+		Model:        strings.TrimSpace(values.Get("model")),
+		Path:         strings.TrimSpace(values.Get("path")),
+	}, nil
+}
+
 func ParseBucket(value string) (Bucket, error) {
 	switch Bucket(strings.TrimSpace(value)) {
 	case BucketHour, BucketDay, BucketWeek:
@@ -186,6 +250,22 @@ func ParseBucket(value string) (Bucket, error) {
 	default:
 		return "", fmt.Errorf("unsupported bucket")
 	}
+}
+
+func ParsePage(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return 1, nil
+	}
+
+	page, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid page")
+	}
+	if page < 1 {
+		return 0, fmt.Errorf("invalid page")
+	}
+
+	return page, nil
 }
 
 func ParseLimit(value string) (int, error) {
@@ -380,6 +460,57 @@ func (s *Service) RecentRequests(filters Filters, limit int) (RecentRequestsPage
 		Returned: len(rows),
 		HasMore:  hasMore,
 		Limit:    limit,
+		Page:     1,
+	}, nil
+}
+
+func (s *Service) RequestLogs(filters Filters, limit int, page int) (RecentRequestsPage, error) {
+	offset := (page - 1) * limit
+	rows, err := s.repo.AnalyticsRequestLogs(filters, limit+1, offset)
+	if err != nil {
+		return RecentRequestsPage{}, err
+	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
+	for i := range rows {
+		rows[i].Status = normalizeStatus(rows[i].StatusCode, rows[i].Status)
+		rows[i].EstimatedCost = s.calculateCost(rows[i].Model, rows[i].InputTokens, rows[i].OutputTokens)
+	}
+
+	return RecentRequestsPage{
+		Items:    rows,
+		Returned: len(rows),
+		HasMore:  hasMore,
+		Limit:    limit,
+		Page:     page,
+	}, nil
+}
+
+func (s *Service) RequestLogDetail(requestID string) (RequestLogDetail, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return RequestLogDetail{}, ErrRequestLogNotFound
+	}
+
+	records, err := s.repo.AnalyticsRequestLogDetail(requestID)
+	if err != nil {
+		return RequestLogDetail{}, err
+	}
+
+	model := records.Run.ResolvedModel
+	if strings.TrimSpace(model) == "" {
+		model = records.Run.RequestedModel
+	}
+
+	return RequestLogDetail{
+		RequestLogRecords: records,
+		Model:             model,
+		Status:            normalizeStatus(records.Run.StatusCode, records.Run.FinalErrorCategory),
+		EstimatedCost:     s.calculateCost(model, int64(records.Run.PromptTokens), int64(records.Run.CompletionTokens)),
 	}, nil
 }
 

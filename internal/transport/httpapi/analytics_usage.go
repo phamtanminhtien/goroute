@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
 	"github.com/phamtanminhtien/goroute/internal/usecase/analytics"
 )
 
@@ -83,6 +86,13 @@ type analyticsRecentRequestsResponse struct {
 	Page        analyticsRecentRequestsPage `json:"page"`
 }
 
+type analyticsRequestLogsResponse struct {
+	GeneratedAt string                      `json:"generated_at"`
+	Filters     analyticsFiltersResponse    `json:"filters"`
+	Items       []analyticsRecentRequestRow `json:"items"`
+	Page        analyticsRecentRequestsPage `json:"page"`
+}
+
 type analyticsRecentRequestRow struct {
 	RequestID        string  `json:"request_id"`
 	Timestamp        string  `json:"timestamp"`
@@ -101,9 +111,21 @@ type analyticsRecentRequestRow struct {
 }
 
 type analyticsRecentRequestsPage struct {
+	Page     int  `json:"page"`
 	Limit    int  `json:"limit"`
 	Returned int  `json:"returned"`
 	HasMore  bool `json:"has_more"`
+	HasPrev  bool `json:"has_prev"`
+}
+
+type analyticsRequestLogDetailResponse struct {
+	Model            string                                    `json:"model"`
+	Status           string                                    `json:"status"`
+	EstimatedCostUSD float64                                   `json:"estimated_cost_usd"`
+	Run              airequestlog.RunRecord                    `json:"run"`
+	Flow             *airequestlog.FlowRecord                  `json:"flow"`
+	ThirdPartyLogs   []airequestlog.ThirdPartyRequestLogRecord `json:"third_party_logs"`
+	RTK              *airequestlog.RTKRecord                   `json:"rtk"`
 }
 
 func analyticsUsageSummaryHandler(service *analytics.Service) http.Handler {
@@ -260,45 +282,130 @@ func analyticsUsageRecentRequestsHandler(service *analytics.Service) http.Handle
 			return
 		}
 
-		page, err := service.RecentRequests(filters, limit)
+		writeRecentRequestsPage(r, w, service, filters, limit)
+	})
+}
+
+func analyticsUsageRequestsHandler(service *analytics.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		filters, err := analytics.ParseOptionalFilters(r.URL.Query())
 		if err != nil {
 			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 
-		items := make([]analyticsRecentRequestRow, 0, len(page.Items))
-		for _, item := range page.Items {
-			items = append(items, analyticsRecentRequestRow{
-				RequestID:        item.RequestID,
-				Timestamp:        formatAnalyticsTime(item.Timestamp),
-				Model:            item.Model,
-				Path:             item.Path,
-				Status:           item.Status,
-				StatusCode:       item.StatusCode,
-				LatencyMs:        item.LatencyMs,
-				InputTokens:      item.InputTokens,
-				OutputTokens:     item.OutputTokens,
-				EstimatedCostUSD: item.EstimatedCost,
-				ProviderID:       item.ProviderID,
-				ProviderName:     item.ProviderName,
-				ConnectionID:     item.ConnectionID,
-				ConnectionName:   item.ConnectionName,
-			})
+		limit, err := analytics.ParseLimit(r.URL.Query().Get("limit"))
+		if err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
 		}
 
-		writeJSON(w, http.StatusOK, analyticsRecentRequestsResponse{
-			From:        formatAnalyticsTime(filters.From),
-			To:          formatAnalyticsTime(filters.To),
+		pageNumber, err := analytics.ParsePage(r.URL.Query().Get("page"))
+		if err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+
+		page, err := service.RequestLogs(filters, limit, pageNumber)
+		if err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, analyticsRequestLogsResponse{
 			GeneratedAt: formatAnalyticsTime(time.Now().UTC()),
 			Filters:     buildAnalyticsFiltersResponse(filters),
-			Items:       items,
+			Items:       buildRecentRequestRows(page.Items),
 			Page: analyticsRecentRequestsPage{
+				Page:     page.Page,
 				Limit:    page.Limit,
 				Returned: page.Returned,
 				HasMore:  page.HasMore,
+				HasPrev:  page.Page > 1,
 			},
 		})
 	})
+}
+
+func analyticsUsageRequestDetailHandler(service *analytics.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		detail, err := service.RequestLogDetail(chi.URLParam(r, "request_id"))
+		if err != nil {
+			if errors.Is(err, analytics.ErrRequestLogNotFound) {
+				writeError(r, w, http.StatusNotFound, "not_found", "request log not found")
+				return
+			}
+
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, analyticsRequestLogDetailResponse{
+			Model:            detail.Model,
+			Status:           detail.Status,
+			EstimatedCostUSD: detail.EstimatedCost,
+			Run:              detail.Run,
+			Flow:             detail.Flow,
+			ThirdPartyLogs:   detail.ThirdPartyLogs,
+			RTK:              detail.RTK,
+		})
+	})
+}
+
+func writeRecentRequestsPage(r *http.Request, w http.ResponseWriter, service *analytics.Service, filters analytics.Filters, limit int) {
+	page, err := service.RecentRequests(filters, limit)
+	if err != nil {
+		writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, analyticsRecentRequestsResponse{
+		From:        formatAnalyticsTime(filters.From),
+		To:          formatAnalyticsTime(filters.To),
+		GeneratedAt: formatAnalyticsTime(time.Now().UTC()),
+		Filters:     buildAnalyticsFiltersResponse(filters),
+		Items:       buildRecentRequestRows(page.Items),
+		Page: analyticsRecentRequestsPage{
+			Page:     page.Page,
+			Limit:    page.Limit,
+			Returned: page.Returned,
+			HasMore:  page.HasMore,
+			HasPrev:  false,
+		},
+	})
+}
+
+func buildRecentRequestRows(items []analytics.RecentRequestAggregate) []analyticsRecentRequestRow {
+	rows := make([]analyticsRecentRequestRow, 0, len(items))
+	for _, item := range items {
+		rows = append(rows, analyticsRecentRequestRow{
+			RequestID:        item.RequestID,
+			Timestamp:        formatAnalyticsTime(item.Timestamp),
+			Model:            item.Model,
+			Path:             item.Path,
+			Status:           item.Status,
+			StatusCode:       item.StatusCode,
+			LatencyMs:        item.LatencyMs,
+			InputTokens:      item.InputTokens,
+			OutputTokens:     item.OutputTokens,
+			EstimatedCostUSD: item.EstimatedCost,
+			ProviderID:       item.ProviderID,
+			ProviderName:     item.ProviderName,
+			ConnectionID:     item.ConnectionID,
+			ConnectionName:   item.ConnectionName,
+		})
+	}
+	return rows
 }
 
 func parseAnalyticsFiltersOrWriteError(r *http.Request, w http.ResponseWriter) (analytics.Filters, bool) {

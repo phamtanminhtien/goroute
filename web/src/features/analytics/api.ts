@@ -17,6 +17,12 @@ export const usageProviderBreakdownQueryKey = (range: UsageRange) =>
   ["analytics", "usage", "provider-breakdown", range] as const;
 export const usageRecentRequestsQueryKey = (range: UsageRange) =>
   ["analytics", "usage", "recent-requests", range] as const;
+export const aiRequestLogsQueryKey = (
+  filters: AIRequestLogFilters,
+  page: number,
+) => ["analytics", "usage", "requests", filters, page] as const;
+export const aiRequestLogDetailQueryKey = (requestID: string) =>
+  ["analytics", "usage", "requests", requestID] as const;
 
 export type UsageSummaryResponse = {
   estimated_cost_usd: {
@@ -111,6 +117,137 @@ export type UsageRecentRequestsResponse = {
   to: string;
 };
 
+export type AIRequestLogFilters = {
+  connection_id?: string;
+  model?: string;
+  path?: string;
+  provider_id?: string;
+};
+
+export type AIRequestLogsResponse = Omit<
+  UsageRecentRequestsResponse,
+  "from" | "to"
+> & {
+  page: UsageRecentRequestsResponse["page"] & {
+    has_prev: boolean;
+    page: number;
+  };
+};
+
+export type AIRequestLogRun = {
+  attempt_count: number;
+  completed_at: number;
+  completion_tokens: number;
+  created_at: number;
+  duration_ms: number;
+  error_message: string;
+  error_type: string;
+  final_connection_id: string;
+  final_connection_name: string;
+  final_error_category: string;
+  id: number;
+  method: string;
+  path: string;
+  prompt_tokens: number;
+  provider_id: string;
+  provider_name: string;
+  provider_request_mode: string;
+  request_id: string;
+  request_mode: string;
+  requested_model: string;
+  resolved_model: string;
+  started_at: number;
+  status_code: number;
+  total_tokens: number;
+  type: string;
+  updated_at: number;
+};
+
+export type AIRequestLogFlow = {
+  attempt_trace: string;
+  completed_at: number;
+  created_at: number;
+  duration_ms: number;
+  error_message: string;
+  error_type: string;
+  id: number;
+  method: string;
+  path: string;
+  provider_id: string;
+  provider_name: string;
+  provider_request_mode: string;
+  query: string;
+  remote_addr: string;
+  request_body: string;
+  request_headers: string;
+  request_id: string;
+  request_mode: string;
+  response_body: string;
+  response_headers: string;
+  response_status_code: number;
+  run_id: number;
+  started_at: number;
+  translated_request_body: string;
+  translated_response_body: string;
+  type: string;
+  updated_at: number;
+  user_agent: string;
+};
+
+export type AIRequestLogThirdParty = {
+  attempt_index: number;
+  completed_at: number;
+  connection_id: string;
+  connection_name: string;
+  created_at: number;
+  duration_ms: number;
+  error_message: string;
+  error_type: string;
+  id: number;
+  provider_id: string;
+  provider_name: string;
+  provider_request_mode: string;
+  request_body: string;
+  request_headers: string;
+  request_id: string;
+  request_method: string;
+  request_mode: string;
+  request_url: string;
+  response_body: string;
+  response_headers: string;
+  response_status_code: number;
+  run_id: number;
+  started_at: number;
+  type: string;
+  updated_at: number;
+};
+
+export type AIRequestLogRTK = {
+  applied: boolean;
+  bytes_after: number;
+  bytes_before: number;
+  created_at: number;
+  field_count: number;
+  filter_chain: string;
+  hit_count: number;
+  id: number;
+  request_id: string;
+  run_id: number;
+  saved_bytes: number;
+  saved_percent: number;
+  updated_at: number;
+};
+
+export type AIRequestLogDetailResponse = {
+  estimated_cost_usd: number;
+  flow: AIRequestLogFlow | null;
+  model: string;
+  rtk: AIRequestLogRTK | null;
+  run: AIRequestLogRun;
+  status: "completed" | "failed";
+  third_party_logs: AIRequestLogThirdParty[];
+};
+
 export async function getUsageSummary(range: UsageRange) {
   const response = await apiClient.get<UsageSummaryResponse>(
     `/analytics/usage/summary${buildUsageQueryString(range)}`,
@@ -140,6 +277,24 @@ export async function getUsageRecentRequests(range: UsageRange) {
     `/analytics/usage/recent-requests${buildUsageQueryString(range, {
       limit: "20",
     })}`,
+  );
+  return response.data;
+}
+
+export async function getAIRequestLogs(filters: AIRequestLogFilters, page = 1) {
+  const response = await apiClient.get<AIRequestLogsResponse>(
+    `/analytics/usage/requests${buildAIRequestLogsQueryString({
+      ...cleanAIRequestLogFilters(filters),
+      limit: "50",
+      page: String(page),
+    })}`,
+  );
+  return response.data;
+}
+
+export async function getAIRequestLogDetail(requestID: string) {
+  const response = await apiClient.get<AIRequestLogDetailResponse>(
+    `/analytics/usage/requests/${encodeURIComponent(requestID)}`,
   );
   return response.data;
 }
@@ -181,6 +336,19 @@ function buildUsageQueryString(
   });
 
   return `?${params.toString()}`;
+}
+
+function cleanAIRequestLogFilters(filters: AIRequestLogFilters) {
+  return Object.fromEntries(
+    Object.entries(filters)
+      .map(([key, value]) => [key, value?.trim() ?? ""])
+      .filter(([, value]) => value !== ""),
+  ) as Record<string, string>;
+}
+
+function buildAIRequestLogsQueryString(params: Record<string, string>) {
+  const searchParams = new URLSearchParams(params);
+  return `?${searchParams.toString()}`;
 }
 
 function formatUsageTimestamp(value: Date) {

@@ -134,6 +134,13 @@ function SidebarNavContent({
             {[
               // { icon: Layers3, label: "Model Catalog" },
               {
+                description:
+                  "Persisted AI request diagnostics and upstream attempts",
+                icon: ChartNoAxesColumn,
+                label: "AI Logs",
+                to: "/ai-logs",
+              },
+              {
                 description: "Live backend app and request logging stream",
                 icon: TerminalSquare,
                 label: "Console Log",

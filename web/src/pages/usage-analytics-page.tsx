@@ -8,6 +8,7 @@ import {
   Database,
 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { AnalyticsChart } from "@/features/analytics/analytics-chart";
 import {
@@ -347,7 +348,12 @@ function RecentRequestRow({
     <tr className="border-border/50 border-b text-sm last:border-b-0">
       <td className="px-5 py-4 align-top">
         <div className="space-y-1">
-          <div className="text-fg-primary font-semibold">{request.model}</div>
+          <Link
+            className="text-fg-primary hover:text-primary font-semibold"
+            to={`/ai-logs/${encodeURIComponent(request.request_id)}`}
+          >
+            {request.model}
+          </Link>
           <div className="text-fg-secondary text-xs">
             {formatDateTime(request.timestamp)}
           </div>

@@ -2,6 +2,8 @@ import { Navigate, type RouteObject, useRoutes } from "react-router-dom";
 
 import { AdminLayout } from "@/app/layout/admin-layout";
 import { AuthGuard, PublicOnlyGuard } from "@/features/auth/auth-guard";
+import { AIRequestLogDetailPage } from "@/pages/ai-request-log-detail-page";
+import { AIRequestLogsPage } from "@/pages/ai-request-logs-page";
 import { CodexUsagePage } from "@/pages/codex-usage-page";
 import { CombosPage } from "@/pages/combos-page";
 import { ConsoleLogPage } from "@/pages/console-log-page";
@@ -32,6 +34,8 @@ const appRoutes: RouteObject[] = [
           { path: "providers/:providerId", element: <ProviderDetailPage /> },
           { path: "combos", element: <CombosPage /> },
           { path: "usage", element: <UsageAnalyticsPage /> },
+          { path: "ai-logs", element: <AIRequestLogsPage /> },
+          { path: "ai-logs/:requestId", element: <AIRequestLogDetailPage /> },
           { path: "logs", element: <ConsoleLogPage /> },
           { path: "quota", element: <CodexUsagePage /> },
           { path: "settings", element: <SettingsPage /> },

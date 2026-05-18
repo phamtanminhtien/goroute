@@ -291,6 +291,32 @@ describe("quota tracker page", () => {
     });
   });
 
+  it("toggles a connection from the quota card action bar", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/quota"]}>
+        <NuqsAdapter>
+          <AppRoutes />
+        </NuqsAdapter>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/codex-user/i);
+    await user.click(
+      screen.getByRole("switch", { name: /enable codex-user/i }),
+    );
+
+    await waitFor(() => {
+      expect(updateConnectionMock).toHaveBeenCalledWith("codex-1", {
+        enabled: false,
+        id: "codex-1",
+        name: "codex-user",
+        provider_id: "cx",
+      });
+    });
+  });
+
   it("filters quota cards by provider and defaults to all providers", async () => {
     const user = userEvent.setup();
 

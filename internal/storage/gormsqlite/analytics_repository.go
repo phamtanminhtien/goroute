@@ -1,6 +1,7 @@
 package gormsqlite
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -105,9 +106,17 @@ func (r *Repository) AnalyticsProviderBreakdown(filters analytics.Filters) ([]an
 }
 
 func (r *Repository) AnalyticsRecentRequests(filters analytics.Filters, limit int) ([]analytics.RecentRequestAggregate, error) {
+	return r.analyticsRequestRuns(filters, limit, 0)
+}
+
+func (r *Repository) AnalyticsRequestLogs(filters analytics.Filters, limit int, offset int) ([]analytics.RecentRequestAggregate, error) {
+	return r.analyticsRequestRuns(filters, limit, offset)
+}
+
+func (r *Repository) analyticsRequestRuns(filters analytics.Filters, limit int, offset int) ([]analytics.RecentRequestAggregate, error) {
 	var rows []airequestlog.RunRecord
 	query := applyAnalyticsFilters(r.db.Model(&airequestlog.RunRecord{}), filters)
-	if err := query.Order("created_at DESC, request_id DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := query.Order("created_at DESC, request_id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("query analytics recent requests: %w", err)
 	}
 
@@ -138,8 +147,52 @@ func (r *Repository) AnalyticsRecentRequests(filters analytics.Filters, limit in
 	return items, nil
 }
 
+func (r *Repository) AnalyticsRequestLogDetail(requestID string) (analytics.RequestLogRecords, error) {
+	var run airequestlog.RunRecord
+	if err := r.db.Where("request_id = ?", requestID).First(&run).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return analytics.RequestLogRecords{}, analytics.ErrRequestLogNotFound
+		}
+		return analytics.RequestLogRecords{}, fmt.Errorf("query ai request run %q: %w", requestID, err)
+	}
+
+	var flow airequestlog.FlowRecord
+	var flowPointer *airequestlog.FlowRecord
+	if err := r.db.Where("run_id = ?", run.ID).Order("created_at DESC, id DESC").First(&flow).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return analytics.RequestLogRecords{}, fmt.Errorf("query ai request flow for run %d: %w", run.ID, err)
+		}
+	} else {
+		flowPointer = &flow
+	}
+
+	thirdPartyLogs := make([]airequestlog.ThirdPartyRequestLogRecord, 0)
+	if err := r.db.Where("run_id = ?", run.ID).Order("attempt_index ASC, created_at ASC, id ASC").Find(&thirdPartyLogs).Error; err != nil {
+		return analytics.RequestLogRecords{}, fmt.Errorf("query third party request logs for run %d: %w", run.ID, err)
+	}
+
+	var rtk airequestlog.RTKRecord
+	var rtkPointer *airequestlog.RTKRecord
+	if err := r.db.Where("run_id = ?", run.ID).First(&rtk).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return analytics.RequestLogRecords{}, fmt.Errorf("query rtk record for run %d: %w", run.ID, err)
+		}
+	} else {
+		rtkPointer = &rtk
+	}
+
+	return analytics.RequestLogRecords{
+		Run:            run,
+		Flow:           flowPointer,
+		ThirdPartyLogs: thirdPartyLogs,
+		RTK:            rtkPointer,
+	}, nil
+}
+
 func applyAnalyticsFilters(query *gorm.DB, filters analytics.Filters) *gorm.DB {
-	query = query.Where("created_at >= ? AND created_at < ?", filters.From.UnixMilli(), filters.To.UnixMilli())
+	if !filters.From.IsZero() && !filters.To.IsZero() {
+		query = query.Where("created_at >= ? AND created_at < ?", filters.From.UnixMilli(), filters.To.UnixMilli())
+	}
 
 	if filters.ProviderID != "" {
 		query = query.Where("provider_id = ?", filters.ProviderID)

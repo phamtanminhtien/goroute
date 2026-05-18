@@ -327,6 +327,181 @@ func TestUsageAnalyticsProviderBreakdownAndRecentRequests(t *testing.T) {
 	}
 }
 
+func TestAIRequestLogsListAndDetail(t *testing.T) {
+	handler, repo := analyticsTestServer(t)
+	run := airequestlog.RunRecord{
+		RequestID:           "req-detail",
+		Type:                "completions",
+		RequestMode:         "stream",
+		ProviderRequestMode: "stream",
+		Method:              http.MethodPost,
+		Path:                "/v1/chat/completions",
+		RequestedModel:      "ignored",
+		ResolvedModel:       "cx/gpt-5.4",
+		ProviderID:          "cx",
+		ProviderName:        "Codex",
+		FinalConnectionID:   "codex-1",
+		FinalConnectionName: "codex-user",
+		AttemptCount:        2,
+		StatusCode:          200,
+		PromptTokens:        100000,
+		CompletionTokens:    50000,
+		TotalTokens:         150000,
+		StartedAt:           mustParseRFC3339(t, "2026-05-16T01:00:00Z").UnixMilli(),
+		CompletedAt:         mustParseRFC3339(t, "2026-05-16T01:00:02Z").UnixMilli(),
+		DurationMs:          2000,
+		CreatedAt:           mustParseRFC3339(t, "2026-05-16T01:00:00Z").UnixMilli(),
+	}
+	if err := repo.CreateAIRequestRun(&run); err != nil {
+		t.Fatalf("seed detail run: %v", err)
+	}
+	if err := repo.CreateAIRequestFlow(airequestlog.FlowRecord{
+		RunID:                 run.ID,
+		RequestID:             run.RequestID,
+		Type:                  run.Type,
+		RequestMode:           run.RequestMode,
+		ProviderRequestMode:   run.ProviderRequestMode,
+		Method:                run.Method,
+		Path:                  run.Path,
+		RequestBody:           `{"model":"cx/gpt-5.4"}`,
+		TranslatedRequestBody: `{"model":"gpt-5.4"}`,
+		ResponseStatusCode:    200,
+		ResponseBody:          `{"id":"chatcmpl-1"}`,
+		AttemptTrace:          `[{"connection_id":"codex-1"}]`,
+		StartedAt:             run.StartedAt,
+		CompletedAt:           run.CompletedAt,
+		DurationMs:            run.DurationMs,
+		CreatedAt:             run.CreatedAt,
+	}); err != nil {
+		t.Fatalf("seed detail flow: %v", err)
+	}
+	for _, logRecord := range []airequestlog.ThirdPartyRequestLogRecord{
+		{
+			RunID:              run.ID,
+			RequestID:          run.RequestID,
+			Type:               run.Type,
+			RequestMode:        run.RequestMode,
+			ProviderID:         "cx",
+			ProviderName:       "Codex",
+			ConnectionID:       "codex-2",
+			ConnectionName:     "fallback",
+			AttemptIndex:       1,
+			RequestMethod:      http.MethodPost,
+			RequestURL:         "https://chatgpt.com/backend-api/codex",
+			ResponseStatusCode: 200,
+			ResponseBody:       `{"ok":true}`,
+			CreatedAt:          run.CreatedAt + 10,
+		},
+		{
+			RunID:              run.ID,
+			RequestID:          run.RequestID,
+			Type:               run.Type,
+			RequestMode:        run.RequestMode,
+			ProviderID:         "cx",
+			ProviderName:       "Codex",
+			ConnectionID:       "codex-1",
+			ConnectionName:     "primary",
+			AttemptIndex:       0,
+			RequestMethod:      http.MethodPost,
+			RequestURL:         "https://chatgpt.com/backend-api/codex",
+			ResponseStatusCode: 429,
+			ErrorType:          "upstream_retryable_error",
+			ErrorMessage:       "rate limited",
+			CreatedAt:          run.CreatedAt + 20,
+		},
+	} {
+		if err := repo.CreateThirdPartyRequestLog(logRecord); err != nil {
+			t.Fatalf("seed third party log: %v", err)
+		}
+	}
+	if err := repo.CreateRTKRecord(&airequestlog.RTKRecord{
+		RunID:        run.ID,
+		RequestID:    run.RequestID,
+		Applied:      true,
+		BytesBefore:  1000,
+		BytesAfter:   700,
+		SavedBytes:   300,
+		SavedPercent: 30,
+		FilterChain:  "dedup-log",
+		HitCount:     2,
+		FieldCount:   1,
+		CreatedAt:    run.CreatedAt,
+	}); err != nil {
+		t.Fatalf("seed rtk record: %v", err)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/analytics/usage/requests?limit=1&page=1", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+	var listResponse struct {
+		Items []struct {
+			RequestID        string  `json:"request_id"`
+			Status           string  `json:"status"`
+			EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+		} `json:"items"`
+		Page struct {
+			Page    int  `json:"page"`
+			HasPrev bool `json:"has_prev"`
+		} `json:"page"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listResponse.Items) != 1 || listResponse.Items[0].RequestID != "req-detail" || listResponse.Items[0].Status != "completed" {
+		t.Fatalf("unexpected list payload %#v", listResponse.Items)
+	}
+	if !almostEqual(listResponse.Items[0].EstimatedCostUSD, 0.625) {
+		t.Fatalf("expected list cost 0.625, got %#v", listResponse.Items[0])
+	}
+	if listResponse.Page.Page != 1 || listResponse.Page.HasPrev {
+		t.Fatalf("unexpected list page payload %#v", listResponse.Page)
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/admin/api/analytics/usage/requests/req-detail", nil)
+	detailReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	detailRec := httptest.NewRecorder()
+	handler.ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, detailRec.Code, detailRec.Body.String())
+	}
+	var detailResponse struct {
+		Model            string  `json:"model"`
+		Status           string  `json:"status"`
+		EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+		Run              struct {
+			RequestID string `json:"request_id"`
+		} `json:"run"`
+		Flow *struct {
+			RequestBody string `json:"request_body"`
+		} `json:"flow"`
+		ThirdPartyLogs []struct {
+			AttemptIndex int    `json:"attempt_index"`
+			ConnectionID string `json:"connection_id"`
+			ErrorMessage string `json:"error_message"`
+			ResponseBody string `json:"response_body"`
+		} `json:"third_party_logs"`
+		RTK *struct {
+			Applied bool `json:"applied"`
+		} `json:"rtk"`
+	}
+	if err := json.Unmarshal(detailRec.Body.Bytes(), &detailResponse); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if detailResponse.Run.RequestID != "req-detail" || detailResponse.Flow == nil || detailResponse.Flow.RequestBody == "" || detailResponse.RTK == nil || !detailResponse.RTK.Applied {
+		t.Fatalf("unexpected detail payload %#v", detailResponse)
+	}
+	if detailResponse.Model != "cx/gpt-5.4" || detailResponse.Status != "completed" || !almostEqual(detailResponse.EstimatedCostUSD, 0.625) {
+		t.Fatalf("unexpected computed detail fields %#v", detailResponse)
+	}
+	if len(detailResponse.ThirdPartyLogs) != 2 || detailResponse.ThirdPartyLogs[0].AttemptIndex != 0 || detailResponse.ThirdPartyLogs[1].AttemptIndex != 1 {
+		t.Fatalf("expected third party logs ordered by attempt, got %#v", detailResponse.ThirdPartyLogs)
+	}
+}
+
 func TestUsageAnalyticsValidationAndAuth(t *testing.T) {
 	handler, _ := analyticsTestServer(t)
 
@@ -351,6 +526,21 @@ func TestUsageAnalyticsValidationAndAuth(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/api/analytics/usage/requests?from=2026-05-16T00:00:00Z&to=2026-05-17T00:00:00Z", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/api/analytics/usage/requests/missing-request", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNotFound, rec.Code, rec.Body.String())
 	}
 }
 
