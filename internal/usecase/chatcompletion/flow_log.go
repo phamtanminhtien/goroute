@@ -308,6 +308,16 @@ func (r *FlowRecorder) SetTranslatedResponseBody(body string) {
 	r.translatedResponseBody = redactBody(body)
 }
 
+func (r *FlowRecorder) SetTranslatedSSEResponseBody(body string) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.translatedResponseBody = redactBody(lastSSEEvent(body))
+}
+
 func (r *FlowRecorder) SetError(errorType string, message string) {
 	if r == nil {
 		return

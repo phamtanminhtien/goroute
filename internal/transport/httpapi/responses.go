@@ -88,6 +88,8 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 			bodyWriter.WriteHeader(http.StatusOK)
 			if _, err := io.Copy(bodyWriter, output.Body); err != nil {
 				recorder.SetError("stream_error", err.Error())
+			} else {
+				recorder.SetTranslatedSSEResponseBody(bodyWriter.bodyString())
 			}
 			return
 		}
