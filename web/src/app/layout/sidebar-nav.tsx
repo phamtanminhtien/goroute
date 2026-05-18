@@ -1,4 +1,5 @@
 import {
+  Boxes,
   ChartNoAxesColumn,
   PanelsTopLeft,
   Settings,
@@ -16,6 +17,12 @@ const navItems = [
     icon: Workflow,
     label: "Providers",
     to: "/providers",
+  },
+  {
+    description: "Ordered model aliases across provider targets",
+    icon: Boxes,
+    label: "Combos",
+    to: "/combos",
   },
   {
     description: "Mock request, token, and cost analytics across the proxy",

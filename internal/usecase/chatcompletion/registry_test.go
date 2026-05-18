@@ -50,6 +50,94 @@ func TestConnectionRegistryFallsBackAcrossChatCompletionsConnections(t *testing.
 	}
 }
 
+func TestConnectionRegistryFallsBackAcrossComboTargets(t *testing.T) {
+	firstConnection := recordingConnection{err: UpstreamError{StatusCode: 503, Message: "first failed"}}
+	secondConnection := recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "second-response"}}
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx":    {newConnectionEntry("cx", 1, firstConnection, nil)},
+		"opena": {newConnectionEntry("opena", 1, secondConnection, nil)},
+	})
+
+	response, err := registry.ChatCompletionsTargets(context.Background(), openaiwire.ChatCompletionsRequest{Model: "combo/fast"}, []routing.Target{
+		{Prefix: "cx", RequestedModel: "gpt-5.4", ProviderID: "cx", ProviderName: "Codex"},
+		{Prefix: "opena", RequestedModel: "gpt-4.1", ProviderID: "opena", ProviderName: "OpenAI"},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletionsTargets returned error: %v", err)
+	}
+
+	if response.ID != "second-response" {
+		t.Fatalf("expected second target response, got %q", response.ID)
+	}
+}
+
+func TestConnectionRegistryUsesSpecificTargetConnection(t *testing.T) {
+	firstCalled := false
+	secondConnection := recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "second-response"}}
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {
+			{
+				ID:         "cx-1",
+				Name:       "cx-1",
+				ProviderID: "cx",
+				ProtocolConnections: ProtocolConnections{
+					ChatCompletions: recordingConnection{
+						response: openaiwire.ChatCompletionsResponse{ID: "should-not-run"},
+						onCall: func() {
+							firstCalled = true
+						},
+					},
+				},
+			},
+			{
+				ID:         "cx-2",
+				Name:       "cx-2",
+				ProviderID: "cx",
+				ProtocolConnections: ProtocolConnections{
+					ChatCompletions: secondConnection,
+				},
+			},
+		},
+	})
+
+	response, err := registry.ChatCompletionsTargets(context.Background(), openaiwire.ChatCompletionsRequest{Model: "combo/fast"}, []routing.Target{
+		{Prefix: "cx", RequestedModel: "gpt-5.4", ProviderID: "cx", ProviderName: "Codex", ConnectionID: "cx-2"},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletionsTargets returned error: %v", err)
+	}
+	if firstCalled {
+		t.Fatal("expected unrelated connection not to be called")
+	}
+	if response.ID != "second-response" {
+		t.Fatalf("expected selected connection response, got %q", response.ID)
+	}
+}
+
+func TestConnectionRegistryStopsComboFallbackOnTerminalErrors(t *testing.T) {
+	secondCalled := false
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 401, Message: "unauthorized"}}, nil)},
+		"opena": {newConnectionEntry("opena", 1, recordingConnection{
+			response: openaiwire.ChatCompletionsResponse{ID: "should-not-run"},
+			onCall: func() {
+				secondCalled = true
+			},
+		}, nil)},
+	})
+
+	_, err := registry.ChatCompletionsTargets(context.Background(), openaiwire.ChatCompletionsRequest{Model: "combo/fast"}, []routing.Target{
+		{Prefix: "cx", RequestedModel: "gpt-5.4", ProviderID: "cx", ProviderName: "Codex"},
+		{Prefix: "opena", RequestedModel: "gpt-4.1", ProviderID: "opena", ProviderName: "OpenAI"},
+	})
+	if err == nil {
+		t.Fatal("expected terminal error")
+	}
+	if secondCalled {
+		t.Fatal("expected fallback to stop on terminal error")
+	}
+}
+
 func TestConnectionRegistryStopsFallbackOnTerminalErrors(t *testing.T) {
 	secondCalled := false
 	registry := newTestRegistry(map[string][]ConnectionEntry{
@@ -187,6 +275,8 @@ func newConnectionEntry(providerID string, index int, chat ChatCompletionsConnec
 type recordingConnection struct {
 	response          openaiwire.ChatCompletionsResponse
 	responsesResponse openaiwire.ResponsesResponse
+	streamBody        string
+	responsesStream   string
 	err               error
 	onCall            func()
 }
@@ -210,6 +300,10 @@ func (c recordingConnection) ChatCompletionsStream(context.Context, openaiwire.C
 		return nil, c.err
 	}
 
+	if c.streamBody != "" {
+		return io.NopCloser(strings.NewReader(c.streamBody)), nil
+	}
+
 	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil
 }
 
@@ -230,6 +324,10 @@ func (c recordingConnection) ResponsesStream(context.Context, openaiwire.Respons
 	}
 	if c.err != nil {
 		return nil, c.err
+	}
+
+	if c.responsesStream != "" {
+		return io.NopCloser(strings.NewReader(c.responsesStream)), nil
 	}
 
 	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil

@@ -23,15 +23,15 @@ type aiRequestLogRepository interface {
 	analytics.Repository
 }
 
-func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
+func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
 	analyticsService := analytics.NewService(requestLogRepo, catalog)
 
 	router.Handle("/healthz", health.Handler())
-	router.Handle("/v1/models", modelsHandler(catalog, modelRepo))
-	router.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, settingsManager, logger))
-	router.Handle("/v1/responses", responsesHandler(catalog, connectionRegistry, requestLogRepo, settingsManager, logger))
+	router.Handle("/v1/models", modelsHandler(catalog, modelRepo, modelComboRepo))
+	router.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger))
+	router.Handle("/v1/responses", responsesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger))
 
 	router.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
@@ -39,8 +39,11 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		})
 		r.Handle("/admin/api/providers", providersHandler(catalog, connectionService, modelRepo))
 		r.Handle("/admin/api/providers/{id}/models", providerModelsHandler(catalog, modelRepo))
+		r.Handle("/admin/api/providers/{id}/models/*", providerModelByIDHandler(catalog, modelRepo))
 		r.Handle("/admin/api/providers/{id}/oauth-url", providerOAuthURLHandler(connectionService))
 		r.Handle("/admin/api/providers/{id}/test", providerModelTestHandler(catalog, connectionRegistry, modelRepo))
+		r.Handle("/admin/api/model-combos", modelCombosHandler(catalog, modelRepo, modelComboRepo, connectionService))
+		r.Handle("/admin/api/model-combos/*", modelComboByAliasHandler(catalog, modelRepo, modelComboRepo, connectionService))
 		r.Handle("/admin/api/connections", connectionsHandler(connectionService))
 		r.Handle("/admin/api/connections/{id}", connectionByIDHandler(connectionService))
 		r.Handle("/admin/api/connections/{id}/usage", connectionUsageHandler(connectionService))

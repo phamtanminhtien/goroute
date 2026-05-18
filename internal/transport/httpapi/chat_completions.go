@@ -16,7 +16,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
+func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -57,8 +57,14 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 		}
 
 		if request.Stream {
+			resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+			if err != nil {
+				recorder.SetError("internal_error", err.Error())
+				writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())
+				return
+			}
 			recorder.SetRequestMode(true)
-			output, err := chatcompletion.ExecuteStream(r.Context(), catalog, connectionRegistry, chatcompletion.Input{Request: request})
+			output, err := chatcompletion.ExecuteStream(r.Context(), resolvedCatalog, combos, connectionRegistry, chatcompletion.Input{Request: request})
 			if err != nil {
 				var upstreamErr chatcompletion.UpstreamError
 				switch {
@@ -84,8 +90,14 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 			return
 		}
 
+		resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+		if err != nil {
+			recorder.SetError("internal_error", err.Error())
+			writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
 		recorder.SetRequestMode(false)
-		output, err := chatcompletion.Execute(r.Context(), catalog, connectionRegistry, chatcompletion.Input{Request: request})
+		output, err := chatcompletion.Execute(r.Context(), resolvedCatalog, combos, connectionRegistry, chatcompletion.Input{Request: request})
 		if err != nil {
 			var upstreamErr chatcompletion.UpstreamError
 			switch {

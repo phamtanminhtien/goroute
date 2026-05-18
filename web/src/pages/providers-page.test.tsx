@@ -9,13 +9,18 @@ import {
   completeOAuthConnection,
   connectionUsageQueryKey,
   createConnection,
+  createModelCombo,
   createProviderModel,
   deleteConnection,
+  deleteModelCombo,
+  deleteProviderModel,
   generateProviderOAuthURL,
   getConnectionUsage,
+  listModelCombos,
   listProviders,
   testProviderModel,
   updateConnection,
+  updateProviderModel,
 } from "@/features/providers/api";
 import { renderWithQueryClient } from "@/test/test-utils";
 
@@ -27,26 +32,37 @@ vi.mock("@/features/providers/api", () => ({
   ]),
   completeOAuthConnection: vi.fn(),
   createConnection: vi.fn(),
+  createModelCombo: vi.fn(),
   createProviderModel: vi.fn(),
   deleteConnection: vi.fn(),
+  deleteProviderModel: vi.fn(),
+  deleteModelCombo: vi.fn(),
   generateProviderOAuthURL: vi.fn(),
   getConnectionUsage: vi.fn(),
+  listModelCombos: vi.fn(),
   listProviders: vi.fn(),
   providersQueryKey: ["providers"],
   testProviderModel: vi.fn(),
   updateConnection: vi.fn(),
+  updateProviderModel: vi.fn(),
+  updateModelCombo: vi.fn(),
 }));
 
 const connectionUsageQueryKeyMock = vi.mocked(connectionUsageQueryKey);
 const completeOAuthConnectionMock = vi.mocked(completeOAuthConnection);
 const createConnectionMock = vi.mocked(createConnection);
+const createModelComboMock = vi.mocked(createModelCombo);
 const createProviderModelMock = vi.mocked(createProviderModel);
 const deleteConnectionMock = vi.mocked(deleteConnection);
+const deleteProviderModelMock = vi.mocked(deleteProviderModel);
+const deleteModelComboMock = vi.mocked(deleteModelCombo);
 const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
 const getConnectionUsageMock = vi.mocked(getConnectionUsage);
+const listModelCombosMock = vi.mocked(listModelCombos);
 const listProvidersMock = vi.mocked(listProviders);
 const testProviderModelMock = vi.mocked(testProviderModel);
 const updateConnectionMock = vi.mocked(updateConnection);
+const updateProviderModelMock = vi.mocked(updateProviderModel);
 
 const baseProviders = [
   {
@@ -92,9 +108,24 @@ describe("providers pages", () => {
     });
     vi.restoreAllMocks();
     listProvidersMock.mockResolvedValue(baseProviders);
+    listModelCombosMock.mockResolvedValue([]);
     completeOAuthConnectionMock.mockResolvedValue(
       baseProviders[0].connections[0],
     );
+    createModelComboMock.mockResolvedValue({
+      alias: "combo/fast",
+      description: "",
+      name: "Fast Combo",
+      targets: [
+        {
+          enabled: true,
+          model_id: "cx/gpt-5.4",
+          priority: 0,
+          provider_id: "cx",
+        },
+      ],
+    });
+    deleteModelComboMock.mockResolvedValue(undefined);
     connectionUsageQueryKeyMock.mockImplementation((connectionID: string) => [
       "connections",
       connectionID,
@@ -105,8 +136,16 @@ describe("providers pages", () => {
       description: "",
       id: "cx/gpt-5.5",
       name: "GPT-5.5",
+      source: "custom",
+    });
+    updateProviderModelMock.mockResolvedValue({
+      description: "Updated custom model",
+      id: "cx/gpt-5.5",
+      name: "GPT-5.5 Turbo",
+      source: "custom",
     });
     updateConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
+    deleteProviderModelMock.mockResolvedValue(undefined);
     deleteConnectionMock.mockResolvedValue(undefined);
     getConnectionUsageMock.mockResolvedValue({
       limitReached: false,
@@ -252,6 +291,66 @@ describe("providers pages", () => {
         description: "",
         id: "cx/gpt-5.5",
         name: "GPT-5.5",
+      });
+    });
+  });
+
+  it("labels system and custom models, and only custom models can be edited or deleted", async () => {
+    const user = userEvent.setup();
+    listProvidersMock.mockResolvedValueOnce([
+      {
+        ...baseProviders[0],
+        models: [
+          {
+            description: "",
+            id: "cx/gpt-5.4",
+            name: "GPT-5.4",
+            source: "system",
+          },
+          {
+            description: "Custom model",
+            id: "cx/gpt-5.5",
+            name: "GPT-5.5",
+            source: "custom",
+          },
+        ],
+      },
+      baseProviders[1],
+    ]);
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /available models/i });
+
+    expect(screen.getAllByText(/^system$/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/^custom$/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^delete$/i })).toHaveLength(
+      2,
+    );
+    expect(screen.getAllByRole("button", { name: /^edit$/i })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/model id/i)).toHaveValue(
+      "cx/gpt-5.5",
+    );
+
+    await user.clear(within(dialog).getByLabelText(/^name/i));
+    await user.type(within(dialog).getByLabelText(/^name/i), "GPT-5.5 Turbo");
+    await user.click(
+      within(dialog).getByRole("button", { name: /save model/i }),
+    );
+
+    await waitFor(() => {
+      expect(updateProviderModelMock).toHaveBeenCalledWith("cx", "cx/gpt-5.5", {
+        description: "Custom model",
+        id: "cx/gpt-5.5",
+        name: "GPT-5.5 Turbo",
       });
     });
   });
@@ -492,4 +591,94 @@ describe("providers pages", () => {
     });
     await screen.findByText(/connection deleted/i);
   });
+
+  it("validates and creates a combo alias", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/combos"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /combo aliases/i });
+    await user.click(screen.getByRole("button", { name: /add combo/i }));
+    await user.click(screen.getByRole("button", { name: /save combo/i }));
+
+    expect(await screen.findByText(/alias is required/i)).toBeInTheDocument();
+    expect(createModelComboMock).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText(/alias/i), "combo/fast");
+    await user.type(screen.getByLabelText(/name/i), "Fast Combo");
+    await chooseSelectOption(user, 0, "Codex");
+    await chooseSelectOption(user, 1, "GPT-5.4 (cx/gpt-5.4)");
+    await user.click(screen.getByRole("button", { name: /save combo/i }));
+
+    await waitFor(() => {
+      expect(createModelComboMock).toHaveBeenCalledWith({
+        alias: "combo/fast",
+        description: "",
+        name: "Fast Combo",
+        targets: [{ enabled: true, model_id: "cx/gpt-5.4", provider_id: "cx" }],
+      });
+    });
+  });
+
+  it("renders combos and reorders target priority", async () => {
+    const user = userEvent.setup();
+    listModelCombosMock.mockResolvedValueOnce([
+      {
+        alias: "combo/fast",
+        description: "Primary fallback",
+        name: "Fast Combo",
+        targets: [
+          {
+            enabled: true,
+            model_id: "cx/gpt-5.4",
+            priority: 0,
+            provider_id: "cx",
+          },
+          {
+            enabled: true,
+            model_id: "openai/gpt-4.1",
+            priority: 1,
+            provider_id: "openai",
+          },
+        ],
+      },
+    ]);
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/combos"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/fast combo · combo\/fast/i);
+    expect(screen.getByText(/2\/2 enabled/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /add combo/i }));
+    await user.type(screen.getByLabelText(/alias/i), "combo/balanced");
+    await chooseSelectOption(user, 0, "Codex");
+    await chooseSelectOption(user, 1, "GPT-5.4 (cx/gpt-5.4)");
+    await user.click(screen.getByRole("button", { name: /add target/i }));
+    await chooseSelectOption(user, 3, "OpenAI");
+    await chooseSelectOption(user, 4, "GPT-4.1 (openai/gpt-4.1)");
+    await user.click(screen.getByRole("button", { name: /move target 2 up/i }));
+
+    const dialog = screen.getByRole("dialog");
+    const reorderedComboboxes = within(dialog).getAllByRole("combobox");
+    expect(reorderedComboboxes[0]).toHaveTextContent("OpenAI");
+    expect(reorderedComboboxes[3]).toHaveTextContent("Codex");
+  });
 });
+
+async function chooseSelectOption(
+  user: ReturnType<typeof userEvent.setup>,
+  index: number,
+  optionName: string,
+) {
+  const comboboxes = screen.getAllByRole("combobox");
+  await user.click(comboboxes[index]);
+  await user.click(await screen.findByRole("option", { name: optionName }));
+}

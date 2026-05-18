@@ -33,6 +33,8 @@ type adminProviderItem struct {
 type providerModelRepository interface {
 	ListProviderModels() ([]provider.ModelRecord, error)
 	CreateProviderModel(provider.ModelRecord) error
+	UpdateProviderModel(providerID string, modelID string, record provider.ModelRecord) error
+	DeleteProviderModel(providerID string, modelID string) error
 }
 
 func providersHandler(
@@ -105,6 +107,62 @@ func providerModelsHandler(catalog provider.Catalog, modelRepo providerModelRepo
 		}
 
 		writeJSON(w, http.StatusCreated, record)
+	})
+}
+
+func providerModelByIDHandler(catalog provider.Catalog, modelRepo providerModelRepository) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut && r.Method != http.MethodDelete {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if modelRepo == nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", "provider model repository is not configured")
+			return
+		}
+
+		providerID := strings.TrimSpace(chi.URLParam(r, "id"))
+		modelID := strings.Trim(strings.TrimSpace(chi.URLParam(r, "*")), "/")
+		if providerID == "" || strings.Contains(providerID, "/") || modelID == "" {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider model not found")
+			return
+		}
+		if _, ok := catalog.FindByID(providerID); !ok {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+		if !customModelExists(modelRepo, providerID, modelID) {
+			writeError(r, w, http.StatusNotFound, "not_found", "custom model not found")
+			return
+		}
+
+		switch r.Method {
+		case http.MethodPut:
+			var input providerModelCreateRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+				return
+			}
+
+			record, err := buildProviderModelRecord(providerID, input)
+			if err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			if err := modelRepo.UpdateProviderModel(providerID, modelID, record); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+
+			writeJSON(w, http.StatusOK, record)
+		case http.MethodDelete:
+			if err := modelRepo.DeleteProviderModel(providerID, modelID); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+		}
 	})
 }
 
@@ -261,6 +319,21 @@ func catalogWithCustomModels(catalog provider.Catalog, modelRepo providerModelRe
 	return catalog.WithModelRecords(records), nil
 }
 
+func customModelExists(modelRepo providerModelRepository, providerID string, modelID string) bool {
+	records, err := modelRepo.ListProviderModels()
+	if err != nil {
+		return false
+	}
+
+	for _, record := range records {
+		if record.ProviderID == providerID && record.ID == modelID {
+			return true
+		}
+	}
+
+	return false
+}
+
 func buildProviderModelRecord(providerID string, input providerModelCreateRequest) (provider.ModelRecord, error) {
 	modelID := strings.TrimSpace(input.ID)
 	if modelID == "" {
@@ -316,10 +389,22 @@ func buildAdminProviderItems(
 			Category:        providerItem.Category,
 			ConnectionCount: len(providerConnections),
 			DefaultModel:    providerItem.DefaultModel,
-			Models:          providerItem.Models,
+			Models:          modelsWithSource(providerItem.Models),
 			Connections:     providerConnections,
 		})
 	}
 
 	return items
+}
+
+func modelsWithSource(models []provider.Model) []provider.Model {
+	resolved := make([]provider.Model, len(models))
+	for index, model := range models {
+		if model.Source == "" {
+			model.Source = "system"
+		}
+		resolved[index] = model
+	}
+
+	return resolved
 }

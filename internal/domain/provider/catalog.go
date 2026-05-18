@@ -25,6 +25,10 @@ func (c Catalog) WithModelRecords(records []ModelRecord) Catalog {
 	for providerIndex, provider := range providers {
 		indexes := make(map[string]int, len(provider.Models))
 		for modelIndex, model := range provider.Models {
+			if model.Source == "" {
+				model.Source = "system"
+				provider.Models[modelIndex] = model
+			}
 			indexes[model.ID] = modelIndex
 		}
 		modelIndexes[provider.ID] = indexes
@@ -43,6 +47,7 @@ func (c Catalog) WithModelRecords(records []ModelRecord) Catalog {
 				Description:              record.Description,
 				InputPricePerMillionUSD:  record.InputPricePerMillionUSD,
 				OutputPricePerMillionUSD: record.OutputPricePerMillionUSD,
+				Source:                   "custom",
 			}
 			if modelIndex, exists := modelIndexes[record.ProviderID][record.ID]; exists {
 				providers[providerIndex].Models[modelIndex] = model

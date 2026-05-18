@@ -47,12 +47,6 @@ type ConnectionModalState =
   | { kind: "closed" }
   | { connectionId: string; kind: "edit" };
 
-type QuotaConnectionRecord = {
-  connection: ProviderConnection;
-  providerID: string;
-  providerName: string;
-};
-
 export function CodexUsagePage() {
   const queryClient = useQueryClient();
   const [modalState, setModalState] = useState<ConnectionModalState>({

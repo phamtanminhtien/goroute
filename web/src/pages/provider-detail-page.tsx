@@ -9,6 +9,7 @@ import {
   createConnection,
   createProviderModel,
   deleteConnection,
+  deleteProviderModel,
   listProviders,
   type ProviderConnection,
   type ProviderItem,
@@ -16,6 +17,7 @@ import {
   providersQueryKey,
   testProviderModel,
   updateConnection,
+  updateProviderModel,
 } from "@/features/providers/api";
 import {
   type ConnectionFormFeedback,
@@ -73,6 +75,10 @@ type ConnectionModalState =
   | { kind: "closed" }
   | { kind: "create"; providerId: string }
   | { connectionId: string; kind: "edit"; providerId: string };
+type ModelModalState =
+  | { kind: "closed" }
+  | { kind: "create" }
+  | { kind: "edit"; modelId: string };
 
 export function ProviderDetailPage() {
   const navigate = useNavigate();
@@ -91,7 +97,9 @@ export function ProviderDetailPage() {
     name: "",
   });
   const [modelFeedback, setModelFeedback] = useState<FeedbackState>(null);
-  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [modelModalState, setModelModalState] = useState<ModelModalState>({
+    kind: "closed",
+  });
 
   const providersQuery = useQuery({
     queryFn: listProviders,
@@ -188,7 +196,59 @@ export function ProviderDetailPage() {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setModelFeedback({ text: "Model added.", tone: "success" });
       setModelForm({ description: "", id: "", name: "" });
-      setModelModalOpen(false);
+      setModelModalState({ kind: "closed" });
+    },
+  });
+
+  const updateProviderModelMutation = useMutation({
+    mutationFn: async ({
+      modelID,
+      values,
+    }: {
+      modelID: string;
+      values: ModelFormState;
+    }) => {
+      if (!provider) {
+        throw new Error("Provider not found");
+      }
+
+      return updateProviderModel(provider.id, modelID, {
+        description: values.description.trim(),
+        id: values.id.trim(),
+        name: values.name.trim(),
+      });
+    },
+    onError: (error) => {
+      setModelFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setModelFeedback({ text: "Model updated.", tone: "success" });
+      setModelForm({ description: "", id: "", name: "" });
+      setModelModalState({ kind: "closed" });
+    },
+  });
+
+  const deleteProviderModelMutation = useMutation({
+    mutationFn: async (modelID: string) => {
+      if (!provider) {
+        throw new Error("Provider not found");
+      }
+
+      await deleteProviderModel(provider.id, modelID);
+    },
+    onError: (error) => {
+      setModelFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setModelFeedback({ text: "Model deleted.", tone: "success" });
     },
   });
 
@@ -280,6 +340,14 @@ export function ProviderDetailPage() {
     }
 
     setModelFeedback(null);
+    if (modelModalState.kind === "edit") {
+      await updateProviderModelMutation.mutateAsync({
+        modelID: modelModalState.modelId,
+        values: modelForm,
+      });
+      return;
+    }
+
     await createProviderModelMutation.mutateAsync(modelForm);
   }
 
@@ -425,7 +493,8 @@ export function ProviderDetailPage() {
                   leadingIcon={<Plus className="size-[15px]" />}
                   onClick={() => {
                     setModelFeedback(null);
-                    setModelModalOpen(true);
+                    setModelForm({ description: "", id: "", name: "" });
+                    setModelModalState({ kind: "create" });
                   }}
                 >
                   Add model
@@ -457,6 +526,22 @@ export function ProviderDetailPage() {
                       isDefault={model.id === provider.default_model}
                       key={model.id}
                       model={model}
+                      onDelete={async () => {
+                        setModelFeedback(null);
+                        await deleteProviderModelMutation.mutateAsync(model.id);
+                      }}
+                      onEdit={() => {
+                        setModelFeedback(null);
+                        setModelForm({
+                          description: model.description,
+                          id: model.id,
+                          name: model.name,
+                        });
+                        setModelModalState({
+                          kind: "edit",
+                          modelId: model.id,
+                        });
+                      }}
                       onTest={() => void handleModelTest(model.id)}
                       testState={modelTests[model.id] ?? null}
                     />
@@ -490,18 +575,22 @@ export function ProviderDetailPage() {
 
       <Modal
         onOpenChange={(open) => {
-          setModelModalOpen(open);
+          if (!open) {
+            setModelModalState({ kind: "closed" });
+          }
           if (!open && modelFeedback?.tone !== "success") {
             setModelFeedback(null);
           }
         }}
-        open={modelModalOpen}
+        open={modelModalState.kind !== "closed"}
       >
         {provider ? (
           <ModalContent>
             <ModalPanel
-              description={`Add a model to ${provider.name}. The model ID must use the ${provider.id}/ prefix.`}
-              title="Add model"
+              description={`${modelModalState.kind === "edit" ? "Edit this custom model for" : "Add a model to"} ${provider.name}. The model ID must use the ${provider.id}/ prefix.`}
+              title={
+                modelModalState.kind === "edit" ? "Edit model" : "Add model"
+              }
             >
               <form
                 className="space-y-4"
@@ -558,20 +647,27 @@ export function ProviderDetailPage() {
 
                 <ModalFooter>
                   <Button
-                    onClick={() => setModelModalOpen(false)}
+                    onClick={() => setModelModalState({ kind: "closed" })}
                     tone="secondary"
                     type="button"
                   >
                     Cancel
                   </Button>
                   <Button
-                    disabled={createProviderModelMutation.isPending}
+                    disabled={
+                      createProviderModelMutation.isPending ||
+                      updateProviderModelMutation.isPending
+                    }
                     leadingIcon={<Plus className="size-[15px]" />}
                     type="submit"
                   >
-                    {createProviderModelMutation.isPending
-                      ? "Adding..."
-                      : "Add model"}
+                    {modelModalState.kind === "edit"
+                      ? updateProviderModelMutation.isPending
+                        ? "Saving..."
+                        : "Save model"
+                      : createProviderModelMutation.isPending
+                        ? "Adding..."
+                        : "Add model"}
                   </Button>
                 </ModalFooter>
               </form>
@@ -696,17 +792,22 @@ function ModelChip({
   hasConnections,
   isDefault,
   model,
+  onDelete,
+  onEdit,
   onTest,
   testState,
 }: {
   hasConnections: boolean;
   isDefault: boolean;
   model: ProviderItem["models"][number];
+  onDelete: () => void;
+  onEdit: () => void;
   onTest: () => void;
   testState: ModelTestState | null;
 }) {
   const isTesting = testState?.pending === true;
   const isDisabled = isTesting || !hasConnections;
+  const isCustom = model.source === "custom";
 
   return (
     <div className="border-border/85 bg-bg-primary/72 flex max-w-full min-w-[240px] flex-col gap-3 rounded-[18px] border px-3.5 py-3">
@@ -720,7 +821,9 @@ function ModelChip({
 
         <div className="flex shrink-0 items-center gap-2">
           {isDefault ? <StatusBadge tone="success">Default</StatusBadge> : null}
-          {!isDefault ? <StatusBadge tone="info">Ready</StatusBadge> : null}
+          <StatusBadge tone={isCustom ? "warning" : "info"}>
+            {isCustom ? "Custom" : "System"}
+          </StatusBadge>
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -746,6 +849,44 @@ function ModelChip({
               ) : null}
             </Tooltip>
           </TooltipProvider>
+          {isCustom ? (
+            <>
+              <Button
+                leadingIcon={<Pencil className="size-[15px]" />}
+                onClick={onEdit}
+                tone="secondary"
+              >
+                Edit
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    leadingIcon={<Trash2 className="size-[15px]" />}
+                    tone="ghost"
+                  >
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete model?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Delete custom model "{model.name}" from this provider.
+                      System models are left untouched.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancelButton>
+                      Keep model
+                    </AlertDialogCancelButton>
+                    <AlertDialogActionButton onClick={onDelete} tone="primary">
+                      Confirm delete
+                    </AlertDialogActionButton>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          ) : null}
         </div>
       </div>
 

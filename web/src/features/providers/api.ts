@@ -10,6 +10,7 @@ export type ProviderModel = {
   input_price_per_million_usd?: number;
   name: string;
   output_price_per_million_usd?: number;
+  source?: "custom" | "system";
 };
 
 export type ProviderConnection = {
@@ -34,6 +35,25 @@ export type ProviderItem = {
   id: string;
   models: ProviderModel[];
   name: string;
+};
+
+export type ModelComboTarget = {
+  combo_alias?: string;
+  connection_id?: string;
+  enabled: boolean;
+  id?: number;
+  model_id: string;
+  priority: number;
+  provider_id: string;
+};
+
+export type ModelCombo = {
+  alias: string;
+  created_at?: number;
+  description: string;
+  name: string;
+  targets: ModelComboTarget[];
+  updated_at?: number;
 };
 
 export type ProviderUsageQuotaWindow = {
@@ -62,6 +82,18 @@ export type ProviderModelPayload = {
   input_price_per_million_usd?: number;
   name?: string;
   output_price_per_million_usd?: number;
+};
+
+export type ModelComboPayload = {
+  alias: string;
+  description?: string;
+  name?: string;
+  targets: Array<{
+    connection_id?: string;
+    enabled: boolean;
+    model_id: string;
+    provider_id: string;
+  }>;
 };
 
 export type ProviderModelTestResult = {
@@ -106,6 +138,32 @@ export async function listProviders() {
   const response =
     await apiClient.get<ListResponse<RawProviderItem>>("/providers");
   return response.data.data.map(normalizeProvider);
+}
+
+export async function listModelCombos() {
+  const response =
+    await apiClient.get<ListResponse<ModelCombo>>("/model-combos");
+  return response.data.data.map(normalizeModelCombo);
+}
+
+export async function createModelCombo(payload: ModelComboPayload) {
+  const response = await apiClient.post<ModelCombo>("/model-combos", payload);
+  return normalizeModelCombo(response.data);
+}
+
+export async function updateModelCombo(
+  alias: string,
+  payload: ModelComboPayload,
+) {
+  const response = await apiClient.put<ModelCombo>(
+    `/model-combos/${alias}`,
+    payload,
+  );
+  return normalizeModelCombo(response.data);
+}
+
+export async function deleteModelCombo(alias: string) {
+  await apiClient.delete(`/model-combos/${alias}`);
 }
 
 export async function createConnection(payload: ConnectionPayload) {
@@ -181,11 +239,41 @@ export async function createProviderModel(
   return response.data;
 }
 
+export async function updateProviderModel(
+  providerID: string,
+  modelID: string,
+  payload: ProviderModelPayload,
+) {
+  const response = await apiClient.put<ProviderModel>(
+    `/providers/${providerID}/models/${modelID}`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function deleteProviderModel(providerID: string, modelID: string) {
+  await apiClient.delete(`/providers/${providerID}/models/${modelID}`);
+}
+
 function normalizeProvider(provider: RawProviderItem): ProviderItem {
   return {
     ...provider,
     connection_count: provider.connection_count ?? 0,
     connections: provider.connections ?? [],
-    models: provider.models ?? [],
+    models: (provider.models ?? []).map((model) => ({
+      ...model,
+      source: model.source ?? "system",
+    })),
+  };
+}
+
+function normalizeModelCombo(combo: ModelCombo): ModelCombo {
+  return {
+    ...combo,
+    description: combo.description ?? "",
+    name: combo.name || combo.alias,
+    targets: [...(combo.targets ?? [])]
+      .sort((first, second) => first.priority - second.priority)
+      .map((target) => ({ ...target, enabled: target.enabled ?? true })),
   };
 }

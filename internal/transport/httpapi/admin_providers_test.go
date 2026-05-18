@@ -12,6 +12,7 @@ import (
 
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
+	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -84,6 +85,57 @@ func TestProviderModelsHandlerCreatesModelWhenPrefixMatches(t *testing.T) {
 	if !strings.Contains(listRec.Body.String(), `"id":"cx/gpt-5.5"`) {
 		t.Fatalf("expected custom model in provider list, got %s", listRec.Body.String())
 	}
+	if !strings.Contains(listRec.Body.String(), `"source":"system"`) || !strings.Contains(listRec.Body.String(), `"source":"custom"`) {
+		t.Fatalf("expected system and custom model sources, got %s", listRec.Body.String())
+	}
+}
+
+func TestProviderModelByIDHandlerUpdatesAndDeletesCustomModel(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/models", strings.NewReader(`{"id":"cx/gpt-5.5","name":"GPT-5.5"}`))
+	createReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected create, got %d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	updateRec := httptest.NewRecorder()
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/providers/cx/models/cx/gpt-5.5", strings.NewReader(`{"id":"cx/gpt-5.5-turbo","name":"GPT-5.5 Turbo","description":"Updated custom model"}`))
+	updateReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected update, got %d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+	if !strings.Contains(updateRec.Body.String(), `"id":"cx/gpt-5.5-turbo"`) {
+		t.Fatalf("expected updated model response, got %s", updateRec.Body.String())
+	}
+
+	deleteRec := httptest.NewRecorder()
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/api/providers/cx/models/cx/gpt-5.5-turbo", nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("expected delete, got %d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+}
+
+func TestProviderModelByIDHandlerRejectsSystemModelChanges(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/admin/api/providers/cx/models/cx/gpt-5.4", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNotFound, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "custom model not found") {
+		t.Fatalf("expected custom model error, got %s", rec.Body.String())
+	}
 }
 
 func TestProviderModelsHandlerRejectsModelPrefixMismatch(t *testing.T) {
@@ -100,6 +152,116 @@ func TestProviderModelsHandlerRejectsModelPrefixMismatch(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `model id must start with provider prefix \"cx/\"`) {
 		t.Fatalf("expected prefix mismatch error, got %s", rec.Body.String())
+	}
+}
+
+func TestModelCombosHandlerCreatesListsAndAdvertisesComboModel(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/model-combos", strings.NewReader(`{
+		"alias":"combo/fast",
+		"name":"Fast Combo",
+		"description":"Try Codex first",
+		"targets":[{"provider_id":"cx","model_id":"cx/gpt-5.4"},{"provider_id":"opena","model_id":"opena/gpt-4.1"}]
+	}`))
+	createReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(createRec, createReq)
+
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusCreated, createRec.Code, createRec.Body.String())
+	}
+	if !strings.Contains(createRec.Body.String(), `"alias":"combo/fast"`) {
+		t.Fatalf("expected created combo response, got %s", createRec.Body.String())
+	}
+
+	listRec := httptest.NewRecorder()
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/model-combos", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"alias":"combo/fast"`) {
+		t.Fatalf("expected combo in list response, got %s", listRec.Body.String())
+	}
+
+	modelsRec := httptest.NewRecorder()
+	modelsReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	handler.ServeHTTP(modelsRec, modelsReq)
+	if modelsRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, modelsRec.Code, modelsRec.Body.String())
+	}
+	if !strings.Contains(modelsRec.Body.String(), `"id":"combo/fast"`) || !strings.Contains(modelsRec.Body.String(), `"is_combo":"true"`) {
+		t.Fatalf("expected combo in model list, got %s", modelsRec.Body.String())
+	}
+}
+
+func TestModelCombosHandlerValidatesDuplicateAndUnknownTargets(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	create := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/admin/api/model-combos", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+testAdminToken)
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	first := create(`{"alias":"fast","targets":[{"provider_id":"cx","model_id":"cx/gpt-5.4"}]}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("expected initial create, got %d body=%s", first.Code, first.Body.String())
+	}
+
+	duplicate := create(`{"alias":"fast","targets":[{"provider_id":"cx","model_id":"cx/gpt-5.4"}]}`)
+	if duplicate.Code != http.StatusBadRequest || !strings.Contains(duplicate.Body.String(), "already exists") {
+		t.Fatalf("expected duplicate error, got %d body=%s", duplicate.Code, duplicate.Body.String())
+	}
+
+	unknownProvider := create(`{"alias":"bad-provider","targets":[{"provider_id":"missing","model_id":"missing/model"}]}`)
+	if unknownProvider.Code != http.StatusBadRequest || !strings.Contains(unknownProvider.Body.String(), `provider \"missing\" not found`) {
+		t.Fatalf("expected unknown provider error, got %d body=%s", unknownProvider.Code, unknownProvider.Body.String())
+	}
+
+	unknownModel := create(`{"alias":"bad-model","targets":[{"provider_id":"cx","model_id":"cx/missing"}]}`)
+	if unknownModel.Code != http.StatusBadRequest || !strings.Contains(unknownModel.Body.String(), `model \"cx/missing\" does not belong`) {
+		t.Fatalf("expected unknown model error, got %d body=%s", unknownModel.Code, unknownModel.Body.String())
+	}
+}
+
+func TestModelComboByAliasHandlerUpdatesTargetOrderAndSupportsSlashAlias(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/model-combos", strings.NewReader(`{
+		"alias":"combo/fast",
+		"targets":[{"provider_id":"cx","model_id":"cx/gpt-5.4"},{"provider_id":"opena","model_id":"opena/gpt-4.1"}]
+	}`))
+	createReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected create, got %d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	updateRec := httptest.NewRecorder()
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/model-combos/combo/fast", strings.NewReader(`{
+		"alias":"combo/fast",
+		"name":"Fast Combo",
+		"targets":[{"provider_id":"opena","model_id":"opena/gpt-4.1"},{"provider_id":"cx","model_id":"cx/gpt-5.4"}]
+	}`))
+	updateReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected update, got %d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	var combo modelcombo.Combo
+	if err := json.Unmarshal(updateRec.Body.Bytes(), &combo); err != nil {
+		t.Fatalf("decode combo: %v", err)
+	}
+	if len(combo.Targets) != 2 || combo.Targets[0].ProviderID != "opena" || combo.Targets[0].Priority != 0 {
+		t.Fatalf("expected updated target order, got %#v", combo.Targets)
 	}
 }
 
@@ -359,5 +521,5 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 		&logger,
 	)
 
-	return NewServer(testCatalog(), &registry, service, repo, repo, settingsManager, testAdminToken, nil, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
 }

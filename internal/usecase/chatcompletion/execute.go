@@ -4,20 +4,21 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 )
 
-func Execute(ctx context.Context, catalog provider.Catalog, connectionRegistry *ConnectionRegistry, input Input) (Output, error) {
-	target, err := routing.ResolveModel(catalog, input.Request.Model)
+func Execute(ctx context.Context, catalog provider.Catalog, combos []modelcombo.Combo, connectionRegistry *ConnectionRegistry, input Input) (Output, error) {
+	plan, err := routing.ResolvePlan(catalog, combos, input.Request.Model)
 	if err != nil {
 		return Output{}, err
 	}
 	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
 		recorder.SetRequestedModel(input.Request.Model)
 		recorder.SetRequestMode(false)
-		recorder.SetResolvedTarget(target)
+		recorder.SetResolvedTarget(plan.PrimaryTarget())
 	}
 
 	if len(input.Request.Messages) == 0 {
@@ -27,25 +28,25 @@ func Execute(ctx context.Context, catalog provider.Catalog, connectionRegistry *
 		return Output{}, err
 	}
 
-	response, err := connectionRegistry.ChatCompletions(ctx, input.Request, target)
+	response, err := connectionRegistry.ChatCompletionsTargets(ctx, input.Request, plan.Targets)
 	if err != nil {
 		return Output{}, err
 	}
 
-	response.Model = target.Prefix + "/" + target.RequestedModel
+	response.Model = plan.ResponseModel
 
 	return Output{Response: response}, nil
 }
 
-func ExecuteStream(ctx context.Context, catalog provider.Catalog, connectionRegistry *ConnectionRegistry, input Input) (StreamOutput, error) {
-	target, err := routing.ResolveModel(catalog, input.Request.Model)
+func ExecuteStream(ctx context.Context, catalog provider.Catalog, combos []modelcombo.Combo, connectionRegistry *ConnectionRegistry, input Input) (StreamOutput, error) {
+	plan, err := routing.ResolvePlan(catalog, combos, input.Request.Model)
 	if err != nil {
 		return StreamOutput{}, err
 	}
 	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
 		recorder.SetRequestedModel(input.Request.Model)
 		recorder.SetRequestMode(true)
-		recorder.SetResolvedTarget(target)
+		recorder.SetResolvedTarget(plan.PrimaryTarget())
 	}
 
 	if len(input.Request.Messages) == 0 {
@@ -55,10 +56,10 @@ func ExecuteStream(ctx context.Context, catalog provider.Catalog, connectionRegi
 		return StreamOutput{}, err
 	}
 
-	body, err := connectionRegistry.ChatCompletionsStream(ctx, input.Request, target)
+	body, err := connectionRegistry.ChatCompletionsStreamTargets(ctx, input.Request, plan.Targets)
 	if err != nil {
 		return StreamOutput{}, err
 	}
 
-	return StreamOutput{Body: body}, nil
+	return StreamOutput{Body: RewriteChatCompletionsStreamModel(body, plan.ResponseModel)}, nil
 }

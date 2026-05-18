@@ -5,6 +5,7 @@ import (
 
 	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
+	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 )
 
@@ -12,6 +13,8 @@ func (r *Repository) Migrate() error {
 	if err := r.db.AutoMigrate(
 		&connection.Record{},
 		&provider.ModelRecord{},
+		&modelcombo.Combo{},
+		&modelcombo.Target{},
 		&airequestlog.RunRecord{},
 		&airequestlog.FlowRecord{},
 		&airequestlog.ThirdPartyRequestLogRecord{},

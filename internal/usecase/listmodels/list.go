@@ -1,6 +1,11 @@
 package listmodels
 
-import "github.com/phamtanminhtien/goroute/internal/domain/provider"
+import (
+	"strconv"
+
+	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
+)
 
 type ModelView struct {
 	ID       string
@@ -21,6 +26,27 @@ func Execute(catalog provider.Catalog) []ModelView {
 		for _, model := range resolvedProvider.Models {
 			models = append(models, buildModelView(resolvedProvider, model))
 		}
+	}
+
+	return models
+}
+
+func ExecuteWithCombos(catalog provider.Catalog, combos []modelcombo.Combo) []ModelView {
+	models := Execute(catalog)
+	for _, combo := range combos {
+		models = append(models, ModelView{
+			ID:      combo.Alias,
+			Object:  "model",
+			OwnedBy: "combo",
+			Root:    combo.Alias,
+			Parent:  "",
+			Metadata: map[string]string{
+				"is_combo":     "true",
+				"display_name": combo.Name,
+				"description":  combo.Description,
+				"target_count": strconv.Itoa(len(combo.Targets)),
+			},
+		})
 	}
 
 	return models

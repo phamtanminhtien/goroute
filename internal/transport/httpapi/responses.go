@@ -16,7 +16,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
+func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -59,8 +59,14 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 		request.RawBody = append(request.RawBody[:0], rawBody...)
 
 		if request.Stream {
+			resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+			if err != nil {
+				recorder.SetError("internal_error", err.Error())
+				writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())
+				return
+			}
 			recorder.SetRequestMode(true)
-			output, err := responsesusecase.ExecuteStream(r.Context(), catalog, connectionRegistry, responsesusecase.Input{Request: request})
+			output, err := responsesusecase.ExecuteStream(r.Context(), resolvedCatalog, combos, connectionRegistry, responsesusecase.Input{Request: request})
 			if err != nil {
 				var upstreamErr chatcompletion.UpstreamError
 				switch {
@@ -86,8 +92,14 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 			return
 		}
 
+		resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+		if err != nil {
+			recorder.SetError("internal_error", err.Error())
+			writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
 		recorder.SetRequestMode(false)
-		output, err := responsesusecase.Execute(r.Context(), catalog, connectionRegistry, responsesusecase.Input{Request: request})
+		output, err := responsesusecase.Execute(r.Context(), resolvedCatalog, combos, connectionRegistry, responsesusecase.Input{Request: request})
 		if err != nil {
 			var upstreamErr chatcompletion.UpstreamError
 			switch {

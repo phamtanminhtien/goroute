@@ -3,6 +3,7 @@ import { Navigate, type RouteObject, useRoutes } from "react-router-dom";
 import { AdminLayout } from "@/app/layout/admin-layout";
 import { AuthGuard, PublicOnlyGuard } from "@/features/auth/auth-guard";
 import { CodexUsagePage } from "@/pages/codex-usage-page";
+import { CombosPage } from "@/pages/combos-page";
 import { ConsoleLogPage } from "@/pages/console-log-page";
 import { LoginPage } from "@/pages/login-page";
 import { ProviderDetailPage } from "@/pages/provider-detail-page";
@@ -29,6 +30,7 @@ const appRoutes: RouteObject[] = [
           { index: true, element: <Navigate to="/providers" replace /> },
           { path: "providers", element: <ProvidersPage /> },
           { path: "providers/:providerId", element: <ProviderDetailPage /> },
+          { path: "combos", element: <CombosPage /> },
           { path: "usage", element: <UsageAnalyticsPage /> },
           { path: "logs", element: <ConsoleLogPage /> },
           { path: "quota", element: <CodexUsagePage /> },

@@ -22,6 +22,7 @@ type Model struct {
 	Description              string  `json:"description"`
 	InputPricePerMillionUSD  float64 `json:"input_price_per_million_usd"`
 	OutputPricePerMillionUSD float64 `json:"output_price_per_million_usd"`
+	Source                   string  `json:"source"`
 }
 
 type ModelRecord struct {
