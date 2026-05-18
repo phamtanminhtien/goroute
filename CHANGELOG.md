@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/phamtanminhtien/goroute/compare/v1.2.0...v1.3.0) (2026-05-18)
+
+
+### Features
+
+* extract and store the last SSE event payload in flow logs for translated responses ([44da68a](https://github.com/phamtanminhtien/goroute/commit/44da68a01078f4926533e4908dc7ceb12b3b1ea3))
+* refactor Codex responses streaming pipeline ([ff26000](https://github.com/phamtanminhtien/goroute/commit/ff2600031dac7dbb9b0a9998e24aa150bba34ed7))
+
 ## [1.2.0](https://github.com/phamtanminhtien/goroute/compare/v1.1.0...v1.2.0) (2026-05-18)
 
 
