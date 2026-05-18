@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.1.0](https://github.com/phamtanminhtien/goroute/compare/v1.0.0...v1.1.0) (2026-05-18)
+
+
+### Features
+
+* add connection status toggling in codex usage ([854bd44](https://github.com/phamtanminhtien/goroute/commit/854bd4432833a37a5d622022f558870679bd5a45))
+* add enabled field to connections and model combos with toggle functionality in API and UI ([441aee3](https://github.com/phamtanminhtien/goroute/commit/441aee3323c32bbe1576bf7bd5655863636d6922))
+* add sm size variant to Button component ([8bd7523](https://github.com/phamtanminhtien/goroute/commit/8bd7523c7a7448c093c38613b4955361a0e7110d))
+* add support for creating custom provider models via API and UI ([2fe0540](https://github.com/phamtanminhtien/goroute/commit/2fe0540ff8a04cf52f1c165b7d931d6c2518ca4a))
+* enable RTK by default and update Docker volume mapping to a local directory ([2ea4bc7](https://github.com/phamtanminhtien/goroute/commit/2ea4bc7e9b5a4285d2617bd958e2dc54047b9d52))
+* implement AI request logs page with filtering, pagination, and detail view support ([63e22de](https://github.com/phamtanminhtien/goroute/commit/63e22de4e7676853acd5b709db844de5ee030c31))
+* implement connection runtime status tracking and display in the UI ([6f8920c](https://github.com/phamtanminhtien/goroute/commit/6f8920cc629e55aca8429b69d44ad09a5d4889ab))
+* implement model combo management and update response streaming to hide provider-specific models ([a514e72](https://github.com/phamtanminhtien/goroute/commit/a514e725011c03eeceb20fc870e8e4f5309f2c70))
+* implement system API key management and OpenAI-compatible authentication support ([4498ff0](https://github.com/phamtanminhtien/goroute/commit/4498ff071f8ec793d2de8518f18be16b3135950d))
+* update UI quota display ([4a42dc2](https://github.com/phamtanminhtien/goroute/commit/4a42dc2514f9bf450ac5aa3e371f4ba8734e2b4a))
+
+
+### Bug Fixes
+
+* ensure text field is included in JSON marshaling for text-based content parts and update docker-compose volume mount ([021a63a](https://github.com/phamtanminhtien/goroute/commit/021a63ac2ac25b5ceaca58f0284db715a5657c28))
+
 ## 1.0.0 (2026-05-18)
 
 
