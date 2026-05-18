@@ -24,7 +24,9 @@ Example `~/.goroute/config.json`:
     "flow": true,
     "thirdParty": true
   },
-  "rtk": false
+  "rtk": {
+    "enabled": true
+  }
 }
 ```
 
@@ -42,7 +44,7 @@ Example `~/.goroute/config.json`:
 
 `rtk` controls optional deterministic request compression:
 
-- when `rtk` is omitted, it defaults to disabled
+- when `rtk` is omitted, it defaults to enabled
 - `rtk: false` disables RTK compression
 - `rtk: true` enables RTK compression
 - `rtk: { "enabled": true }` also enables RTK compression

@@ -98,8 +98,8 @@ func TestLoadOrCreatePathCreatesDefaultConfigWhenMissing(t *testing.T) {
 	if !cfg.LLMLogging.Flow || !cfg.LLMLogging.ThirdParty {
 		t.Fatalf("expected llm logging to default enabled, got %#v", cfg.LLMLogging)
 	}
-	if cfg.RTK.Enabled {
-		t.Fatalf("expected default config to disable rtk, got %#v", cfg.RTK)
+	if !cfg.RTK.Enabled {
+		t.Fatalf("expected default config to enable rtk, got %#v", cfg.RTK)
 	}
 
 	info, err := os.Stat(path)

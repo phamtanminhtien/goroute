@@ -64,7 +64,7 @@ func NewDefaultConfig() Config {
 			WebUIDir:  DefaultWebUIDir,
 		},
 		LLMLogging: NewLLMLoggingConfig(true, true),
-		RTK:        NewRTKConfig(false),
+		RTK:        NewRTKConfig(true),
 	}
 }
 

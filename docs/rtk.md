@@ -4,11 +4,11 @@ This document describes the RTK request-compression layer as implemented in `gor
 
 ## Scope
 
-RTK is an opt-in, deterministic compression pass that runs immediately before upstream request marshalling.
+RTK is a default-on, deterministic compression pass that runs immediately before upstream request marshalling.
 
 Current behavior:
 
-- enabled through runtime settings and `~/.goroute/config.json`
+- enabled by default and configurable through runtime settings and `~/.goroute/config.json`
 - applies only to large machine-generated `user` and `tool` text
 - skips `system`, `assistant`, and `instructions`
 - keeps the OpenAI-compatible wire contract intact
@@ -78,21 +78,21 @@ High-level behavior:
 
 Config file examples:
 
-Disabled:
-
-```json
-{
-  "rtk": false
-}
-```
-
-Enabled:
+Default enabled:
 
 ```json
 {
   "rtk": {
     "enabled": true
   }
+}
+```
+
+Disabled:
+
+```json
+{
+  "rtk": false
 }
 ```
 
