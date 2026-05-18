@@ -104,6 +104,23 @@ type ChatMessageContentPart struct {
 	ImageURL *ChatMessageImageURL `json:"image_url,omitempty"`
 }
 
+func (p ChatMessageContentPart) MarshalJSON() ([]byte, error) {
+	type payload struct {
+		Type     string               `json:"type"`
+		Text     string               `json:"text,omitempty"`
+		ImageURL *ChatMessageImageURL `json:"image_url,omitempty"`
+	}
+	type textPayload struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+
+	if p.Type == "text" {
+		return json.Marshal(textPayload{Type: p.Type, Text: p.Text})
+	}
+	return json.Marshal(payload(p))
+}
+
 type ChatMessageImageURL struct {
 	URL    string `json:"url,omitempty"`
 	Detail string `json:"detail,omitempty"`

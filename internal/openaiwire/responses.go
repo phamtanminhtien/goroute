@@ -107,6 +107,26 @@ type ResponseInputContentPart struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
+func (p ResponseInputContentPart) MarshalJSON() ([]byte, error) {
+	type payload struct {
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		ImageURL string `json:"image_url,omitempty"`
+		Detail   string `json:"detail,omitempty"`
+	}
+	type textPayload struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+
+	switch p.Type {
+	case "input_text", "output_text":
+		return json.Marshal(textPayload{Type: p.Type, Text: p.Text})
+	default:
+		return json.Marshal(payload(p))
+	}
+}
+
 type ResponseText struct {
 	Format *ResponseFormat `json:"format,omitempty"`
 }
