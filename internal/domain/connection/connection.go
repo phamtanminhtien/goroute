@@ -11,6 +11,10 @@ type Record struct {
 	AccessTokenExpiresAt int64  `json:"access_token_expires_at" gorm:"column:access_token_expires_at;not null;default:0"`
 	Enabled              bool   `json:"enabled" gorm:"column:enabled;not null;default:true"`
 	Name                 string `json:"name" gorm:"column:name;not null"`
+	LastErrorMessage     string `json:"last_error_message" gorm:"column:last_error_message;not null;default:''"`
+	LastErrorCategory    string `json:"last_error_category" gorm:"column:last_error_category;not null;default:''"`
+	LastErrorAt          int64  `json:"last_error_at" gorm:"column:last_error_at;not null;default:0"`
+	RetryAfter           int64  `json:"retry_after" gorm:"column:retry_after;not null;default:0"`
 	CreatedAt            int64  `json:"-" gorm:"column:created_at;not null;autoCreateTime"`
 	UpdatedAt            int64  `json:"-" gorm:"column:updated_at;not null;autoUpdateTime"`
 }

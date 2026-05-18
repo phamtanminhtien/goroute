@@ -13,16 +13,30 @@ import (
 )
 
 type ConnectionEntry struct {
-	ID         string
-	Name       string
-	ProviderID string
+	ID                string
+	Name              string
+	ProviderID        string
+	LastErrorMessage  string
+	LastErrorCategory string
+	LastErrorAt       int64
+	RetryAfter        int64
 	ProtocolConnections
+}
+
+type ConnectionRuntimeStateStore interface {
+	RecordConnectionRuntimeError(id string, message string, category string, lastErrorAt int64, retryAfter int64) error
+	ClearConnectionRuntimeError(id string) error
 }
 
 type ConnectionRegistry struct {
 	mu          sync.RWMutex
 	connections map[string][]ConnectionEntry
 	logger      *zerolog.Logger
+	stateStore  ConnectionRuntimeStateStore
+}
+
+var registryTimeNow = func() time.Time {
+	return time.Now().UTC()
 }
 
 func NewConnectionRegistry(connections map[string][]ConnectionEntry) ConnectionRegistry {
@@ -30,6 +44,10 @@ func NewConnectionRegistry(connections map[string][]ConnectionEntry) ConnectionR
 }
 
 func NewConnectionRegistryWithEntries(connections map[string][]ConnectionEntry, logger *zerolog.Logger) ConnectionRegistry {
+	return NewConnectionRegistryWithStateStore(connections, logger, nil)
+}
+
+func NewConnectionRegistryWithStateStore(connections map[string][]ConnectionEntry, logger *zerolog.Logger, stateStore ConnectionRuntimeStateStore) ConnectionRegistry {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -38,6 +56,7 @@ func NewConnectionRegistryWithEntries(connections map[string][]ConnectionEntry, 
 	return ConnectionRegistry{
 		connections: connections,
 		logger:      logger,
+		stateStore:  stateStore,
 	}
 }
 
@@ -52,7 +71,7 @@ func (r *ConnectionRegistry) ChatCompletionsTargets(ctx context.Context, req ope
 		req.Model,
 		targets,
 		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil },
-		func(entry ConnectionEntry, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
 			return entry.ChatCompletions.ChatCompletions(ctx, req, target)
 		},
 		"chat_completions_unsupported",
@@ -70,7 +89,7 @@ func (r *ConnectionRegistry) ResponsesTargets(ctx context.Context, req openaiwir
 		req.Model,
 		targets,
 		func(entry ConnectionEntry) bool { return entry.Responses != nil },
-		func(entry ConnectionEntry, target routing.Target) (openaiwire.ResponsesResponse, error) {
+		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (openaiwire.ResponsesResponse, error) {
 			return entry.Responses.Responses(ctx, req, target)
 		},
 		"responses_unsupported",
@@ -88,7 +107,7 @@ func (r *ConnectionRegistry) ChatCompletionsStreamTargets(ctx context.Context, r
 		req.Model,
 		targets,
 		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil },
-		func(entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
+		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
 			return entry.ChatCompletions.ChatCompletionsStream(ctx, req, target)
 		},
 		"chat_completions_unsupported",
@@ -106,14 +125,14 @@ func (r *ConnectionRegistry) ResponsesStreamTargets(ctx context.Context, req ope
 		req.Model,
 		targets,
 		func(entry ConnectionEntry) bool { return entry.Responses != nil },
-		func(entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
+		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
 			return entry.Responses.ResponsesStream(ctx, req, target)
 		},
 		"responses_unsupported",
 	)
 }
 
-func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requestedModel string, targets []routing.Target, supported func(ConnectionEntry) bool, invoke func(ConnectionEntry, routing.Target) (T, error), unsupportedCategory string) (T, error) {
+func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requestedModel string, targets []routing.Target, supported func(ConnectionEntry) bool, invoke func(context.Context, ConnectionEntry, routing.Target) (T, error), unsupportedCategory string) (T, error) {
 	requestID := RequestID(ctx)
 	if len(targets) == 0 {
 		return zeroValue[T](), fmt.Errorf("no routing targets configured")
@@ -141,6 +160,16 @@ func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requeste
 		for _, connection := range connections {
 			currentAttempt := attemptIndex
 			attemptIndex++
+			if retryAt, ok := connectionActiveCooldown(connection, registryTimeNow()); ok {
+				lastErr = fmt.Errorf("connection %q is cooling down until %s", connection.Name, retryAt.Format(time.RFC3339))
+				lastPolicy = FailurePolicy{
+					Class:         FailureClassFallbackEligible,
+					Category:      "connection_cooldown",
+					AllowFallback: true,
+				}
+				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+				continue
+			}
 			if !supported(connection) {
 				lastErr = fmt.Errorf("connection %q does not support requested protocol", connection.Name)
 				lastPolicy = FailurePolicy{
@@ -152,16 +181,18 @@ func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requeste
 				continue
 			}
 
-			started := time.Now().UTC()
-			response, err := invoke(connection, target)
-			completedAt := time.Now().UTC()
+			started := registryTimeNow()
+			response, err := invoke(WithAttemptIndex(ctx, currentAttempt), connection, target)
+			completedAt := registryTimeNow()
 			latency := completedAt.Sub(started)
 			if err == nil {
+				r.clearConnectionRuntimeError(connection)
 				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, latency, "success", "none", false)
 				return response, nil
 			}
 
 			policy := ClassifyError(err)
+			r.recordConnectionRuntimeError(connection, err, policy, completedAt)
 			r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, latency, string(policy.Class), policy.Category, policy.AllowFallback)
 			lastErr = err
 			lastPolicy = policy
@@ -178,6 +209,15 @@ func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requeste
 	}
 
 	return zeroValue[T](), nil
+}
+
+func connectionActiveCooldown(connection ConnectionEntry, now time.Time) (time.Time, bool) {
+	if connection.RetryAfter <= 0 {
+		return time.Time{}, false
+	}
+
+	retryAt := time.Unix(connection.RetryAfter, 0).UTC()
+	return retryAt, retryAt.After(now)
 }
 
 func zeroValue[T any]() T {
@@ -220,6 +260,59 @@ func (r *ConnectionRegistry) connectionsForTarget(target routing.Target) []Conne
 	}
 
 	return filtered
+}
+
+func (r *ConnectionRegistry) recordConnectionRuntimeError(connection ConnectionEntry, err error, policy FailurePolicy, occurredAt time.Time) {
+	retryAfter := int64(0)
+	if policy.Class == FailureClassRetryable {
+		retryAfter = occurredAt.Add(RetryableConnectionCooldown).Unix()
+	}
+
+	message := err.Error()
+	if r.stateStore != nil {
+		if storeErr := r.stateStore.RecordConnectionRuntimeError(connection.ID, message, policy.Category, occurredAt.Unix(), retryAfter); storeErr != nil {
+			r.logger.Error().
+				Err(storeErr).
+				Str("connection_id", connection.ID).
+				Msg("connection_runtime_error_record_failed")
+		}
+	}
+	r.updateConnectionRuntimeState(connection.ID, message, policy.Category, occurredAt.Unix(), retryAfter)
+}
+
+func (r *ConnectionRegistry) clearConnectionRuntimeError(connection ConnectionEntry) {
+	if connection.LastErrorMessage == "" && connection.LastErrorCategory == "" && connection.LastErrorAt == 0 && connection.RetryAfter == 0 {
+		return
+	}
+
+	if r.stateStore != nil {
+		if err := r.stateStore.ClearConnectionRuntimeError(connection.ID); err != nil {
+			r.logger.Error().
+				Err(err).
+				Str("connection_id", connection.ID).
+				Msg("connection_runtime_error_clear_failed")
+		}
+	}
+	r.updateConnectionRuntimeState(connection.ID, "", "", 0, 0)
+}
+
+func (r *ConnectionRegistry) updateConnectionRuntimeState(connectionID string, message string, category string, lastErrorAt int64, retryAfter int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for providerID, connections := range r.connections {
+		for index := range connections {
+			if connections[index].ID != connectionID {
+				continue
+			}
+			connections[index].LastErrorMessage = message
+			connections[index].LastErrorCategory = category
+			connections[index].LastErrorAt = lastErrorAt
+			connections[index].RetryAfter = retryAfter
+			r.connections[providerID] = connections
+			return
+		}
+	}
 }
 
 func (r *ConnectionRegistry) logAttempt(ctx context.Context, requestID string, requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {

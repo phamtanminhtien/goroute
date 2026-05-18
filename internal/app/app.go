@@ -126,6 +126,10 @@ func buildConnectionEntries(connectionConfigs []connection.Record, providers pro
 			ID:                  connectionConfig.ID,
 			Name:                connectionConfig.Name,
 			ProviderID:          connectionConfig.ProviderID,
+			LastErrorMessage:    connectionConfig.LastErrorMessage,
+			LastErrorCategory:   connectionConfig.LastErrorCategory,
+			LastErrorAt:         connectionConfig.LastErrorAt,
+			RetryAfter:          connectionConfig.RetryAfter,
 			ProtocolConnections: connections,
 		})
 	}
@@ -156,6 +160,8 @@ func logConnectionDiagnostic(logger *zerolog.Logger, providers providerregistry.
 type connectionRuntime struct {
 	repo interface {
 		ListConnections() ([]connection.Record, error)
+		RecordConnectionRuntimeError(id string, message string, category string, lastErrorAt int64, retryAfter int64) error
+		ClearConnectionRuntimeError(id string) error
 	}
 	providers providerregistry.Registry
 	registry  *chatcompletion.ConnectionRegistry
@@ -173,7 +179,7 @@ func (r *connectionRuntime) BuildRegistry() (*chatcompletion.ConnectionRegistry,
 		return nil, err
 	}
 
-	registry := chatcompletion.NewConnectionRegistryWithEntries(entries, r.logger)
+	registry := chatcompletion.NewConnectionRegistryWithStateStore(entries, r.logger, r.repo)
 	return &registry, nil
 }
 

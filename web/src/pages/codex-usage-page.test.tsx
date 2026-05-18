@@ -78,6 +78,10 @@ describe("quota tracker page", () => {
             has_api_key: false,
             has_refresh_token: true,
             id: "codex-1",
+            last_error_at: 1778515500,
+            last_error_category: "upstream_retryable_error",
+            last_error_message: "upstream returned status 429: slow down",
+            retry_after: 1778515560,
             name: "codex-user",
             problems: [],
             provider_id: "cx",
@@ -167,6 +171,10 @@ describe("quota tracker page", () => {
     expect(screen.getByText(/provider filter/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveTextContent(/all providers/i);
     expect(screen.getByText(/openai-user/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/last: upstream_retryable_error/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/retry in: 1m 0s/i)).toBeInTheDocument();
     expect(screen.getByText(/^session$/i)).toBeInTheDocument();
     expect(screen.getByText(/^58\/100$/i)).toBeInTheDocument();
     expect(screen.getByText(/remaining quota/i)).toBeInTheDocument();

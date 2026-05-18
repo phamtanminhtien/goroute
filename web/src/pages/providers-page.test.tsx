@@ -83,6 +83,10 @@ const baseProviders = [
         has_api_key: false,
         has_refresh_token: true,
         id: "codex-1",
+        last_error_at: 1778515500,
+        last_error_category: "upstream_retryable_error",
+        last_error_message: "upstream returned status 429: slow down",
+        retry_after: 1778515560,
         name: "codex-user",
         problems: [],
         provider_id: "cx",
@@ -117,6 +121,9 @@ describe("providers pages", () => {
       token: "secret-token",
     });
     vi.restoreAllMocks();
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-05-11T16:05:00.000Z").getTime(),
+    );
     listProvidersMock.mockResolvedValue(baseProviders);
     listModelCombosMock.mockResolvedValue([]);
     completeOAuthConnectionMock.mockResolvedValue(
@@ -229,6 +236,10 @@ describe("providers pages", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/^default$/i)).toBeInTheDocument();
     expect(screen.getByText(/codex-user/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/last: upstream_retryable_error/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/retry in:/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /test/i })).toBeInTheDocument();
   });
 

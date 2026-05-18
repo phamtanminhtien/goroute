@@ -20,9 +20,13 @@ export type ProviderConnection = {
   has_api_key: boolean;
   has_refresh_token: boolean;
   id: string;
+  last_error_at?: number;
+  last_error_category?: string;
+  last_error_message?: string;
   name: string;
   problems: string[];
   provider_id: string;
+  retry_after?: number;
   status: string;
   token_type?: string;
 };

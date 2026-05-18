@@ -43,6 +43,10 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 		ExpiresIn:            3600,
 		AccessTokenExpiresAt: 1700000000,
 		Enabled:              true,
+		LastErrorMessage:     "previous failure",
+		LastErrorCategory:    "upstream_server_error",
+		LastErrorAt:          1700000010,
+		RetryAfter:           1700000070,
 	}
 	if err := repo.CreateConnection(created); err != nil {
 		t.Fatalf("CreateConnection returned error: %v", err)
@@ -52,7 +56,7 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConnection returned error: %v", err)
 	}
-	if !ok || got.Name != "openai-user" || got.APIKey != "token-1" || got.RefreshToken != "refresh-1" || !got.Enabled {
+	if !ok || got.Name != "openai-user" || got.APIKey != "token-1" || got.RefreshToken != "refresh-1" || !got.Enabled || got.LastErrorCategory != "upstream_server_error" || got.RetryAfter != 1700000070 {
 		t.Fatalf("unexpected stored connection: ok=%v value=%#v", ok, got)
 	}
 
@@ -69,8 +73,30 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConnection after update returned error: %v", err)
 	}
-	if !ok || got.Name != "openai-admin" || got.AccessToken != "access-1" || got.APIKey != "" || got.Enabled {
+	if !ok || got.Name != "openai-admin" || got.AccessToken != "access-1" || got.APIKey != "" || got.Enabled || got.LastErrorMessage != "previous failure" {
 		t.Fatalf("unexpected updated connection: ok=%v value=%#v", ok, got)
+	}
+
+	if err := repo.RecordConnectionRuntimeError("openai-renamed", "rate limited", "upstream_retryable_error", 1700000100, 1700000160); err != nil {
+		t.Fatalf("RecordConnectionRuntimeError returned error: %v", err)
+	}
+	got, ok, err = repo.GetConnection("openai-renamed")
+	if err != nil {
+		t.Fatalf("GetConnection after runtime error returned error: %v", err)
+	}
+	if !ok || got.LastErrorMessage != "rate limited" || got.LastErrorCategory != "upstream_retryable_error" || got.LastErrorAt != 1700000100 || got.RetryAfter != 1700000160 || got.AccessToken != "access-1" {
+		t.Fatalf("unexpected runtime error state: ok=%v value=%#v", ok, got)
+	}
+
+	if err := repo.ClearConnectionRuntimeError("openai-renamed"); err != nil {
+		t.Fatalf("ClearConnectionRuntimeError returned error: %v", err)
+	}
+	got, ok, err = repo.GetConnection("openai-renamed")
+	if err != nil {
+		t.Fatalf("GetConnection after runtime clear returned error: %v", err)
+	}
+	if !ok || got.LastErrorMessage != "" || got.LastErrorCategory != "" || got.LastErrorAt != 0 || got.RetryAfter != 0 || got.AccessToken != "access-1" {
+		t.Fatalf("unexpected cleared runtime error state: ok=%v value=%#v", ok, got)
 	}
 
 	listed, err := repo.ListConnections()

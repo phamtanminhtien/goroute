@@ -54,6 +54,32 @@ func (r *stubRepository) SetProviderConnectionsEnabled(providerID string, enable
 	return updated, nil
 }
 
+func (r *stubRepository) RecordConnectionRuntimeError(id string, message string, category string, lastErrorAt int64, retryAfter int64) error {
+	for i, current := range r.items {
+		if current.ID == id {
+			r.items[i].LastErrorMessage = message
+			r.items[i].LastErrorCategory = category
+			r.items[i].LastErrorAt = lastErrorAt
+			r.items[i].RetryAfter = retryAfter
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
+func (r *stubRepository) ClearConnectionRuntimeError(id string) error {
+	for i, current := range r.items {
+		if current.ID == id {
+			r.items[i].LastErrorMessage = ""
+			r.items[i].LastErrorCategory = ""
+			r.items[i].LastErrorAt = 0
+			r.items[i].RetryAfter = 0
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func (r *stubRepository) DeleteConnection(id string) error {
 	for i, current := range r.items {
 		if current.ID == id {
@@ -160,5 +186,41 @@ func TestServiceBulkUpdatesProviderConnectionEnabledState(t *testing.T) {
 	}
 	if runtime.reloads != 1 {
 		t.Fatalf("expected one runtime reload, got %d", runtime.reloads)
+	}
+}
+
+func TestServiceExposesAndPreservesConnectionRuntimeErrorState(t *testing.T) {
+	repo := &stubRepository{items: []connection.Record{{
+		ID:                "cx-1",
+		ProviderID:        "cx",
+		Name:              "primary",
+		AccessToken:       "token",
+		Enabled:           true,
+		LastErrorMessage:  "upstream returned status 429: slow down",
+		LastErrorCategory: "upstream_retryable_error",
+		LastErrorAt:       1700000100,
+		RetryAfter:        1700000160,
+	}}}
+	service := NewService(repo, &stubRuntime{}, stubProviders{}, nil)
+
+	items := service.List()
+	if len(items) != 1 {
+		t.Fatalf("expected one item, got %#v", items)
+	}
+	if items[0].LastErrorMessage != "upstream returned status 429: slow down" || items[0].LastErrorCategory != "upstream_retryable_error" || items[0].LastErrorAt != 1700000100 || items[0].RetryAfter != 1700000160 {
+		t.Fatalf("expected runtime error metadata in redacted item, got %#v", items[0])
+	}
+
+	_, err := service.Update("cx-1", connection.Record{
+		ID:         "cx-1",
+		ProviderID: "cx",
+		Name:       "renamed",
+		Enabled:    true,
+	})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if repo.items[0].LastErrorMessage != "upstream returned status 429: slow down" || repo.items[0].RetryAfter != 1700000160 {
+		t.Fatalf("expected runtime state to be preserved on user update, got %#v", repo.items[0])
 	}
 }

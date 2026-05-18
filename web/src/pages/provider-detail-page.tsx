@@ -26,6 +26,7 @@ import {
   emptyConnectionFormValues,
   getProviderConnectionFormEntry,
 } from "@/features/providers/connection-form-registry";
+import { ConnectionRuntimeStatus } from "@/features/providers/connection-runtime-status";
 import {
   AlertDialog,
   AlertDialogActionButton,
@@ -806,19 +807,22 @@ function ConnectionCard({
         </div>
       }
       description={
-        <div className="flex flex-wrap gap-2">
-          {connection.has_access_token ? (
-            <StatusBadge tone="success">Access token</StatusBadge>
-          ) : null}
-          {connection.has_api_key ? (
-            <StatusBadge tone="success">API key</StatusBadge>
-          ) : null}
-          {connection.has_refresh_token ? (
-            <StatusBadge tone="info">Refresh token</StatusBadge>
-          ) : null}
-          {connection.enabled === false ? (
-            <StatusBadge tone="warning">Disabled</StatusBadge>
-          ) : null}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {connection.has_access_token ? (
+              <StatusBadge tone="success">Access token</StatusBadge>
+            ) : null}
+            {connection.has_api_key ? (
+              <StatusBadge tone="success">API key</StatusBadge>
+            ) : null}
+            {connection.has_refresh_token ? (
+              <StatusBadge tone="info">Refresh token</StatusBadge>
+            ) : null}
+            {connection.enabled === false ? (
+              <StatusBadge tone="warning">Disabled</StatusBadge>
+            ) : null}
+          </div>
+          <ConnectionRuntimeStatus connection={connection} />
         </div>
       }
       title={connection.name}

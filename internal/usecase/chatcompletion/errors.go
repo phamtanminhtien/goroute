@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 )
+
+const RetryableConnectionCooldown = time.Minute
 
 type UpstreamError struct {
 	StatusCode int

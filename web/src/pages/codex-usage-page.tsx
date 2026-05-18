@@ -19,6 +19,7 @@ import {
   emptyConnectionFormValues,
   getProviderConnectionFormEntry,
 } from "@/features/providers/connection-form-registry";
+import { ConnectionRuntimeStatus } from "@/features/providers/connection-runtime-status";
 import { cn } from "@/shared/lib/cn";
 import {
   AlertDialog,
@@ -545,6 +546,9 @@ function CodexUsageCard({
               </StatusBadge>
             </div>
           ) : null}
+          <div className="mt-1.5">
+            <ConnectionRuntimeStatus connection={connection} />
+          </div>
         </div>
       </div>
 

@@ -62,6 +62,7 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 		recorder.SetProviderRequestMode(false)
 		recorder.SetTranslatedRequestBody(string(payload))
 	}
+	attemptIndex := chatcompletion.AttemptIndex(ctx)
 
 	httpReq, err := c.newChatCompletionsRequest(ctx, payload, credential)
 	if err != nil {
@@ -71,7 +72,7 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 	startedAt := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, attemptIndex)
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("execute upstream request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -79,21 +80,21 @@ func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatComplet
 	body, readErr := io.ReadAll(resp.Body)
 	completedAt := time.Now().UTC()
 	if readErr != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, nil, startedAt, completedAt, readErr, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, nil, startedAt, completedAt, readErr, attemptIndex)
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("read upstream response: %w", readErr)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, attemptIndex)
 		return openaiwire.ChatCompletionsResponse{}, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 
 	var out openaiwire.ChatCompletionsResponse
 	if err := json.Unmarshal(body, &out); err != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, err, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, err, attemptIndex)
 		return openaiwire.ChatCompletionsResponse{}, fmt.Errorf("decode upstream response: %w", err)
 	}
-	c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, nil, 0)
+	c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, nil, attemptIndex)
 
 	return out, nil
 }
@@ -126,6 +127,7 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 		recorder.SetProviderRequestMode(true)
 		recorder.SetTranslatedRequestBody(string(payload))
 	}
+	attemptIndex := chatcompletion.AttemptIndex(ctx)
 
 	httpReq, err := c.newChatCompletionsRequest(ctx, payload, credential)
 	if err != nil {
@@ -136,14 +138,14 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 	startedAt := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, attemptIndex)
 		return nil, fmt.Errorf("execute upstream request: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, time.Now().UTC(), chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, time.Now().UTC(), chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, attemptIndex)
 		return nil, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 
@@ -154,7 +156,7 @@ func (c *Client) ChatCompletionsStream(ctx context.Context, req openaiwire.ChatC
 				recorder.SetFlowResponse(reconstructed, true)
 			}
 		}
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, streamBody, startedAt, completedAt, streamErr, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, streamBody, startedAt, completedAt, streamErr, attemptIndex)
 	}), nil
 }
 
@@ -184,6 +186,7 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 		recorder.SetProviderRequestMode(false)
 		recorder.SetTranslatedRequestBody(string(payload))
 	}
+	attemptIndex := chatcompletion.AttemptIndex(ctx)
 
 	httpReq, err := c.newResponsesRequest(ctx, payload, credential)
 	if err != nil {
@@ -193,7 +196,7 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 	startedAt := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, attemptIndex)
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("execute upstream request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -201,21 +204,21 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 	body, readErr := io.ReadAll(resp.Body)
 	completedAt := time.Now().UTC()
 	if readErr != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, nil, startedAt, completedAt, readErr, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, nil, startedAt, completedAt, readErr, attemptIndex)
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("read upstream response: %w", readErr)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, attemptIndex)
 		return openaiwire.ResponsesResponse{}, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 
 	var out openaiwire.ResponsesResponse
 	if err := json.Unmarshal(body, &out); err != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, err, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, err, attemptIndex)
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("decode upstream response: %w", err)
 	}
-	c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, nil, 0)
+	c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, nil, attemptIndex)
 
 	return out, nil
 }
@@ -247,6 +250,7 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 		recorder.SetProviderRequestMode(true)
 		recorder.SetTranslatedRequestBody(string(payload))
 	}
+	attemptIndex := chatcompletion.AttemptIndex(ctx)
 
 	httpReq, err := c.newResponsesRequest(ctx, payload, credential)
 	if err != nil {
@@ -257,14 +261,14 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 	startedAt := time.Now().UTC()
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, nil, nil, startedAt, time.Now().UTC(), err, attemptIndex)
 		return nil, fmt.Errorf("execute upstream request: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, time.Now().UTC(), chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, time.Now().UTC(), chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}, attemptIndex)
 		return nil, chatcompletion.UpstreamError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 
@@ -275,7 +279,7 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 				recorder.SetResponsesResponse(reconstructed, true)
 			}
 		}
-		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, streamBody, startedAt, completedAt, streamErr, 0)
+		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, streamBody, startedAt, completedAt, streamErr, attemptIndex)
 	}), nil
 }
 

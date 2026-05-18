@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/logging"
@@ -33,10 +34,17 @@ func TestConnectionRegistryDispatchesChatCompletionsByTargetProviderID(t *testin
 }
 
 func TestConnectionRegistryFallsBackAcrossChatCompletionsConnections(t *testing.T) {
+	attempts := make([]int, 0, 2)
 	registry := newTestRegistry(map[string][]ConnectionEntry{
 		"cx": {
-			newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 503, Message: "first failed"}}, nil),
-			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "second-response"}}, nil),
+			newConnectionEntry("cx", 1, recordingConnection{
+				err:           UpstreamError{StatusCode: 503, Message: "first failed"},
+				onCallContext: func(ctx context.Context) { attempts = append(attempts, AttemptIndex(ctx)) },
+			}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{
+				response:      openaiwire.ChatCompletionsResponse{ID: "second-response"},
+				onCallContext: func(ctx context.Context) { attempts = append(attempts, AttemptIndex(ctx)) },
+			}, nil),
 		},
 	})
 
@@ -47,6 +55,9 @@ func TestConnectionRegistryFallsBackAcrossChatCompletionsConnections(t *testing.
 
 	if response.ID != "second-response" {
 		t.Fatalf("expected second connection response, got %q", response.ID)
+	}
+	if len(attempts) != 2 || attempts[0] != 0 || attempts[1] != 1 {
+		t.Fatalf("expected attempt indexes [0 1], got %#v", attempts)
 	}
 }
 
@@ -256,8 +267,173 @@ func TestConnectionRegistryFallsBackWhenProtocolUnsupported(t *testing.T) {
 	}
 }
 
+func TestConnectionRegistryRecordsRetryableErrorCooldown(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	store := &recordingRuntimeStateStore{}
+	registry := newTestRegistryWithStateStore(map[string][]ConnectionEntry{
+		"cx": {
+			newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 503, Message: "first failed"}}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}}, nil),
+		},
+	}, store)
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if response.ID != "ok" {
+		t.Fatalf("expected fallback response, got %q", response.ID)
+	}
+	if store.recordedID != "cx-1" || store.recordedCategory != "upstream_server_error" {
+		t.Fatalf("expected retryable error to be recorded, got %#v", store)
+	}
+	if store.recordedAt != now.Unix() {
+		t.Fatalf("expected recordedAt %d, got %d", now.Unix(), store.recordedAt)
+	}
+	wantRetryAfter := now.Add(RetryableConnectionCooldown).Unix()
+	if store.recordedRetryAfter != wantRetryAfter {
+		t.Fatalf("expected retryAfter %d, got %d", wantRetryAfter, store.recordedRetryAfter)
+	}
+}
+
+func TestConnectionRegistrySkipsActiveCooldownConnection(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	firstCalled := false
+	secondCalled := false
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {
+			{
+				ID:         "cx-1",
+				Name:       "cx-1",
+				ProviderID: "cx",
+				RetryAfter: now.Add(time.Minute).Unix(),
+				ProtocolConnections: ProtocolConnections{
+					ChatCompletions: recordingConnection{
+						response: openaiwire.ChatCompletionsResponse{ID: "should-not-run"},
+						onCall:   func() { firstCalled = true },
+					},
+				},
+			},
+			{
+				ID:         "cx-2",
+				Name:       "cx-2",
+				ProviderID: "cx",
+				ProtocolConnections: ProtocolConnections{
+					ChatCompletions: recordingConnection{
+						response: openaiwire.ChatCompletionsResponse{ID: "second-response"},
+						onCall:   func() { secondCalled = true },
+					},
+				},
+			},
+		},
+	})
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if firstCalled {
+		t.Fatal("expected cooling down connection not to be invoked")
+	}
+	if !secondCalled || response.ID != "second-response" {
+		t.Fatalf("expected second connection response, called=%t response=%q", secondCalled, response.ID)
+	}
+}
+
+func TestConnectionRegistryAllowsExpiredCooldownConnection(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	called := false
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {{
+			ID:         "cx-1",
+			Name:       "cx-1",
+			ProviderID: "cx",
+			RetryAfter: now.Add(-time.Second).Unix(),
+			ProtocolConnections: ProtocolConnections{
+				ChatCompletions: recordingConnection{
+					response: openaiwire.ChatCompletionsResponse{ID: "ok"},
+					onCall:   func() { called = true },
+				},
+			},
+		}},
+	})
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if !called || response.ID != "ok" {
+		t.Fatalf("expected expired cooldown connection to run, called=%t response=%q", called, response.ID)
+	}
+}
+
+func TestConnectionRegistryClearsRuntimeErrorOnSuccess(t *testing.T) {
+	store := &recordingRuntimeStateStore{}
+	registry := newTestRegistryWithStateStore(map[string][]ConnectionEntry{
+		"cx": {{
+			ID:                "cx-1",
+			Name:              "cx-1",
+			ProviderID:        "cx",
+			LastErrorMessage:  "previous failure",
+			LastErrorCategory: "upstream_server_error",
+			LastErrorAt:       100,
+			RetryAfter:        101,
+			ProtocolConnections: ProtocolConnections{
+				ChatCompletions: recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}},
+			},
+		}},
+	}, store)
+
+	_, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if store.clearedID != "cx-1" {
+		t.Fatalf("expected runtime state to be cleared, got %#v", store)
+	}
+}
+
+func TestConnectionRegistryRecordsTerminalErrorWithoutCooldown(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	store := &recordingRuntimeStateStore{}
+	registry := newTestRegistryWithStateStore(map[string][]ConnectionEntry{
+		"cx": {newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 401, Message: "unauthorized"}}, nil)},
+	}, store)
+
+	_, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err == nil {
+		t.Fatal("expected terminal error")
+	}
+	if store.recordedCategory != "upstream_auth_error" {
+		t.Fatalf("expected auth error to be recorded, got %#v", store)
+	}
+	if store.recordedRetryAfter != 0 {
+		t.Fatalf("expected terminal error without cooldown, got retryAfter=%d", store.recordedRetryAfter)
+	}
+}
+
 func newTestRegistry(connections map[string][]ConnectionEntry) ConnectionRegistry {
 	return NewConnectionRegistryWithEntries(connections, loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})))
+}
+
+func newTestRegistryWithStateStore(connections map[string][]ConnectionEntry, stateStore ConnectionRuntimeStateStore) ConnectionRegistry {
+	return NewConnectionRegistryWithStateStore(connections, loggerPtr(logging.NewWithWriter("prod", &bytes.Buffer{})), stateStore)
 }
 
 func newConnectionEntry(providerID string, index int, chat ChatCompletionsConnection, responses ResponsesConnection) ConnectionEntry {
@@ -279,11 +455,15 @@ type recordingConnection struct {
 	responsesStream   string
 	err               error
 	onCall            func()
+	onCallContext     func(context.Context)
 }
 
-func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCompletionsRequest, routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+func (c recordingConnection) ChatCompletions(ctx context.Context, _ openaiwire.ChatCompletionsRequest, _ routing.Target) (openaiwire.ChatCompletionsResponse, error) {
 	if c.onCall != nil {
 		c.onCall()
+	}
+	if c.onCallContext != nil {
+		c.onCallContext(ctx)
 	}
 	if c.err != nil {
 		return openaiwire.ChatCompletionsResponse{}, c.err
@@ -292,9 +472,12 @@ func (c recordingConnection) ChatCompletions(context.Context, openaiwire.ChatCom
 	return c.response, nil
 }
 
-func (c recordingConnection) ChatCompletionsStream(context.Context, openaiwire.ChatCompletionsRequest, routing.Target) (io.ReadCloser, error) {
+func (c recordingConnection) ChatCompletionsStream(ctx context.Context, _ openaiwire.ChatCompletionsRequest, _ routing.Target) (io.ReadCloser, error) {
 	if c.onCall != nil {
 		c.onCall()
+	}
+	if c.onCallContext != nil {
+		c.onCallContext(ctx)
 	}
 	if c.err != nil {
 		return nil, c.err
@@ -307,9 +490,12 @@ func (c recordingConnection) ChatCompletionsStream(context.Context, openaiwire.C
 	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil
 }
 
-func (c recordingConnection) Responses(context.Context, openaiwire.ResponsesRequest, routing.Target) (openaiwire.ResponsesResponse, error) {
+func (c recordingConnection) Responses(ctx context.Context, _ openaiwire.ResponsesRequest, _ routing.Target) (openaiwire.ResponsesResponse, error) {
 	if c.onCall != nil {
 		c.onCall()
+	}
+	if c.onCallContext != nil {
+		c.onCallContext(ctx)
 	}
 	if c.err != nil {
 		return openaiwire.ResponsesResponse{}, c.err
@@ -318,9 +504,12 @@ func (c recordingConnection) Responses(context.Context, openaiwire.ResponsesRequ
 	return c.responsesResponse, nil
 }
 
-func (c recordingConnection) ResponsesStream(context.Context, openaiwire.ResponsesRequest, routing.Target) (io.ReadCloser, error) {
+func (c recordingConnection) ResponsesStream(ctx context.Context, _ openaiwire.ResponsesRequest, _ routing.Target) (io.ReadCloser, error) {
 	if c.onCall != nil {
 		c.onCall()
+	}
+	if c.onCallContext != nil {
+		c.onCallContext(ctx)
 	}
 	if c.err != nil {
 		return nil, c.err
@@ -335,4 +524,27 @@ func (c recordingConnection) ResponsesStream(context.Context, openaiwire.Respons
 
 func loggerPtr(logger zerolog.Logger) *zerolog.Logger {
 	return &logger
+}
+
+type recordingRuntimeStateStore struct {
+	recordedID         string
+	recordedMessage    string
+	recordedCategory   string
+	recordedAt         int64
+	recordedRetryAfter int64
+	clearedID          string
+}
+
+func (s *recordingRuntimeStateStore) RecordConnectionRuntimeError(id string, message string, category string, lastErrorAt int64, retryAfter int64) error {
+	s.recordedID = id
+	s.recordedMessage = message
+	s.recordedCategory = category
+	s.recordedAt = lastErrorAt
+	s.recordedRetryAfter = retryAfter
+	return nil
+}
+
+func (s *recordingRuntimeStateStore) ClearConnectionRuntimeError(id string) error {
+	s.clearedID = id
+	return nil
 }

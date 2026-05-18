@@ -61,20 +61,24 @@ func NewService(repo Repository, runtime Runtime, providers ProviderRegistry, lo
 }
 
 type Item struct {
-	ID              string   `json:"id"`
-	ProviderID      string   `json:"provider_id"`
-	Name            string   `json:"name"`
-	APIKey          string   `json:"api_key,omitempty"`
-	AccessToken     string   `json:"access_token,omitempty"`
-	RefreshToken    string   `json:"refresh_token,omitempty"`
-	TokenType       string   `json:"token_type,omitempty"`
-	ExpiresIn       int      `json:"expires_in,omitempty"`
-	Enabled         bool     `json:"enabled"`
-	HasAPIKey       bool     `json:"has_api_key"`
-	HasAccessToken  bool     `json:"has_access_token"`
-	HasRefreshToken bool     `json:"has_refresh_token"`
-	Status          string   `json:"status"`
-	Problems        []string `json:"problems"`
+	ID                string   `json:"id"`
+	ProviderID        string   `json:"provider_id"`
+	Name              string   `json:"name"`
+	APIKey            string   `json:"api_key,omitempty"`
+	AccessToken       string   `json:"access_token,omitempty"`
+	RefreshToken      string   `json:"refresh_token,omitempty"`
+	TokenType         string   `json:"token_type,omitempty"`
+	ExpiresIn         int      `json:"expires_in,omitempty"`
+	Enabled           bool     `json:"enabled"`
+	HasAPIKey         bool     `json:"has_api_key"`
+	HasAccessToken    bool     `json:"has_access_token"`
+	HasRefreshToken   bool     `json:"has_refresh_token"`
+	Status            string   `json:"status"`
+	Problems          []string `json:"problems"`
+	LastErrorMessage  string   `json:"last_error_message,omitempty"`
+	LastErrorCategory string   `json:"last_error_category,omitempty"`
+	LastErrorAt       int64    `json:"last_error_at,omitempty"`
+	RetryAfter        int64    `json:"retry_after,omitempty"`
 }
 
 func (s *Service) List() []Item {
@@ -295,6 +299,7 @@ func (s *Service) Update(id string, input connection.Record) (Item, error) {
 	}
 
 	input = preserveExistingSecrets(existing, input)
+	input = preserveExistingRuntimeState(existing, input)
 
 	if err := s.persistMutation(func() error {
 		return s.repo.UpdateConnection(id, input)
@@ -370,17 +375,21 @@ func (s *Service) redactConnection(connection connection.Record) Item {
 	}
 
 	return Item{
-		ID:              connection.ID,
-		ProviderID:      connection.ProviderID,
-		Name:            connection.Name,
-		TokenType:       connection.TokenType,
-		ExpiresIn:       connection.ExpiresIn,
-		Enabled:         connection.Enabled,
-		HasAPIKey:       strings.TrimSpace(connection.APIKey) != "",
-		HasAccessToken:  strings.TrimSpace(connection.AccessToken) != "",
-		HasRefreshToken: strings.TrimSpace(connection.RefreshToken) != "",
-		Status:          status,
-		Problems:        problems,
+		ID:                connection.ID,
+		ProviderID:        connection.ProviderID,
+		Name:              connection.Name,
+		TokenType:         connection.TokenType,
+		ExpiresIn:         connection.ExpiresIn,
+		Enabled:           connection.Enabled,
+		HasAPIKey:         strings.TrimSpace(connection.APIKey) != "",
+		HasAccessToken:    strings.TrimSpace(connection.AccessToken) != "",
+		HasRefreshToken:   strings.TrimSpace(connection.RefreshToken) != "",
+		Status:            status,
+		Problems:          problems,
+		LastErrorMessage:  strings.TrimSpace(connection.LastErrorMessage),
+		LastErrorCategory: strings.TrimSpace(connection.LastErrorCategory),
+		LastErrorAt:       connection.LastErrorAt,
+		RetryAfter:        connection.RetryAfter,
 	}
 }
 
@@ -404,6 +413,14 @@ func preserveExistingSecrets(existing connection.Record, next connection.Record)
 		next.AccessTokenExpiresAt = existing.AccessTokenExpiresAt
 	}
 
+	return next
+}
+
+func preserveExistingRuntimeState(existing connection.Record, next connection.Record) connection.Record {
+	next.LastErrorMessage = existing.LastErrorMessage
+	next.LastErrorCategory = existing.LastErrorCategory
+	next.LastErrorAt = existing.LastErrorAt
+	next.RetryAfter = existing.RetryAfter
 	return next
 }
 

@@ -95,6 +95,10 @@ func (r testRuntime) ReloadConnections() error {
 			ID:                  connectionConfig.ID,
 			Name:                connectionConfig.Name,
 			ProviderID:          connectionConfig.ProviderID,
+			LastErrorMessage:    connectionConfig.LastErrorMessage,
+			LastErrorCategory:   connectionConfig.LastErrorCategory,
+			LastErrorAt:         connectionConfig.LastErrorAt,
+			RetryAfter:          connectionConfig.RetryAfter,
 			ProtocolConnections: connectionClient,
 		})
 	}
@@ -125,13 +129,16 @@ func testServerWithUsageAndConnectionAndWebUI(t *testing.T, getUsage func(contex
 func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(context.Context, connection.Record) (providerregistry.UsageInfo, error), connectionClient protocolTestConnection, webUIRoot fs.FS, databasePath string, cfg config.Config) http.Handler {
 	t.Helper()
 	initialConnections := []connection.Record{{
-		ID:          "codex-1",
-		ProviderID:  "cx",
-		Name:        "codex-user",
-		AccessToken: "secret-token",
-		TokenType:   "Bearer",
-		ExpiresIn:   3600,
-		Enabled:     true,
+		ID:                "codex-1",
+		ProviderID:        "cx",
+		Name:              "codex-user",
+		AccessToken:       "secret-token",
+		TokenType:         "Bearer",
+		ExpiresIn:         3600,
+		Enabled:           true,
+		LastErrorMessage:  "upstream returned status 429: slow down",
+		LastErrorCategory: "upstream_retryable_error",
+		LastErrorAt:       1700000100,
 	}}
 	repo, err := gormsqlite.Open(databasePath)
 	if err != nil {
@@ -1535,6 +1542,9 @@ func TestConnectionsListReturnsRedactedItems(t *testing.T) {
 	if strings.Contains(body, "secret-token") {
 		t.Fatalf("expected secrets to stay redacted, got body=%s", body)
 	}
+	if !strings.Contains(body, `"last_error_category":"upstream_retryable_error"`) || !strings.Contains(body, `"last_error_at":1700000100`) {
+		t.Fatalf("expected runtime error metadata to be exposed, got body=%s", body)
+	}
 }
 
 func TestProvidersListReturnsCatalogWithGroupedConnections(t *testing.T) {
@@ -1576,6 +1586,9 @@ func TestProvidersListReturnsCatalogWithGroupedConnections(t *testing.T) {
 	}
 	if len(response.Data[0].Connections) != 1 || response.Data[0].Connections[0].ID != "codex-1" {
 		t.Fatalf("expected codex connection to be grouped, got %#v", response.Data[0].Connections)
+	}
+	if response.Data[0].Connections[0].LastErrorCategory != "upstream_retryable_error" || response.Data[0].Connections[0].LastErrorAt != 1700000100 {
+		t.Fatalf("expected grouped connection runtime metadata, got %#v", response.Data[0].Connections[0])
 	}
 	if response.Data[1].ID != "opena" || response.Data[1].Category != "api_key" {
 		t.Fatalf("expected openai provider metadata, got %#v", response.Data[1])

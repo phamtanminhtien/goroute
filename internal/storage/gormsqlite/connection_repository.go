@@ -50,6 +50,10 @@ func (r *Repository) UpdateConnection(previousID string, record connection.Recor
 		"access_token_expires_at": record.AccessTokenExpiresAt,
 		"enabled":                 record.Enabled,
 		"name":                    record.Name,
+		"last_error_message":      record.LastErrorMessage,
+		"last_error_category":     record.LastErrorCategory,
+		"last_error_at":           record.LastErrorAt,
+		"retry_after":             record.RetryAfter,
 	}
 
 	result := r.db.Model(&connection.Record{}).Where("id = ?", previousID).Updates(updates)
@@ -86,6 +90,44 @@ func (r *Repository) SetProviderConnectionsEnabled(providerID string, enabled bo
 	}
 
 	return records, nil
+}
+
+func (r *Repository) RecordConnectionRuntimeError(id string, message string, category string, lastErrorAt int64, retryAfter int64) error {
+	updates := map[string]any{
+		"last_error_message":  message,
+		"last_error_category": category,
+		"last_error_at":       lastErrorAt,
+		"retry_after":         retryAfter,
+	}
+
+	result := r.db.Model(&connection.Record{}).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("record connection %q runtime error: %w", id, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return connectionsusecase.ErrNotFound{ConnectionID: id}
+	}
+
+	return nil
+}
+
+func (r *Repository) ClearConnectionRuntimeError(id string) error {
+	updates := map[string]any{
+		"last_error_message":  "",
+		"last_error_category": "",
+		"last_error_at":       int64(0),
+		"retry_after":         int64(0),
+	}
+
+	result := r.db.Model(&connection.Record{}).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("clear connection %q runtime error: %w", id, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return connectionsusecase.ErrNotFound{ConnectionID: id}
+	}
+
+	return nil
 }
 
 func (r *Repository) ReplaceConnections(records []connection.Record) error {

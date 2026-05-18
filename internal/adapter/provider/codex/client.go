@@ -79,7 +79,7 @@ func (c *Client) executeResponsesRequest(ctx context.Context, upstreamRequest op
 		recorder.SetTranslatedRequestBody(string(payload))
 	}
 
-	attemptIndex := 0
+	attemptIndex := chatcompletion.AttemptIndex(ctx)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/responses", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build codex request: %w", err)
