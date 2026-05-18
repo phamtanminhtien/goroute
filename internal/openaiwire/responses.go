@@ -154,6 +154,46 @@ type ResponsesResponse struct {
 	Usage             *ResponseUsage  `json:"usage,omitempty"`
 	Error             *ResponseError  `json:"error,omitempty"`
 	IncompleteDetails any             `json:"incomplete_details,omitempty"`
+	extraFields       map[string]json.RawMessage
+}
+
+func (r *ResponsesResponse) UnmarshalJSON(data []byte) error {
+	type responseAlias ResponsesResponse
+
+	var decoded responseAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var extras map[string]json.RawMessage
+	if err := json.Unmarshal(data, &extras); err != nil {
+		return err
+	}
+
+	*r = ResponsesResponse(decoded)
+	r.extraFields = extras
+	return nil
+}
+
+func (r ResponsesResponse) MarshalJSON() ([]byte, error) {
+	type responseAlias ResponsesResponse
+
+	encodedKnown, err := json.Marshal(responseAlias(r))
+	if err != nil {
+		return nil, err
+	}
+
+	var merged map[string]json.RawMessage
+	if len(r.extraFields) > 0 {
+		merged = cloneRawMap(r.extraFields)
+	} else {
+		merged = make(map[string]json.RawMessage)
+	}
+	if err := json.Unmarshal(encodedKnown, &merged); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(merged)
 }
 
 type OutputItem struct {
@@ -187,6 +227,51 @@ type ResponseUsage struct {
 	TotalTokens         int                         `json:"total_tokens"`
 	InputTokensDetails  *ResponseInputTokenDetails  `json:"input_tokens_details,omitempty"`
 	OutputTokensDetails *ResponseOutputTokenDetails `json:"output_tokens_details,omitempty"`
+	extraFields         map[string]json.RawMessage
+}
+
+func (u *ResponseUsage) UnmarshalJSON(data []byte) error {
+	type usageAlias ResponseUsage
+
+	var decoded usageAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var extras map[string]json.RawMessage
+	if err := json.Unmarshal(data, &extras); err != nil {
+		return err
+	}
+
+	*u = ResponseUsage(decoded)
+	u.extraFields = extras
+	return nil
+}
+
+func (u ResponseUsage) MarshalJSON() ([]byte, error) {
+	type usageAlias ResponseUsage
+
+	normalized := usageAlias(u)
+	if normalized.OutputTokensDetails == nil {
+		normalized.OutputTokensDetails = &ResponseOutputTokenDetails{}
+	}
+
+	encodedKnown, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+
+	var merged map[string]json.RawMessage
+	if len(u.extraFields) > 0 {
+		merged = cloneRawMap(u.extraFields)
+	} else {
+		merged = make(map[string]json.RawMessage)
+	}
+	if err := json.Unmarshal(encodedKnown, &merged); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(merged)
 }
 
 type ResponseInputTokenDetails struct {
@@ -194,11 +279,19 @@ type ResponseInputTokenDetails struct {
 }
 
 type ResponseOutputTokenDetails struct {
-	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 type ResponseError struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 	Type    string `json:"type,omitempty"`
+}
+
+func cloneRawMap(src map[string]json.RawMessage) map[string]json.RawMessage {
+	dst := make(map[string]json.RawMessage, len(src))
+	for key, value := range src {
+		dst[key] = append(json.RawMessage(nil), value...)
+	}
+	return dst
 }

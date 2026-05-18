@@ -36,13 +36,32 @@ func RewriteResponsesStreamModel(body io.ReadCloser, model string) io.ReadCloser
 			return payload, true
 		}
 
-		var event openaiwire.ResponsesStreamEvent
+		var event map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			return payload, false
 		}
-		if event.Response != nil {
-			event.Response.Model = model
+
+		rawResponse, ok := event["response"]
+		if !ok {
+			return payload, true
 		}
+
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal(rawResponse, &response); err != nil {
+			return payload, false
+		}
+
+		encodedModel, err := json.Marshal(model)
+		if err != nil {
+			return payload, false
+		}
+		response["model"] = encodedModel
+
+		encodedResponse, err := json.Marshal(response)
+		if err != nil {
+			return payload, false
+		}
+		event["response"] = encodedResponse
 
 		encoded, err := json.Marshal(event)
 		if err != nil {
