@@ -115,6 +115,42 @@ describe("shared ui primitives", () => {
     ).toBeInTheDocument();
   });
 
+  it("applies button size variants to text and icon-only buttons", () => {
+    renderWithQueryClient(
+      <div>
+        <Button size="sm" type="button">
+          Small action
+        </Button>
+        <Button size="lg" type="button">
+          Large action
+        </Button>
+        <Button aria-label="Small icon action" iconOnly size="sm">
+          -
+        </Button>
+        <Button aria-label="Large icon action" iconOnly size="lg">
+          +
+        </Button>
+      </div>,
+    );
+
+    expect(screen.getByRole("button", { name: /small action/i })).toHaveClass(
+      "min-h-9",
+      "px-3",
+      "py-2",
+    );
+    expect(screen.getByRole("button", { name: /large action/i })).toHaveClass(
+      "min-h-[var(--control-height-lg)]",
+      "px-[var(--control-padding-x-lg)]",
+      "text-base",
+    );
+    expect(
+      screen.getByRole("button", { name: /small icon action/i }),
+    ).toHaveClass("px-0", "py-0");
+    expect(
+      screen.getByRole("button", { name: /large icon action/i }),
+    ).toHaveClass("px-0", "py-0");
+  });
+
   it("creates a ripple on pointer down when enabled", () => {
     const { container } = renderWithQueryClient(
       <Button type="button">Create ripple</Button>,

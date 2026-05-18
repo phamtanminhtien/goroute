@@ -14,7 +14,7 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
   iconOnly?: boolean;
   leadingIcon?: ReactNode;
   ripple?: boolean;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg";
   tone?: "primary" | "secondary" | "ghost";
 };
 
@@ -34,14 +34,14 @@ const buttonVariants = createVariant(
       tone: "primary",
     },
     variants: {
-      iconOnly: {
-        false:
-          "gap-2 px-[var(--control-padding-x)] py-[var(--control-padding-y)]",
-        true: "px-0",
-      },
       size: {
-        lg: "min-h-[var(--control-height-lg)]",
-        md: "min-h-[var(--control-height)]",
+        lg: "min-h-[var(--control-height-lg)] px-[var(--control-padding-x-lg)] py-[var(--control-padding-y)] text-base",
+        md: "min-h-[var(--control-height)] px-[var(--control-padding-x)] py-[var(--control-padding-y)] text-sm",
+        sm: "min-h-9 px-3 py-2 text-sm",
+      },
+      iconOnly: {
+        false: "gap-2",
+        true: "px-0 py-0",
       },
       tone: {
         ghost:
@@ -138,7 +138,9 @@ export function Button({
           iconOnly
             ? size === "lg"
               ? "size-[var(--control-height-lg)]"
-              : "size-[var(--control-height)]"
+              : size === "sm"
+                ? "size-9"
+                : "size-[var(--control-height)]"
             : "gap-2",
         )}
       >

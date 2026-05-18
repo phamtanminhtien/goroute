@@ -837,6 +837,7 @@ function ModelChip({
                     leadingIcon={<Play className="size-[15px]" />}
                     onClick={onTest}
                     tone="secondary"
+                    size="sm"
                   >
                     {isTesting ? "Testing..." : "Test"}
                   </Button>
@@ -855,6 +856,7 @@ function ModelChip({
                 leadingIcon={<Pencil className="size-[15px]" />}
                 onClick={onEdit}
                 tone="secondary"
+                size="sm"
               >
                 Edit
               </Button>
@@ -863,6 +865,7 @@ function ModelChip({
                   <Button
                     leadingIcon={<Trash2 className="size-[15px]" />}
                     tone="ghost"
+                    size="sm"
                   >
                     Delete
                   </Button>
