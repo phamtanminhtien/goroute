@@ -17,6 +17,7 @@ import {
   providersQueryKey,
   testProviderModel,
   updateConnection,
+  updateProviderConnectionsEnabled,
   updateProviderModel,
 } from "@/features/providers/api";
 import {
@@ -52,6 +53,7 @@ import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
+import { Switch } from "@/shared/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -174,6 +176,25 @@ export function ProviderDetailPage() {
     },
   });
 
+  const updateProviderConnectionsEnabledMutation = useMutation({
+    mutationFn: ({
+      enabled,
+      providerID,
+    }: {
+      enabled: boolean;
+      providerID: string;
+    }) => updateProviderConnectionsEnabled(providerID, { enabled }),
+    onError: (error) => {
+      setFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+    },
+  });
+
   const createProviderModelMutation = useMutation({
     mutationFn: async (values: ModelFormState) => {
       if (!provider) {
@@ -274,7 +295,11 @@ export function ProviderDetailPage() {
             setFeedback(null);
             await updateConnectionMutation.mutateAsync({
               id: editingConnection.id,
-              payload: buildConnectionPayload(provider.id, values),
+              payload: buildConnectionPayload(
+                provider.id,
+                values,
+                editingConnection.enabled,
+              ),
             });
           },
           provider,
@@ -413,15 +438,35 @@ export function ProviderDetailPage() {
           <SectionCard
             description="Create, edit, and remove redacted provider connections without exposing stored secrets."
             headerAction={
-              <Button
-                leadingIcon={<Plus className="size-[15px]" />}
-                onClick={() => {
-                  setFeedback(null);
-                  setModalState({ kind: "create", providerId: provider.id });
-                }}
-              >
-                Add connection
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  leadingIcon={<Plus className="size-[15px]" />}
+                  onClick={() => {
+                    setFeedback(null);
+                    setModalState({ kind: "create", providerId: provider.id });
+                  }}
+                >
+                  Add connection
+                </Button>
+                <div className="flex items-center gap-2">
+                  <span className="text-fg-secondary text-xs font-semibold">
+                    Provider
+                  </span>
+                  <Switch
+                    aria-label={`Enable ${provider.name} connections`}
+                    checked={enabledConnectionCount(provider) > 0}
+                    disabled={
+                      updateProviderConnectionsEnabledMutation.isPending
+                    }
+                    onCheckedChange={(enabled) =>
+                      updateProviderConnectionsEnabledMutation.mutate({
+                        enabled,
+                        providerID: provider.id,
+                      })
+                    }
+                  />
+                </div>
+              </div>
             }
             title="Connections"
             tone="solid"
@@ -429,7 +474,10 @@ export function ProviderDetailPage() {
             <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-3">
                 <StatusBadge tone="info">
-                  {buildConnectionStatus(provider.connection_count)}
+                  {buildConnectionStatus(
+                    enabledConnectionCount(provider),
+                    provider.connection_count,
+                  )}
                 </StatusBadge>
                 <StatusBadge tone="info">
                   {buildAuthLabel(provider.auth_type)}
@@ -458,6 +506,10 @@ export function ProviderDetailPage() {
                         deleteConnectionMutation.variables === connection.id
                       }
                       connection={connection}
+                      toggling={
+                        updateConnectionMutation.isPending &&
+                        updateConnectionMutation.variables?.id === connection.id
+                      }
                       isEditing={
                         modalState.kind === "edit" &&
                         modalState.connectionId === connection.id
@@ -475,6 +527,16 @@ export function ProviderDetailPage() {
                           connectionId: connection.id,
                           kind: "edit",
                           providerId: provider.id,
+                        });
+                      }}
+                      onToggleEnabled={async (enabled) => {
+                        setFeedback(null);
+                        await updateConnectionMutation.mutateAsync({
+                          id: connection.id,
+                          payload: buildConnectionTogglePayload(
+                            connection,
+                            enabled,
+                          ),
                         });
                       }}
                     />
@@ -522,7 +584,7 @@ export function ProviderDetailPage() {
                 <div className="flex flex-wrap gap-3">
                   {provider.models.map((model) => (
                     <ModelChip
-                      hasConnections={provider.connection_count > 0}
+                      hasConnections={enabledConnectionCount(provider) > 0}
                       isDefault={model.id === provider.default_model}
                       key={model.id}
                       model={model}
@@ -685,12 +747,16 @@ function ConnectionCard({
   isEditing,
   onDelete,
   onEdit,
+  onToggleEnabled,
+  toggling,
 }: {
   busy: boolean;
   connection: ProviderConnection;
   isEditing: boolean;
   onDelete: () => void;
   onEdit: () => void;
+  onToggleEnabled: (enabled: boolean) => void;
+  toggling: boolean;
 }) {
   return (
     <CardActionRow
@@ -731,6 +797,12 @@ function ConnectionCard({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+          <Switch
+            aria-label={`Enable ${connection.name}`}
+            checked={connection.enabled ?? true}
+            disabled={toggling}
+            onCheckedChange={onToggleEnabled}
+          />
         </>
       }
       description={
@@ -744,6 +816,9 @@ function ConnectionCard({
           {connection.has_refresh_token ? (
             <StatusBadge tone="info">Refresh token</StatusBadge>
           ) : null}
+          {connection.enabled === false ? (
+            <StatusBadge tone="warning">Disabled</StatusBadge>
+          ) : null}
         </div>
       }
       title={connection.name}
@@ -753,8 +828,10 @@ function ConnectionCard({
 function buildConnectionPayload(
   providerID: string,
   values: ConnectionFormValues,
+  enabled = true,
 ): ConnectionPayload {
   const payload: ConnectionPayload = {
+    enabled,
     id: values.id.trim(),
     name: values.name.trim(),
     provider_id: providerID,
@@ -773,15 +850,32 @@ function buildConnectionPayload(
   return payload;
 }
 
-function buildConnectionStatus(count: number) {
-  if (count === 0) {
+function buildConnectionTogglePayload(
+  connection: ProviderConnection,
+  enabled: boolean,
+): ConnectionPayload {
+  return {
+    enabled,
+    id: connection.id,
+    name: connection.name,
+    provider_id: connection.provider_id,
+  };
+}
+
+function enabledConnectionCount(provider: ProviderItem) {
+  return (
+    provider.enabled_connection_count ??
+    provider.connections.filter((connection) => connection.enabled ?? true)
+      .length
+  );
+}
+
+function buildConnectionStatus(enabledCount: number, totalCount: number) {
+  if (totalCount === 0) {
     return "No connections";
   }
-  if (count === 1) {
-    return "1 Connected";
-  }
 
-  return `${count} Connected`;
+  return `${enabledCount}/${totalCount} enabled`;
 }
 
 function buildAuthLabel(authType: string) {

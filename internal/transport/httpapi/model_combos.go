@@ -32,6 +32,7 @@ type modelComboPayload struct {
 	Alias       string                    `json:"alias"`
 	Name        string                    `json:"name"`
 	Description string                    `json:"description"`
+	Enabled     *bool                     `json:"enabled"`
 	Targets     []modelComboTargetPayload `json:"targets"`
 }
 
@@ -187,6 +188,10 @@ func buildModelCombo(catalog provider.Catalog, connections []connectionsusecase.
 	if name == "" {
 		name = alias
 	}
+	enabled := true
+	if payload.Enabled != nil {
+		enabled = *payload.Enabled
+	}
 
 	targets := make([]modelcombo.Target, 0, len(payload.Targets))
 	for index, inputTarget := range payload.Targets {
@@ -228,6 +233,7 @@ func buildModelCombo(catalog provider.Catalog, connections []connectionsusecase.
 		Alias:       alias,
 		Name:        name,
 		Description: strings.TrimSpace(payload.Description),
+		Enabled:     enabled,
 		Targets:     targets,
 	}, nil
 }

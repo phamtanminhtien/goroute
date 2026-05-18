@@ -41,6 +41,9 @@ func ResolvePlan(catalog provider.Catalog, combos []modelcombo.Combo, model stri
 		if combo.Alias != model {
 			continue
 		}
+		if !combo.Enabled {
+			break
+		}
 		if len(combo.Targets) == 0 {
 			return Plan{}, fmt.Errorf("model combo %q has no targets", combo.Alias)
 		}

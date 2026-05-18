@@ -172,7 +172,10 @@ function ProviderCard({
         <h3 className="truncate text-[14px] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)]">
           {provider.name}
         </h3>
-        <ConnectionStatusPill count={provider.connection_count} />
+        <ConnectionStatusPill
+          enabledCount={enabledConnectionCount(provider)}
+          totalCount={provider.connection_count}
+        />
       </div>
     </button>
   );
@@ -200,19 +203,30 @@ function buildProviderSections(providers: ProviderItem[]) {
   return sections;
 }
 
-function buildConnectionStatus(count: number) {
-  if (count === 0) {
-    return "No connections";
-  }
-  if (count === 1) {
-    return "1 Connected";
-  }
-
-  return `${count} Connected`;
+function enabledConnectionCount(provider: ProviderItem) {
+  return (
+    provider.enabled_connection_count ??
+    provider.connections.filter((connection) => connection.enabled ?? true)
+      .length
+  );
 }
 
-function ConnectionStatusPill({ count }: { count: number }) {
-  const connected = count > 0;
+function buildConnectionStatus(enabledCount: number, totalCount: number) {
+  if (totalCount === 0) {
+    return "No connections";
+  }
+
+  return `${enabledCount}/${totalCount} enabled`;
+}
+
+function ConnectionStatusPill({
+  enabledCount,
+  totalCount,
+}: {
+  enabledCount: number;
+  totalCount: number;
+}) {
+  const connected = enabledCount > 0;
 
   return (
     <div
@@ -229,7 +243,7 @@ function ConnectionStatusPill({ count }: { count: number }) {
             : "size-2 rounded-full bg-[var(--dashboard-muted-soft)]/70"
         }
       />
-      <span>{buildConnectionStatus(count)}</span>
+      <span>{buildConnectionStatus(enabledCount, totalCount)}</span>
     </div>
   );
 }

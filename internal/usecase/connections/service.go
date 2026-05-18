@@ -69,6 +69,7 @@ type Item struct {
 	RefreshToken    string   `json:"refresh_token,omitempty"`
 	TokenType       string   `json:"token_type,omitempty"`
 	ExpiresIn       int      `json:"expires_in,omitempty"`
+	Enabled         bool     `json:"enabled"`
 	HasAPIKey       bool     `json:"has_api_key"`
 	HasAccessToken  bool     `json:"has_access_token"`
 	HasRefreshToken bool     `json:"has_refresh_token"`
@@ -218,6 +219,7 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 		TokenType:            result.TokenType,
 		ExpiresIn:            result.ExpiresIn,
 		AccessTokenExpiresAt: result.AccessTokenExpiresAt,
+		Enabled:              true,
 	})
 
 	if err := s.persistMutation(func() error {
@@ -235,6 +237,38 @@ func (s *Service) CompleteOAuth(sessionID, callbackURL string) (Item, error) {
 		Msg("connection_create_oauth")
 
 	return s.redactConnection(input), nil
+}
+
+func (s *Service) SetProviderConnectionsEnabled(providerID string, enabled bool) ([]Item, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return nil, fmt.Errorf("provider id is required")
+	}
+
+	var records []connection.Record
+	if err := s.persistMutation(func() error {
+		var err error
+		records, err = s.repo.SetProviderConnectionsEnabled(providerID, enabled)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	items := make([]Item, 0, len(records))
+	for _, record := range records {
+		items = append(items, s.redactConnection(record))
+	}
+
+	s.logger.Info().
+		Str("provider_id", providerID).
+		Bool("enabled", enabled).
+		Int("connection_count", len(items)).
+		Msg("provider_connections_enabled_update")
+
+	return items, nil
 }
 
 func (s *Service) Update(id string, input connection.Record) (Item, error) {
@@ -341,6 +375,7 @@ func (s *Service) redactConnection(connection connection.Record) Item {
 		Name:            connection.Name,
 		TokenType:       connection.TokenType,
 		ExpiresIn:       connection.ExpiresIn,
+		Enabled:         connection.Enabled,
 		HasAPIKey:       strings.TrimSpace(connection.APIKey) != "",
 		HasAccessToken:  strings.TrimSpace(connection.AccessToken) != "",
 		HasRefreshToken: strings.TrimSpace(connection.RefreshToken) != "",

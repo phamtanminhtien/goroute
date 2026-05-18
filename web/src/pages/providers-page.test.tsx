@@ -20,6 +20,8 @@ import {
   listProviders,
   testProviderModel,
   updateConnection,
+  updateModelCombo,
+  updateProviderConnectionsEnabled,
   updateProviderModel,
 } from "@/features/providers/api";
 import { renderWithQueryClient } from "@/test/test-utils";
@@ -44,6 +46,7 @@ vi.mock("@/features/providers/api", () => ({
   providersQueryKey: ["providers"],
   testProviderModel: vi.fn(),
   updateConnection: vi.fn(),
+  updateProviderConnectionsEnabled: vi.fn(),
   updateProviderModel: vi.fn(),
   updateModelCombo: vi.fn(),
 }));
@@ -62,6 +65,10 @@ const listModelCombosMock = vi.mocked(listModelCombos);
 const listProvidersMock = vi.mocked(listProviders);
 const testProviderModelMock = vi.mocked(testProviderModel);
 const updateConnectionMock = vi.mocked(updateConnection);
+const updateModelComboMock = vi.mocked(updateModelCombo);
+const updateProviderConnectionsEnabledMock = vi.mocked(
+  updateProviderConnectionsEnabled,
+);
 const updateProviderModelMock = vi.mocked(updateProviderModel);
 
 const baseProviders = [
@@ -71,6 +78,7 @@ const baseProviders = [
     connection_count: 1,
     connections: [
       {
+        enabled: true,
         has_access_token: true,
         has_api_key: false,
         has_refresh_token: true,
@@ -82,6 +90,7 @@ const baseProviders = [
       },
     ],
     default_model: "cx/gpt-5.4",
+    enabled_connection_count: 1,
     id: "cx",
     models: [{ description: "", id: "cx/gpt-5.4", name: "GPT-5.4" }],
     name: "Codex",
@@ -92,6 +101,7 @@ const baseProviders = [
     connection_count: 0,
     connections: [],
     default_model: "openai/gpt-4.1",
+    enabled_connection_count: 0,
     id: "openai",
     models: [{ description: "", id: "openai/gpt-4.1", name: "GPT-4.1" }],
     name: "OpenAI",
@@ -115,6 +125,7 @@ describe("providers pages", () => {
     createModelComboMock.mockResolvedValue({
       alias: "combo/fast",
       description: "",
+      enabled: true,
       name: "Fast Combo",
       targets: [
         {
@@ -145,6 +156,16 @@ describe("providers pages", () => {
       source: "custom",
     });
     updateConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
+    updateModelComboMock.mockResolvedValue({
+      alias: "combo/fast",
+      description: "",
+      enabled: false,
+      name: "Fast Combo",
+      targets: [],
+    });
+    updateProviderConnectionsEnabledMock.mockResolvedValue(
+      baseProviders[0].connections,
+    );
     deleteProviderModelMock.mockResolvedValue(undefined);
     deleteConnectionMock.mockResolvedValue(undefined);
     getConnectionUsageMock.mockResolvedValue({
@@ -184,10 +205,10 @@ describe("providers pages", () => {
     await screen.findByText(/oauth providers/i);
 
     expect(screen.getByText(/api key providers/i)).toBeInTheDocument();
-    expect(screen.getByText("1 Connected")).toBeInTheDocument();
+    expect(screen.getByText("1/1 enabled")).toBeInTheDocument();
     expect(screen.getByText("No connections")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /codex 1 connected/i }),
+      screen.getByRole("button", { name: /codex 1\/1 enabled/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /openai no connections/i }),
@@ -219,6 +240,7 @@ describe("providers pages", () => {
         ...baseProviders[1],
         connection_count: 0,
         connections: [],
+        enabled_connection_count: 0,
       },
     ]);
 
@@ -410,6 +432,7 @@ describe("providers pages", () => {
           ...baseProviders[0],
           connection_count: 0,
           connections: [],
+          enabled_connection_count: 0,
         },
         baseProviders[1],
       ])
@@ -419,6 +442,7 @@ describe("providers pages", () => {
           connection_count: 1,
           connections: [
             {
+              enabled: true,
               has_access_token: true,
               has_api_key: false,
               has_refresh_token: false,
@@ -429,6 +453,7 @@ describe("providers pages", () => {
               status: "ready",
             },
           ],
+          enabled_connection_count: 1,
         },
         baseProviders[1],
       ]);
@@ -475,7 +500,7 @@ describe("providers pages", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     await screen.findByText(/connection saved/i);
-    expect(screen.getByText("1 Connected")).toBeInTheDocument();
+    expect(screen.getByText("1/1 enabled")).toBeInTheDocument();
   });
 
   it("updates a connection without sending blank secret fields", async () => {
@@ -498,6 +523,7 @@ describe("providers pages", () => {
 
     await waitFor(() => {
       expect(updateConnectionMock).toHaveBeenCalledWith("codex-1", {
+        enabled: true,
         id: "codex-1",
         name: "renamed-user",
         provider_id: "cx",
@@ -505,6 +531,34 @@ describe("providers pages", () => {
     });
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("toggles a provider and a single connection", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/codex-user/i);
+    await user.click(
+      screen.getByRole("switch", { name: /enable codex connections/i }),
+    );
+    expect(updateProviderConnectionsEnabledMock).toHaveBeenCalledWith("cx", {
+      enabled: false,
+    });
+
+    await user.click(
+      screen.getByRole("switch", { name: /enable codex-user/i }),
+    );
+    expect(updateConnectionMock).toHaveBeenCalledWith("codex-1", {
+      enabled: false,
+      id: "codex-1",
+      name: "codex-user",
+      provider_id: "cx",
     });
   });
 
@@ -567,6 +621,7 @@ describe("providers pages", () => {
           ...baseProviders[0],
           connection_count: 0,
           connections: [],
+          enabled_connection_count: 0,
         },
         baseProviders[1],
       ]);
@@ -618,6 +673,7 @@ describe("providers pages", () => {
       expect(createModelComboMock).toHaveBeenCalledWith({
         alias: "combo/fast",
         description: "",
+        enabled: true,
         name: "Fast Combo",
         targets: [{ enabled: true, model_id: "cx/gpt-5.4", provider_id: "cx" }],
       });
@@ -630,6 +686,7 @@ describe("providers pages", () => {
       {
         alias: "combo/fast",
         description: "Primary fallback",
+        enabled: true,
         name: "Fast Combo",
         targets: [
           {
@@ -670,6 +727,45 @@ describe("providers pages", () => {
     const reorderedComboboxes = within(dialog).getAllByRole("combobox");
     expect(reorderedComboboxes[0]).toHaveTextContent("OpenAI");
     expect(reorderedComboboxes[3]).toHaveTextContent("Codex");
+  });
+
+  it("toggles a combo alias", async () => {
+    const user = userEvent.setup();
+    listModelCombosMock.mockResolvedValueOnce([
+      {
+        alias: "combo/fast",
+        description: "Primary fallback",
+        enabled: true,
+        name: "Fast Combo",
+        targets: [
+          {
+            enabled: true,
+            model_id: "cx/gpt-5.4",
+            priority: 0,
+            provider_id: "cx",
+          },
+        ],
+      },
+    ]);
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/combos"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/fast combo · combo\/fast/i);
+    await user.click(
+      screen.getByRole("switch", { name: /enable combo\/fast/i }),
+    );
+
+    expect(updateModelComboMock).toHaveBeenCalledWith("combo/fast", {
+      alias: "combo/fast",
+      description: "Primary fallback",
+      enabled: false,
+      name: "Fast Combo",
+      targets: [{ enabled: true, model_id: "cx/gpt-5.4", provider_id: "cx" }],
+    });
   });
 });
 

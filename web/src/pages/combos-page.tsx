@@ -64,6 +64,7 @@ type ComboFormTarget = {
 type ComboFormState = {
   alias: string;
   description: string;
+  enabled: boolean;
   name: string;
   originalAlias?: string;
   targets: ComboFormTarget[];
@@ -77,6 +78,7 @@ type ModalState =
 const emptyForm: ComboFormState = {
   alias: "",
   description: "",
+  enabled: true,
   name: "",
   targets: [{ connectionID: "", enabled: true, modelID: "", providerID: "" }],
 };
@@ -144,6 +146,20 @@ export function CombosPage() {
     },
   });
 
+  const toggleComboMutation = useMutation({
+    mutationFn: ({ combo, enabled }: { combo: ModelCombo; enabled: boolean }) =>
+      updateModelCombo(combo.alias, buildComboPayload(combo, enabled)),
+    onError: (error) => {
+      setFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: modelCombosQueryKey });
+    },
+  });
+
   function openCreateModal() {
     setFeedback(null);
     setForm(emptyForm);
@@ -155,6 +171,7 @@ export function CombosPage() {
     setForm({
       alias: combo.alias,
       description: combo.description,
+      enabled: combo.enabled ?? true,
       name: combo.name,
       originalAlias: combo.alias,
       targets: combo.targets.map((target) => ({
@@ -190,12 +207,15 @@ export function CombosPage() {
       payload: {
         alias: form.alias.trim(),
         description: form.description.trim(),
+        enabled: form.enabled,
         name: form.name.trim(),
         targets: form.targets.map((target) => ({
-          connection_id: target.connectionID || undefined,
           enabled: target.enabled,
           model_id: target.modelID,
           provider_id: target.providerID,
+          ...(target.connectionID
+            ? { connection_id: target.connectionID }
+            : {}),
         })),
       },
     });
@@ -268,7 +288,14 @@ export function CombosPage() {
                   key={combo.alias}
                   onDelete={() => deleteComboMutation.mutate(combo.alias)}
                   onEdit={() => openEditModal(combo)}
+                  onToggleEnabled={(enabled) =>
+                    toggleComboMutation.mutate({ combo, enabled })
+                  }
                   providers={providers}
+                  toggling={
+                    toggleComboMutation.isPending &&
+                    toggleComboMutation.variables?.combo.alias === combo.alias
+                  }
                 />
               ))}
             </div>
@@ -334,6 +361,23 @@ export function CombosPage() {
                       value={form.description}
                     />
                   </Field>
+                  <div className="border-border/70 bg-bg-primary/60 flex items-center justify-between gap-3 rounded-[14px] border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-fg-primary text-sm font-medium">
+                        Enabled
+                      </p>
+                      <p className="text-fg-secondary text-xs">
+                        Disabled combos are hidden from model routing.
+                      </p>
+                    </div>
+                    <Switch
+                      aria-label="Enable combo"
+                      checked={form.enabled}
+                      onCheckedChange={(enabled) =>
+                        setForm((current) => ({ ...current, enabled }))
+                      }
+                    />
+                  </div>
 
                   {feedback && modalState.kind !== "closed" ? (
                     <InlineAlert tone={feedback.tone}>
@@ -447,13 +491,17 @@ function ComboRow({
   deleting,
   onDelete,
   onEdit,
+  onToggleEnabled,
   providers,
+  toggling,
 }: {
   combo: ModelCombo;
   deleting: boolean;
   onDelete: () => void;
   onEdit: () => void;
+  onToggleEnabled: (enabled: boolean) => void;
   providers: ProviderItem[];
+  toggling: boolean;
 }) {
   const targetText = combo.targets
     .map((target) => {
@@ -504,6 +552,12 @@ function ComboRow({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+          <Switch
+            aria-label={`Enable ${combo.alias}`}
+            checked={combo.enabled ?? true}
+            disabled={toggling}
+            onCheckedChange={onToggleEnabled}
+          />
         </>
       }
       description={
@@ -513,6 +567,9 @@ function ComboRow({
               {combo.targets.filter((target) => target.enabled).length}/
               {combo.targets.length} enabled
             </StatusBadge>
+            {combo.enabled === false ? (
+              <StatusBadge tone="warning">Disabled</StatusBadge>
+            ) : null}
             {combo.description ? (
               <StatusBadge tone="info">{combo.description}</StatusBadge>
             ) : null}
@@ -523,6 +580,24 @@ function ComboRow({
       title={`${combo.name || combo.alias} · ${combo.alias}`}
     />
   );
+}
+
+function buildComboPayload(
+  combo: ModelCombo,
+  enabled = combo.enabled ?? true,
+): ModelComboPayload {
+  return {
+    alias: combo.alias,
+    description: combo.description,
+    enabled,
+    name: combo.name,
+    targets: combo.targets.map((target) => ({
+      enabled: target.enabled,
+      model_id: target.model_id,
+      provider_id: target.provider_id,
+      ...(target.connection_id ? { connection_id: target.connection_id } : {}),
+    })),
+  };
 }
 
 function ComboTargetEditor({
@@ -560,7 +635,9 @@ function ComboTargetEditor({
   const connectionOptions = [
     { label: "Any connection", value: anyConnectionValue },
     ...(selectedProvider?.connections ?? []).map((connection) => ({
-      label: connection.name,
+      label: connection.enabled
+        ? connection.name
+        : `${connection.name} (disabled)`,
       value: connection.id,
     })),
   ];

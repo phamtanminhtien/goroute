@@ -72,7 +72,8 @@ func comboResponsesTestCatalog() provider.Catalog {
 
 func comboResponsesTestCombos() []modelcombo.Combo {
 	return []modelcombo.Combo{{
-		Alias: "combo/fast",
+		Alias:   "combo/fast",
+		Enabled: true,
 		Targets: []modelcombo.Target{{
 			ComboAlias: "combo/fast",
 			ProviderID: "cx",

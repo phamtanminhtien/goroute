@@ -38,7 +38,8 @@ func TestResolvePlanUsesExactComboAliasBeforeProviderPrefix(t *testing.T) {
 		},
 	}
 	combos := []modelcombo.Combo{{
-		Alias: "combo/fast",
+		Alias:   "combo/fast",
+		Enabled: true,
 		Targets: []modelcombo.Target{{
 			ProviderID: "cx",
 			ModelID:    "cx/gpt-5.4",
@@ -86,7 +87,7 @@ func TestResolvePlanRejectsEmptyComboTargets(t *testing.T) {
 	catalog := provider.Catalog{
 		Providers: []provider.Provider{{ID: "cx", Name: "Codex"}},
 	}
-	combos := []modelcombo.Combo{{Alias: "fast"}}
+	combos := []modelcombo.Combo{{Alias: "fast", Enabled: true}}
 
 	_, err := ResolvePlan(catalog, combos, "fast")
 	if err == nil {
@@ -102,7 +103,8 @@ func TestResolvePlanSkipsDisabledComboTargets(t *testing.T) {
 		},
 	}
 	combos := []modelcombo.Combo{{
-		Alias: "fast",
+		Alias:   "fast",
+		Enabled: true,
 		Targets: []modelcombo.Target{
 			{ProviderID: "cx", ModelID: "cx/gpt-5.4", Enabled: false},
 			{ProviderID: "openai", ModelID: "openai/gpt-4.1", ConnectionID: "openai-2", Enabled: true},
@@ -119,6 +121,26 @@ func TestResolvePlanSkipsDisabledComboTargets(t *testing.T) {
 	}
 	if plan.Targets[0].ConnectionID != "openai-2" {
 		t.Fatalf("expected connection id to resolve, got %#v", plan.Targets[0])
+	}
+}
+
+func TestResolvePlanIgnoresDisabledCombos(t *testing.T) {
+	catalog := provider.Catalog{
+		Providers: []provider.Provider{{ID: "cx", Name: "Codex", DefaultModel: "cx/gpt-5.4"}},
+	}
+	combos := []modelcombo.Combo{{
+		Alias:   "fast",
+		Enabled: false,
+		Targets: []modelcombo.Target{{
+			ProviderID: "cx",
+			ModelID:    "cx/gpt-5.4",
+			Enabled:    true,
+		}},
+	}}
+
+	_, err := ResolvePlan(catalog, combos, "fast")
+	if err == nil {
+		t.Fatal("expected disabled combo not to resolve")
 	}
 }
 

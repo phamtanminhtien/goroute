@@ -35,7 +35,7 @@ func (r *Repository) GetModelCombo(alias string) (modelcombo.Combo, bool, error)
 }
 
 func (r *Repository) CreateModelCombo(combo modelcombo.Combo) error {
-	if err := r.db.Create(&combo).Error; err != nil {
+	if err := r.db.Select("*").Create(&combo).Error; err != nil {
 		return normalizeModelComboWriteError(err, combo.Alias, "create")
 	}
 
@@ -48,6 +48,7 @@ func (r *Repository) UpdateModelCombo(alias string, combo modelcombo.Combo) erro
 			"alias":       combo.Alias,
 			"name":        combo.Name,
 			"description": combo.Description,
+			"enabled":     combo.Enabled,
 		})
 		if result.Error != nil {
 			return normalizeModelComboWriteError(result.Error, alias, "update")
@@ -68,7 +69,7 @@ func (r *Repository) UpdateModelCombo(alias string, combo modelcombo.Combo) erro
 			combo.Targets[index].ComboAlias = combo.Alias
 		}
 		if len(combo.Targets) > 0 {
-			if err := tx.Create(&combo.Targets).Error; err != nil {
+			if err := tx.Select("*").Create(&combo.Targets).Error; err != nil {
 				return normalizeModelComboWriteError(err, combo.Alias, "update")
 			}
 		}

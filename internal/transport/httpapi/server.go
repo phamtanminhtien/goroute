@@ -38,6 +38,7 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 			return authMiddleware(adminAuthToken, next)
 		})
 		r.Handle("/admin/api/providers", providersHandler(catalog, connectionService, modelRepo))
+		r.Handle("/admin/api/providers/{id}/connections/enabled", providerConnectionsEnabledHandler(catalog, connectionService))
 		r.Handle("/admin/api/providers/{id}/models", providerModelsHandler(catalog, modelRepo))
 		r.Handle("/admin/api/providers/{id}/models/*", providerModelByIDHandler(catalog, modelRepo))
 		r.Handle("/admin/api/providers/{id}/oauth-url", providerOAuthURLHandler(connectionService))

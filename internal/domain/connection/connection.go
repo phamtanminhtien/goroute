@@ -9,6 +9,7 @@ type Record struct {
 	TokenType            string `json:"token_type" gorm:"column:token_type;not null;default:''"`
 	ExpiresIn            int    `json:"expires_in" gorm:"column:expires_in;not null;default:0"`
 	AccessTokenExpiresAt int64  `json:"access_token_expires_at" gorm:"column:access_token_expires_at;not null;default:0"`
+	Enabled              bool   `json:"enabled" gorm:"column:enabled;not null;default:true"`
 	Name                 string `json:"name" gorm:"column:name;not null"`
 	CreatedAt            int64  `json:"-" gorm:"column:created_at;not null;autoCreateTime"`
 	UpdatedAt            int64  `json:"-" gorm:"column:updated_at;not null;autoUpdateTime"`

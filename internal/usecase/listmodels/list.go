@@ -34,6 +34,9 @@ func Execute(catalog provider.Catalog) []ModelView {
 func ExecuteWithCombos(catalog provider.Catalog, combos []modelcombo.Combo) []ModelView {
 	models := Execute(catalog)
 	for _, combo := range combos {
+		if !combo.Enabled {
+			continue
+		}
 		models = append(models, ModelView{
 			ID:      combo.Alias,
 			Object:  "model",

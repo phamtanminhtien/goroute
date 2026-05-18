@@ -20,14 +20,15 @@ type adminProvidersListResponse struct {
 }
 
 type adminProviderItem struct {
-	ID              string                    `json:"id"`
-	Name            string                    `json:"name"`
-	AuthType        provider.AuthType         `json:"auth_type"`
-	Category        string                    `json:"category"`
-	ConnectionCount int                       `json:"connection_count"`
-	DefaultModel    string                    `json:"default_model"`
-	Models          []provider.Model          `json:"models"`
-	Connections     []connectionsusecase.Item `json:"connections"`
+	ID                     string                    `json:"id"`
+	Name                   string                    `json:"name"`
+	AuthType               provider.AuthType         `json:"auth_type"`
+	Category               string                    `json:"category"`
+	ConnectionCount        int                       `json:"connection_count"`
+	EnabledConnectionCount int                       `json:"enabled_connection_count"`
+	DefaultModel           string                    `json:"default_model"`
+	Models                 []provider.Model          `json:"models"`
+	Connections            []connectionsusecase.Item `json:"connections"`
 }
 
 type providerModelRepository interface {
@@ -35,6 +36,10 @@ type providerModelRepository interface {
 	CreateProviderModel(provider.ModelRecord) error
 	UpdateProviderModel(providerID string, modelID string, record provider.ModelRecord) error
 	DeleteProviderModel(providerID string, modelID string) error
+}
+
+type providerConnectionsEnabledRequest struct {
+	Enabled *bool `json:"enabled"`
 }
 
 func providersHandler(
@@ -57,6 +62,49 @@ func providersHandler(
 		writeJSON(w, http.StatusOK, adminProvidersListResponse{
 			Object: "list",
 			Data:   buildAdminProviderItems(resolvedCatalog, connectionService.List()),
+		})
+	})
+}
+
+func providerConnectionsEnabledHandler(
+	catalog provider.Catalog,
+	connectionService *connectionsusecase.Service,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		providerID := strings.TrimSpace(chi.URLParam(r, "id"))
+		if providerID == "" || strings.Contains(providerID, "/") {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+		if _, ok := catalog.FindByID(providerID); !ok {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+
+		var input providerConnectionsEnabledRequest
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+			return
+		}
+		if input.Enabled == nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", "enabled is required")
+			return
+		}
+
+		connections, err := connectionService.SetProviderConnectionsEnabled(providerID, *input.Enabled)
+		if err != nil {
+			writeConnectionMutationError(r, w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"object": "list",
+			"data":   connections,
 		})
 	})
 }
@@ -382,15 +430,22 @@ func buildAdminProviderItems(
 	items := make([]adminProviderItem, 0, len(catalog.Providers))
 	for _, providerItem := range catalog.Providers {
 		providerConnections := groupedConnections[providerItem.ID]
+		enabledConnectionCount := 0
+		for _, connection := range providerConnections {
+			if connection.Enabled {
+				enabledConnectionCount++
+			}
+		}
 		items = append(items, adminProviderItem{
-			ID:              providerItem.ID,
-			Name:            providerItem.Name,
-			AuthType:        providerItem.AuthType,
-			Category:        providerItem.Category,
-			ConnectionCount: len(providerConnections),
-			DefaultModel:    providerItem.DefaultModel,
-			Models:          modelsWithSource(providerItem.Models),
-			Connections:     providerConnections,
+			ID:                     providerItem.ID,
+			Name:                   providerItem.Name,
+			AuthType:               providerItem.AuthType,
+			Category:               providerItem.Category,
+			ConnectionCount:        len(providerConnections),
+			EnabledConnectionCount: enabledConnectionCount,
+			DefaultModel:           providerItem.DefaultModel,
+			Models:                 modelsWithSource(providerItem.Models),
+			Connections:            providerConnections,
 		})
 	}
 

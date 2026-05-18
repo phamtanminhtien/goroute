@@ -4,6 +4,7 @@ type Combo struct {
 	Alias       string  `json:"alias" gorm:"primaryKey"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
+	Enabled     bool    `json:"enabled" gorm:"not null;default:true"`
 	Targets     Targets `json:"targets" gorm:"foreignKey:ComboAlias;references:Alias;constraint:OnDelete:CASCADE"`
 	CreatedAt   int64   `json:"created_at" gorm:"autoCreateTime:milli"`
 	UpdatedAt   int64   `json:"updated_at" gorm:"autoUpdateTime:milli"`

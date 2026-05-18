@@ -42,6 +42,18 @@ func (r *stubRepository) UpdateConnection(previousID string, item connection.Rec
 	return errors.New("not found")
 }
 
+func (r *stubRepository) SetProviderConnectionsEnabled(providerID string, enabled bool) ([]connection.Record, error) {
+	updated := make([]connection.Record, 0)
+	for i, current := range r.items {
+		if current.ProviderID != providerID {
+			continue
+		}
+		r.items[i].Enabled = enabled
+		updated = append(updated, r.items[i])
+	}
+	return updated, nil
+}
+
 func (r *stubRepository) DeleteConnection(id string) error {
 	for i, current := range r.items {
 		if current.ID == id {
@@ -99,6 +111,7 @@ func TestServiceKeepsRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
 		ProviderID: "openai",
 		Name:       "openai-user",
 		APIKey:     "token",
+		Enabled:    true,
 	}}
 	repo := &stubRepository{items: append([]connection.Record(nil), initial...)}
 	runtime := &stubRuntime{err: errors.New("runtime rebuild failed")}
@@ -109,6 +122,7 @@ func TestServiceKeepsRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
 		ProviderID:  "cx",
 		Name:        "codex-user",
 		AccessToken: "oauth-token",
+		Enabled:     true,
 	})
 	if err == nil || err.Error() != "runtime rebuild failed" {
 		t.Fatalf("expected runtime error, got %v", err)
@@ -122,5 +136,29 @@ func TestServiceKeepsRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
 	}
 	if runtime.reloads != 1 {
 		t.Fatalf("expected one runtime reload attempt, got %d", runtime.reloads)
+	}
+}
+
+func TestServiceBulkUpdatesProviderConnectionEnabledState(t *testing.T) {
+	repo := &stubRepository{items: []connection.Record{
+		{ID: "cx-1", ProviderID: "cx", Name: "primary", Enabled: true},
+		{ID: "cx-2", ProviderID: "cx", Name: "secondary", Enabled: true},
+		{ID: "openai-1", ProviderID: "openai", Name: "other", Enabled: true},
+	}}
+	runtime := &stubRuntime{}
+	service := NewService(repo, runtime, stubProviders{}, nil)
+
+	items, err := service.SetProviderConnectionsEnabled("cx", false)
+	if err != nil {
+		t.Fatalf("SetProviderConnectionsEnabled returned error: %v", err)
+	}
+	if len(items) != 2 || items[0].Enabled || items[1].Enabled {
+		t.Fatalf("expected cx connections to be disabled, got %#v", items)
+	}
+	if !repo.items[2].Enabled {
+		t.Fatalf("expected other provider connection to stay enabled: %#v", repo.items)
+	}
+	if runtime.reloads != 1 {
+		t.Fatalf("expected one runtime reload, got %d", runtime.reloads)
 	}
 }

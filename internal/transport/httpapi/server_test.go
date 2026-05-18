@@ -130,6 +130,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		AccessToken: "secret-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
+		Enabled:     true,
 	}}
 	repo, err := gormsqlite.Open(databasePath)
 	if err != nil {

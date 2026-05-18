@@ -42,6 +42,7 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 		TokenType:            "Bearer",
 		ExpiresIn:            3600,
 		AccessTokenExpiresAt: 1700000000,
+		Enabled:              true,
 	}
 	if err := repo.CreateConnection(created); err != nil {
 		t.Fatalf("CreateConnection returned error: %v", err)
@@ -51,7 +52,7 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConnection returned error: %v", err)
 	}
-	if !ok || got.Name != "openai-user" || got.APIKey != "token-1" || got.RefreshToken != "refresh-1" {
+	if !ok || got.Name != "openai-user" || got.APIKey != "token-1" || got.RefreshToken != "refresh-1" || !got.Enabled {
 		t.Fatalf("unexpected stored connection: ok=%v value=%#v", ok, got)
 	}
 
@@ -59,6 +60,7 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 	updated.ID = "openai-renamed"
 	updated.Name = "openai-admin"
 	updated.APIKey = ""
+	updated.Enabled = false
 	if err := repo.UpdateConnection("openai-1", updated); err != nil {
 		t.Fatalf("UpdateConnection returned error: %v", err)
 	}
@@ -67,7 +69,7 @@ func TestRepositoryConnectionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConnection after update returned error: %v", err)
 	}
-	if !ok || got.Name != "openai-admin" || got.AccessToken != "access-1" || got.APIKey != "" {
+	if !ok || got.Name != "openai-admin" || got.AccessToken != "access-1" || got.APIKey != "" || got.Enabled {
 		t.Fatalf("unexpected updated connection: ok=%v value=%#v", ok, got)
 	}
 
@@ -99,7 +101,7 @@ func TestRepositoryEnforcesUniqueConnectionIDs(t *testing.T) {
 	}
 	defer repo.Close()
 
-	record := connection.Record{ID: "cx-1", ProviderID: "cx", Name: "codex-user", AccessToken: "token"}
+	record := connection.Record{ID: "cx-1", ProviderID: "cx", Name: "codex-user", AccessToken: "token", Enabled: true}
 	if err := repo.CreateConnection(record); err != nil {
 		t.Fatalf("CreateConnection returned error: %v", err)
 	}

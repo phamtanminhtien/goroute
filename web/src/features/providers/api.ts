@@ -14,6 +14,7 @@ export type ProviderModel = {
 };
 
 export type ProviderConnection = {
+  enabled?: boolean;
   expires_in?: number;
   has_access_token: boolean;
   has_api_key: boolean;
@@ -32,6 +33,7 @@ export type ProviderItem = {
   connection_count: number;
   connections: ProviderConnection[];
   default_model: string;
+  enabled_connection_count?: number;
   id: string;
   models: ProviderModel[];
   name: string;
@@ -51,6 +53,7 @@ export type ModelCombo = {
   alias: string;
   created_at?: number;
   description: string;
+  enabled?: boolean;
   name: string;
   targets: ModelComboTarget[];
   updated_at?: number;
@@ -87,6 +90,7 @@ export type ProviderModelPayload = {
 export type ModelComboPayload = {
   alias: string;
   description?: string;
+  enabled: boolean;
   name?: string;
   targets: Array<{
     connection_id?: string;
@@ -123,10 +127,15 @@ type RawProviderItem = Omit<ProviderItem, "connections" | "models"> & {
 export type ConnectionPayload = {
   access_token?: string;
   api_key?: string;
+  enabled?: boolean;
   id: string;
   name: string;
   provider_id: string;
   refresh_token?: string;
+};
+
+export type ProviderConnectionsEnabledPayload = {
+  enabled: boolean;
 };
 
 type ListResponse<T> = {
@@ -180,6 +189,17 @@ export async function updateConnection(id: string, payload: ConnectionPayload) {
     payload,
   );
   return response.data;
+}
+
+export async function updateProviderConnectionsEnabled(
+  providerID: string,
+  payload: ProviderConnectionsEnabledPayload,
+) {
+  const response = await apiClient.put<ListResponse<ProviderConnection>>(
+    `/providers/${providerID}/connections/enabled`,
+    payload,
+  );
+  return response.data.data;
 }
 
 export async function deleteConnection(id: string) {
@@ -259,7 +279,15 @@ function normalizeProvider(provider: RawProviderItem): ProviderItem {
   return {
     ...provider,
     connection_count: provider.connection_count ?? 0,
-    connections: provider.connections ?? [],
+    enabled_connection_count:
+      provider.enabled_connection_count ??
+      (provider.connections ?? []).filter(
+        (connection) => connection.enabled ?? true,
+      ).length,
+    connections: (provider.connections ?? []).map((connection) => ({
+      ...connection,
+      enabled: connection.enabled ?? true,
+    })),
     models: (provider.models ?? []).map((model) => ({
       ...model,
       source: model.source ?? "system",
@@ -271,6 +299,7 @@ function normalizeModelCombo(combo: ModelCombo): ModelCombo {
   return {
     ...combo,
     description: combo.description ?? "",
+    enabled: combo.enabled ?? true,
     name: combo.name || combo.alias,
     targets: [...(combo.targets ?? [])]
       .sort((first, second) => first.priority - second.priority)

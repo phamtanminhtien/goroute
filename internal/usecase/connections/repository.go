@@ -7,6 +7,7 @@ type Repository interface {
 	GetConnection(string) (connection.Record, bool, error)
 	CreateConnection(connection.Record) error
 	UpdateConnection(string, connection.Record) error
+	SetProviderConnectionsEnabled(string, bool) ([]connection.Record, error)
 	DeleteConnection(string) error
 	ReplaceConnections([]connection.Record) error
 	Close() error

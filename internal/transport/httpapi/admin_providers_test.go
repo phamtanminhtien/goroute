@@ -483,6 +483,11 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 	}
 	t.Cleanup(func() { repo.Close() })
 
+	for index := range input.initialConnections {
+		if !input.initialConnections[index].Enabled {
+			input.initialConnections[index].Enabled = true
+		}
+	}
 	if err := repo.ReplaceConnections(input.initialConnections); err != nil {
 		t.Fatalf("seed sqlite connections: %v", err)
 	}

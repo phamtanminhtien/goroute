@@ -31,7 +31,7 @@ func (r *Repository) GetConnection(id string) (connection.Record, bool, error) {
 }
 
 func (r *Repository) CreateConnection(record connection.Record) error {
-	if err := r.db.Create(&record).Error; err != nil {
+	if err := r.db.Select("*").Create(&record).Error; err != nil {
 		return normalizeWriteError(err, record.ID, "create")
 	}
 
@@ -48,6 +48,7 @@ func (r *Repository) UpdateConnection(previousID string, record connection.Recor
 		"token_type":              record.TokenType,
 		"expires_in":              record.ExpiresIn,
 		"access_token_expires_at": record.AccessTokenExpiresAt,
+		"enabled":                 record.Enabled,
 		"name":                    record.Name,
 	}
 
@@ -74,6 +75,19 @@ func (r *Repository) DeleteConnection(id string) error {
 	return nil
 }
 
+func (r *Repository) SetProviderConnectionsEnabled(providerID string, enabled bool) ([]connection.Record, error) {
+	if err := r.db.Model(&connection.Record{}).Where("provider_id = ?", providerID).Update("enabled", enabled).Error; err != nil {
+		return nil, fmt.Errorf("set provider %q connections enabled=%v: %w", providerID, enabled, err)
+	}
+
+	var records []connection.Record
+	if err := r.db.Order("provider_id ASC, id ASC").Where("provider_id = ?", providerID).Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list provider %q connections after enabled update: %w", providerID, err)
+	}
+
+	return records, nil
+}
+
 func (r *Repository) ReplaceConnections(records []connection.Record) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&connection.Record{}).Error; err != nil {
@@ -84,7 +98,7 @@ func (r *Repository) ReplaceConnections(records []connection.Record) error {
 			return nil
 		}
 
-		if err := tx.Create(&records).Error; err != nil {
+		if err := tx.Select("*").Create(&records).Error; err != nil {
 			return normalizeWriteError(err, "", "replace")
 		}
 

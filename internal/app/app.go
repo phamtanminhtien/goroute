@@ -114,6 +114,9 @@ func buildConnectionEntries(connectionConfigs []connection.Record, providers pro
 	connectionsByProvider := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
 		logConnectionDiagnostic(logger, providers, connectionConfig)
+		if !connectionConfig.Enabled {
+			continue
+		}
 
 		connections, err := providers.BuildConnection(connectionConfig)
 		if err != nil {

@@ -62,6 +62,7 @@ func TestExecuteWithCombosIncludesComboMetadata(t *testing.T) {
 		Alias:       "fast",
 		Name:        "Fast",
 		Description: "Fast combo",
+		Enabled:     true,
 		Targets: []modelcombo.Target{{
 			ProviderID: "cx",
 			ModelID:    "cx/gpt-5.4",
@@ -79,5 +80,23 @@ func TestExecuteWithCombosIncludesComboMetadata(t *testing.T) {
 	}
 	if combo.Metadata["is_combo"] != "true" || combo.Metadata["target_count"] != "1" {
 		t.Fatalf("expected combo metadata, got %#v", combo.Metadata)
+	}
+}
+
+func TestExecuteWithCombosSkipsDisabledCombos(t *testing.T) {
+	catalog := provider.Catalog{}
+	combos := []modelcombo.Combo{{
+		Alias:   "fast",
+		Enabled: false,
+		Targets: []modelcombo.Target{{
+			ProviderID: "cx",
+			ModelID:    "cx/gpt-5.4",
+			Enabled:    true,
+		}},
+	}}
+
+	models := ExecuteWithCombos(catalog, combos)
+	if len(models) != 0 {
+		t.Fatalf("expected disabled combo to be hidden, got %#v", models)
 	}
 }

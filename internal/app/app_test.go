@@ -21,8 +21,8 @@ func TestBuildConnectionRegistryLogsDiagnostics(t *testing.T) {
 	}
 
 	_, err = buildConnectionRegistryWithLogger([]connection.Record{
-		{ID: "codex-1", ProviderID: "cx", Name: "codex-user"},
-		{ID: "openai-1", ProviderID: "openai", Name: "openai-user", APIKey: "token"},
+		{ID: "codex-1", ProviderID: "cx", Name: "codex-user", Enabled: true},
+		{ID: "openai-1", ProviderID: "openai", Name: "openai-user", APIKey: "token", Enabled: true},
 	}, providers, &logger)
 	if err != nil {
 		t.Fatalf("buildConnectionRegistryWithLogger returned error: %v", err)
@@ -34,6 +34,27 @@ func TestBuildConnectionRegistryLogsDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(output, `"connection_id":"openai-1"`) || !strings.Contains(output, `"status":"ready"`) {
 		t.Fatalf("expected ready openai connection diagnostic, got %s", output)
+	}
+}
+
+func TestBuildConnectionEntriesSkipsDisabledConnections(t *testing.T) {
+	providers, err := buildProviderRegistry()
+	if err != nil {
+		t.Fatalf("buildProviderRegistry returned error: %v", err)
+	}
+
+	entries, err := buildConnectionEntries([]connection.Record{{
+		ID:         "openai-disabled",
+		ProviderID: "openai",
+		Name:       "disabled",
+		APIKey:     "token",
+		Enabled:    false,
+	}}, providers, nil)
+	if err != nil {
+		t.Fatalf("buildConnectionEntries returned error: %v", err)
+	}
+	if len(entries["openai"]) != 0 {
+		t.Fatalf("expected disabled connection to be skipped, got %#v", entries)
 	}
 }
 

@@ -13,6 +13,19 @@ import (
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
 )
 
+type connectionPayload struct {
+	ID                   string `json:"id"`
+	ProviderID           string `json:"provider_id"`
+	APIKey               string `json:"api_key"`
+	AccessToken          string `json:"access_token"`
+	RefreshToken         string `json:"refresh_token"`
+	TokenType            string `json:"token_type"`
+	ExpiresIn            int    `json:"expires_in"`
+	AccessTokenExpiresAt int64  `json:"access_token_expires_at"`
+	Enabled              *bool  `json:"enabled"`
+	Name                 string `json:"name"`
+}
+
 func connectionsHandler(service *connectionsusecase.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -22,13 +35,13 @@ func connectionsHandler(service *connectionsusecase.Service) http.Handler {
 				"data":   service.List(),
 			})
 		case http.MethodPost:
-			var input connection.Record
+			var input connectionPayload
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 				return
 			}
 
-			item, err := service.Create(input)
+			item, err := service.Create(buildConnectionRecord(input, true))
 			if err != nil {
 				writeConnectionMutationError(r, w, err)
 				return
@@ -58,13 +71,18 @@ func connectionByIDHandler(service *connectionsusecase.Service) http.Handler {
 			}
 			writeJSON(w, http.StatusOK, item)
 		case http.MethodPut:
-			var input connection.Record
+			var input connectionPayload
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
 				return
 			}
 
-			item, err := service.Update(id, input)
+			existing, ok := service.Get(id)
+			if !ok {
+				writeError(r, w, http.StatusNotFound, "not_found", "connection not found")
+				return
+			}
+			item, err := service.Update(id, buildConnectionRecord(input, existing.Enabled))
 			if err != nil {
 				writeConnectionMutationError(r, w, err)
 				return
@@ -155,5 +173,25 @@ func writeConnectionMutationError(r *http.Request, w http.ResponseWriter, err er
 		writeError(r, w, http.StatusConflict, "conflict", err.Error())
 	default:
 		writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+	}
+}
+
+func buildConnectionRecord(input connectionPayload, defaultEnabled bool) connection.Record {
+	enabled := defaultEnabled
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+
+	return connection.Record{
+		ID:                   input.ID,
+		ProviderID:           input.ProviderID,
+		APIKey:               input.APIKey,
+		AccessToken:          input.AccessToken,
+		RefreshToken:         input.RefreshToken,
+		TokenType:            input.TokenType,
+		ExpiresIn:            input.ExpiresIn,
+		AccessTokenExpiresAt: input.AccessTokenExpiresAt,
+		Enabled:              enabled,
+		Name:                 input.Name,
 	}
 }
