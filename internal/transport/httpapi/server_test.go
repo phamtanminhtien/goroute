@@ -790,6 +790,19 @@ func TestResponsesStreamsSSE(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamsSSEFlushesEachEvent(t *testing.T) {
+	handler := testServer(t, streamingTestProvider{testProvider: &testProvider{}, body: "data: {\"type\":\"response.created\"}\n\ndata: [DONE]\n\n"})
+	body := []byte(`{"model":"cx/gpt-5.4","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := newStreamResponseRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.FlushCount() != 2 {
+		t.Fatalf("expected 2 flushes, got %d", rec.FlushCount())
+	}
+}
+
 func TestResponsesRejectsInvalidJSON(t *testing.T) {
 	handler := testServer(t, &testProvider{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"cx/gpt-5.4",`)))
@@ -1370,6 +1383,19 @@ func TestChatCompletionsStreamsConnectionBody(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsStreamsConnectionBodyFlushesEachEvent(t *testing.T) {
+	handler := testServer(t, streamingTestProvider{testProvider: &testProvider{}, body: "data: first\n\ndata: [DONE]\n\n"})
+	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	rec := newStreamResponseRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.FlushCount() != 2 {
+		t.Fatalf("expected 2 flushes, got %d", rec.FlushCount())
+	}
+}
+
 func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
 	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, loggingStreamingTestProvider{testProvider: &testProvider{}, body: "data: {\"text\":\"first\"}\n\ndata: [DONE]\n\n"}, nil, databasePath, testSettingsConfig())
@@ -1894,6 +1920,7 @@ type streamResponseRecorder struct {
 	body       strings.Builder
 	header     http.Header
 	statusCode int
+	flushCount int
 }
 
 func newStreamResponseRecorder() *streamResponseRecorder {
@@ -1921,7 +1948,11 @@ func (r *streamResponseRecorder) Write(body []byte) (int, error) {
 	return r.body.Write(body)
 }
 
-func (r *streamResponseRecorder) Flush() {}
+func (r *streamResponseRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushCount++
+}
 
 func (r *streamResponseRecorder) BodyString() string {
 	r.mu.Lock()
@@ -1933,4 +1964,10 @@ func (r *streamResponseRecorder) StatusCode() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.statusCode
+}
+
+func (r *streamResponseRecorder) FlushCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.flushCount
 }

@@ -91,13 +91,54 @@ func (r *ResponsesRequest) UnmarshalJSON(data []byte) error {
 }
 
 type ResponseInputItem struct {
-	Type      string                     `json:"type"`
-	Role      string                     `json:"role,omitempty"`
-	Content   []ResponseInputContentPart `json:"content,omitempty"`
-	CallID    string                     `json:"call_id,omitempty"`
-	Name      string                     `json:"name,omitempty"`
-	Arguments string                     `json:"arguments,omitempty"`
-	Output    string                     `json:"output,omitempty"`
+	Type        string                     `json:"type"`
+	Role        string                     `json:"role,omitempty"`
+	Content     []ResponseInputContentPart `json:"content,omitempty"`
+	CallID      string                     `json:"call_id,omitempty"`
+	Name        string                     `json:"name,omitempty"`
+	Arguments   string                     `json:"arguments,omitempty"`
+	Output      string                     `json:"output,omitempty"`
+	Summary     []ResponseSummaryPart      `json:"summary,omitempty"`
+	extraFields map[string]json.RawMessage
+}
+
+func (i *ResponseInputItem) UnmarshalJSON(data []byte) error {
+	type itemAlias ResponseInputItem
+
+	var decoded itemAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var extras map[string]json.RawMessage
+	if err := json.Unmarshal(data, &extras); err != nil {
+		return err
+	}
+
+	*i = ResponseInputItem(decoded)
+	i.extraFields = extras
+	return nil
+}
+
+func (i ResponseInputItem) MarshalJSON() ([]byte, error) {
+	type itemAlias ResponseInputItem
+
+	encodedKnown, err := json.Marshal(itemAlias(i))
+	if err != nil {
+		return nil, err
+	}
+
+	var merged map[string]json.RawMessage
+	if len(i.extraFields) > 0 {
+		merged = cloneRawMap(i.extraFields)
+	} else {
+		merged = make(map[string]json.RawMessage)
+	}
+	if err := json.Unmarshal(encodedKnown, &merged); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(merged)
 }
 
 type ResponseInputContentPart struct {

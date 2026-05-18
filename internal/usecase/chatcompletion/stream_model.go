@@ -76,11 +76,21 @@ func rewriteSSEData(body io.ReadCloser, rewrite func(string) (string, bool)) io.
 
 	go func() {
 		defer body.Close()
+		defer writer.Close()
 
-		scanner := bufio.NewScanner(body)
-		scanner.Buffer(make([]byte, 0, 1024), 10*1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
+		buffered := bufio.NewReader(body)
+		for {
+			line, err := buffered.ReadString('\n')
+			if err != nil && err != io.EOF {
+				_ = writer.CloseWithError(err)
+				return
+			}
+			if line == "" && err == io.EOF {
+				return
+			}
+
+			line = strings.TrimSuffix(line, "\n")
+			line = strings.TrimSuffix(line, "\r")
 			if strings.HasPrefix(line, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 				if nextPayload, ok := rewrite(payload); ok {
@@ -91,12 +101,11 @@ func rewriteSSEData(body io.ReadCloser, rewrite func(string) (string, bool)) io.
 				_ = writer.CloseWithError(err)
 				return
 			}
+
+			if err == io.EOF {
+				return
+			}
 		}
-		if err := scanner.Err(); err != nil {
-			_ = writer.CloseWithError(err)
-			return
-		}
-		_ = writer.Close()
 	}()
 
 	return reader

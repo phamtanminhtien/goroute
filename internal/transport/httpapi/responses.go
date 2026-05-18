@@ -86,7 +86,7 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 			bodyWriter.Header().Set("Connection", "keep-alive")
 			bodyWriter.Header().Set("Access-Control-Allow-Origin", "*")
 			bodyWriter.WriteHeader(http.StatusOK)
-			if _, err := io.Copy(bodyWriter, output.Body); err != nil {
+			if err := writeSSEStream(bodyWriter, output.Body); err != nil {
 				recorder.SetError("stream_error", err.Error())
 			} else {
 				recorder.SetTranslatedSSEResponseBody(bodyWriter.bodyString())
