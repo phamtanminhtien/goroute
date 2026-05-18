@@ -5,7 +5,7 @@
 The user config file is loaded from `~/.goroute/config.json`.
 It configures local runtime behavior only; providers, model namespaces, and model catalogs are compiled into the binary, while connection records are stored in SQLite.
 
-The current schema has one top-level domain:
+The current schema has three top-level domains:
 
 - server
 - llmLogging
@@ -54,6 +54,7 @@ Example `~/.goroute/config.json`:
 
 Connections are persisted in `~/.goroute/goroute.db`.
 Connection credentials are validated lazily by the selected adapter during request execution.
+Request diagnostics are persisted in the same SQLite database. `ai_request_runs` is always written, while detailed flow logs, third-party upstream logs, and RTK diagnostics depend on runtime settings and request behavior.
 
 ## Logging Environment
 
@@ -80,6 +81,7 @@ Current admin routes:
 
 - `GET /admin/api/providers`
 - `POST /admin/api/providers/{id}/oauth-url`
+- `POST /admin/api/providers/{id}/test`
 - `GET /admin/api/connections`
 - `POST /admin/api/connections`
 - `GET /admin/api/connections/{id}`
@@ -89,6 +91,11 @@ Current admin routes:
 - `POST /admin/api/connections/oauth`
 - `GET /admin/api/settings`
 - `PUT /admin/api/settings`
+- `GET /admin/api/analytics/usage/summary`
+- `GET /admin/api/analytics/usage/timeseries`
+- `GET /admin/api/analytics/usage/provider-breakdown`
+- `GET /admin/api/analytics/usage/recent-requests`
+- `GET /admin/api/logs/stream`
 
 `GET /admin/api/settings` returns a normalized payload for admin UI use:
 
@@ -111,6 +118,17 @@ Current admin routes:
 ```
 
 `PUT /admin/api/settings` accepts the same normalized `llmLogging.enabled` booleans plus `rtk.enabled`, then applies them immediately to new requests after saving `config.json`.
+
+`POST /admin/api/providers/{id}/test` validates that a configured provider can execute a small model test through the current connection registry.
+
+The analytics usage routes summarize persisted `ai_request_runs` records for the admin UI:
+
+- `summary` returns aggregate request, token, cost, latency, and status totals for a time window
+- `timeseries` buckets usage over time
+- `provider-breakdown` groups usage by provider/model
+- `recent-requests` returns recent request rows for inspection
+
+`GET /admin/api/logs/stream` streams live server logs for the admin console page. It is an operational stream, not a persisted log-history API.
 
 ### Quota Tracker lookup
 
@@ -252,6 +270,13 @@ Current built-in providers:
 - `cx`
 - `openai`
 
+Model IDs are prefixed with the provider ID. Examples:
+
+- `cx/gpt-5.4`
+- `cx/gpt-5.3-codex`
+- `openai/gpt-4.1`
+- `openai/o4-mini`
+
 ## Data Model
 
 ### Connection record
@@ -282,6 +307,17 @@ Implemented fields:
 - filter_chain
 - hit_count
 - field_count
+
+### Request diagnostics
+
+Implemented persisted request diagnostics include:
+
+- `ai_request_runs` for one row per completed request
+- `ai_request_flows` for reconstructed request/response flow details when enabled
+- `third_party_request_logs` for upstream request/response logging when enabled
+- `rtk_records` for compression diagnostics when RTK evaluates a request
+
+The admin analytics APIs read from these request-run records; Codex quota lookup remains live upstream data and is not written to the analytics tables.
 
 ### System provider definition
 

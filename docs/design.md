@@ -22,6 +22,9 @@ OpenAI-compatible clients are easy to integrate, but real deployments usually ne
 - provider/connection fallback chains
 - request/response passthrough with minimal normalization
 - structured logging and debuggable routing behavior
+- admin APIs and UI for local connection/settings operations
+- persisted request diagnostics for analytics and debugging
+- deterministic request compression for large machine-generated request text
 
 ### Out of scope for the first useful version
 
@@ -29,6 +32,28 @@ OpenAI-compatible clients are easy to integrate, but real deployments usually ne
 - aggressive request mutation or prompt rewriting
 - dynamic policy engines before static routing works well
 - large control-plane features unrelated to request routing
+
+## Current Implemented Surface
+
+Implemented public routes:
+
+- `GET /healthz`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+
+Implemented admin routes are protected by bearer-token auth:
+
+- provider catalog, OAuth start, and provider test routes
+- connection CRUD, OAuth completion, and Codex usage lookup routes
+- runtime settings routes for LLM logging and RTK
+- usage analytics summary, timeseries, provider breakdown, and recent-request routes
+- live log streaming for the admin console
+
+Built-in providers are:
+
+- `cx` for Codex
+- `openai` for the standard OpenAI upstream
 
 ## High-level Architecture
 
@@ -66,9 +91,9 @@ Client response
 
 Core idea: keep the data path simple and explicit.
 
-## Expected HTTP Surface
+## HTTP Surface
 
-Initial target endpoints:
+Current OpenAI-compatible endpoints:
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
@@ -77,7 +102,6 @@ Initial target endpoints:
 Possible later endpoints:
 
 - embeddings
-- streaming variants / SSE handling
 - additional OpenAI-compatible endpoints as needed
 
 The intended API contract is:
@@ -135,8 +159,8 @@ This keeps routing logic independent from wire-level connection quirks.
 Providers and model namespaces are system-defined, not user-defined config.
 A provider maps a client-facing model prefix to connection-specific execution behavior and owns a default model.
 For example, when a client sends `cx/gpt-5.4`, the built-in `cx` provider runs `gpt-5.4` through the user-configured Codex connections.
-Likewise, `opena/gpt-4.1` resolves to the built-in OpenAI provider.
-If the client sends only `cx` or `opena`, the provider uses its system-defined `default_model`.
+Likewise, `openai/gpt-4.1` resolves to the built-in OpenAI provider.
+If the client sends only `cx` or `openai`, the provider uses its system-defined `default_model`.
 
 A connection definition will typically need:
 
@@ -193,9 +217,9 @@ A useful internal error model will likely need to distinguish:
 - upstream provider errors
 - retry exhaustion / fallback exhaustion
 
-## Streaming Considerations
+## Streaming Behavior
 
-Streaming support is likely to be one of the harder early features.
+Streaming is implemented for the current chat-completions and responses paths across the OpenAI and Codex providers.
 
 Important concerns:
 
@@ -205,45 +229,22 @@ Important concerns:
 - surfacing cancellation correctly via request context
 - avoiding buffered behavior that breaks client expectations
 
-A reasonable strategy is to get non-streaming path correct first, then add streaming with targeted tests.
+Fallback after a partial stream has started should remain conservative. Future policy work should make retry/fallback eligibility explicit for both sync and streaming paths.
 
 ## `GET /v1/models` Behavior
 
-This endpoint can be implemented in more than one way:
+`GET /v1/models` returns the system provider catalog as OpenAI-style model records.
 
-### Option A: expose system-defined model prefixes
+The model IDs are already client-facing prefixed IDs such as:
 
-Return client-facing prefixes only:
+- `cx/gpt-5.4`
+- `openai/gpt-4.1`
 
-- `cx`
-- `opena`
-
-Pros:
-
-- reflects what clients are expected to use
-- stable and simple
-
-Cons:
-
-- hides upstream model inventory
-
-### Option B: expose resolved upstream-backed virtual models
-
-Return prefixed model IDs with metadata indicating underlying provider/connection behavior.
-
-Pros:
-
-- more transparent
-
-Cons:
-
-- less canonical if clients expect strict OpenAI shape
-
-Recommendation: start with system-defined prefixes and keep output simple.
+Each record includes metadata for provider ID, provider name, auth type, display name, description, default model, and whether the listed model is the provider default.
 
 ## Observability
 
-At minimum, the proxy should emit structured logs containing:
+The proxy emits structured logs containing:
 
 - timestamp
 - request ID
@@ -257,13 +258,21 @@ At minimum, the proxy should emit structured logs containing:
 - final status
 - sanitized error category
 
-Metrics can come later, but eventual useful metrics include:
+Request diagnostics are persisted to SQLite for admin analytics:
+
+- `ai_request_runs`
+- optional `ai_request_flows`
+- optional `third_party_request_logs`
+- RTK diagnostics in `rtk_records`
+
+Current useful analytics include:
 
 - request count by prefix/provider
 - latency by provider/model
-- fallback rate
 - upstream error rate
-- timeout count
+- token and cost summaries where pricing metadata is available
+
+Future observability work should make fallback rate, timeout count, and final route-decision logs more explicit.
 
 ## Security Notes
 

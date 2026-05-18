@@ -1,6 +1,6 @@
 # MVP Roadmap
 
-This file tracks the current implementation state and the next work needed to turn the first request path into a more reliable MVP.
+This file tracks the current implementation state and the next work needed to make `goroute` more reliable as a daily routing proxy.
 
 ## Current State
 
@@ -9,70 +9,80 @@ Implemented now:
 - OpenAI-compatible HTTP surface for:
   - `GET /v1/models`
   - `POST /v1/chat/completions`
+  - `POST /v1/responses`
 - `GET /healthz`
-- bearer-token auth middleware reserved for future admin APIs
-- request ID and request logging middleware
-- system provider catalog loading from built-in provider packages
-- model prefix resolution such as `cx/gpt-5.4`
+- bearer-token auth for admin APIs
+- request ID and structured logging middleware
+- system provider catalog from built-in provider registrations
+- built-in providers:
+  - `cx`
+  - `openai`
+- model prefix resolution such as `cx/gpt-5.4` and `openai/gpt-4.1`
 - default model resolution when the client sends only a provider prefix
-- connection execution interface near `internal/usecase/chatcompletion`
-- connection registry that selects connections by resolved connection type
-- deterministic fallback across multiple configured connections of the same type
-- configured connection wiring at app startup
-- OpenAI-compatible upstream adapter for non-streaming chat completions
-- Codex adapter for non-streaming and streaming chat completions
-- normalized upstream error wrapper mapped to a gateway response by the HTTP layer
+- connection execution interfaces near the chat-completion and responses use cases
+- connection registry that selects connections by resolved provider
+- deterministic fallback across multiple configured connections for the same provider
+- OpenAI upstream adapter for sync and streaming chat completions
+- OpenAI upstream adapter for sync and streaming responses
+- Codex adapter for sync and streaming chat completions
+- Codex adapter for streaming responses and sync response reconstruction
+- normalized upstream error wrapper mapped to gateway responses by the HTTP layer
 - config defaulting before validation
-- basic tests for routing, HTTP contract shape, connection registry behavior, config validation, and Codex adapter mapping
+- runtime settings API for LLM logging and RTK
+- SQLite persistence for connections and request diagnostics
+- admin API and React admin UI for providers, connections, settings, usage analytics, quota lookup, and console logs
+- RTK deterministic request compression with persisted diagnostics
+- tests for routing, HTTP contract shape, connection registry behavior, config validation, provider mapping, analytics APIs, admin APIs, frontend pages, and shared UI behavior
 
-Not implemented yet:
+## Remaining MVP Work
 
 - explicit retryable vs non-retryable upstream error classification
 - policy-driven retry/fallback behavior
-- OpenAI adapter streaming support
-- full OpenAI chat completions request/response compatibility
-- richer request/response passthrough normalization
-- debuggable attempt-order logs and final route decision logs
-- connection availability/config diagnostics at startup
-- admin API or UI
+- richer attempt-order logs and final route-decision logs
+- connection availability and config diagnostics at startup
+- more complete OpenAI chat-completions and responses compatibility
+- broader response normalization for model IDs, usage, finish reasons, and error envelopes
+- clearer operator-facing diagnostics when analytics or optional logging stores are disabled
+- body-size, timeout, and cancellation hardening for public and admin routes
 
 ## Recommended Next PRs
 
-### PR 1: fallback policy and attempt logging
+### PR 1: fallback policy and attempt diagnostics
 
 Goal: make existing connection fallback explicit, debuggable, and safe.
 
 Suggested scope:
 
 - classify upstream failures as retryable, fallback-eligible, or terminal
-- preserve deterministic connection order within each connection type
+- preserve deterministic connection order within each provider
 - stop fallback on client/config/auth failures that should not be retried
-- emit logs for requested model, resolved target, connection attempt index, outcome, latency, and final error category
-- add table-driven tests for fallback eligibility
+- record connection attempt index, outcome, latency, and final error category
+- add table-driven tests for fallback eligibility and route-decision logs
 
-### PR 2: OpenAI compatibility and streaming
+### PR 2: OpenAI compatibility hardening
 
-Goal: make the OpenAI-compatible surface usable by more clients.
+Goal: make the OpenAI-compatible surface work with more clients and payloads.
 
 Suggested scope:
 
-- expand `internal/openaiwire` for common chat completion fields such as `temperature`, `max_tokens`, `tools`, `tool_choice`, `usage`, and `finish_reason`
-- add OpenAI upstream streaming support or return a clearer unsupported-streaming error for connections that cannot stream
-- normalize upstream response model IDs back to the client-facing prefixed model
-- add OpenAI adapter unit tests with a mock `http.Client`
+- expand `internal/openaiwire` for common chat-completions and responses fields
+- normalize upstream response model IDs back to client-facing prefixed model IDs where needed
+- tighten usage and finish-reason mapping
 - add compatibility tests for common OpenAI-style client payloads
 
-### PR 3: models, diagnostics, and observability
+### PR 3: diagnostics and operations
 
-Goal: make the API easier to inspect and operate.
+Goal: make the proxy easier to inspect and operate.
 
 Suggested scope:
 
-- improve `/v1/models` to reflect system catalog models more completely
-- expose connection availability/config validation issues clearly at startup
-- tighten error responses and add more table-driven tests
-## Small but important fixes already worth landing
+- expose connection availability/config validation issues clearly at startup and in admin APIs
+- improve analytics empty states and disabled-logging messages
+- add more request-log correlation between public responses, structured logs, and persisted records
+- tighten body-size, timeout, and cancellation behavior with targeted tests
 
-- document the current config schema as implemented, including that `config.json` stores only local server settings while connections live in SQLite
+## Small But Important Fixes
+
+- keep docs synchronized with `internal/transport/httpapi/server.go` as routes change
 - decide how custom OpenAI-compatible base URLs should be configured, if needed
-- keep bootstrap architecture simple while adding policy and observability incrementally
+- keep the config file focused on local runtime settings while connections and request diagnostics remain in SQLite

@@ -8,24 +8,28 @@ This project is intended for environments where multiple upstream LLM connection
 
 ## Status
 
-Early implementation.
+Active implementation with the core routing path, admin UI, and request diagnostics in place.
 
-The repository has the first request path in place:
+The repository currently supports:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - model prefix resolution from built-in provider packages
-- configured connection registry for `codex` and `openai`
-- OpenAI-compatible upstream execution for non-streaming chat completions
-- OpenAI-compatible upstream execution for sync and streaming responses
-- Codex responses execution for non-streaming and streaming chat completions
+- configured connection registry for Codex (`cx`) and OpenAI (`openai`)
+- OpenAI upstream execution for sync and streaming chat completions
+- OpenAI upstream execution for sync and streaming responses
+- Codex upstream execution for sync and streaming chat completions
 - Codex responses passthrough for streaming and sync reconstruction for `/v1/responses`
 - admin APIs and UI for provider/connection management
-- Quota Tracker lookup from the admin API for Codex connections
-- request ID and request logging middleware
+- admin settings for LLM logging and RTK
+- usage analytics APIs and UI
+- Codex Quota Tracker lookup from the admin API
+- live server log streaming for the admin UI
+- request ID middleware, structured logging, and persisted request diagnostics
+- RTK deterministic request compression
 
-The implementation is still intentionally small. Fallback is deterministic across configured connections of the same type, but retry eligibility and richer attempt logging are not yet policy-driven. Broader OpenAI wire compatibility is still pending.
+The implementation is still intentionally compact. Fallback is deterministic across configured connections of the same provider, but retry eligibility and richer attempt logging are not yet fully policy-driven. Broader OpenAI wire compatibility is still evolving.
 
 ## Core Idea
 
@@ -58,6 +62,7 @@ Currently implemented endpoints:
 - `GET /healthz`
 - `GET /admin/api/providers` (admin-only)
 - `POST /admin/api/providers/{id}/oauth-url` (admin-only)
+- `POST /admin/api/providers/{id}/test` (admin-only)
 - `GET /admin/api/connections` (admin-only)
 - `POST /admin/api/connections` (admin-only)
 - `GET /admin/api/connections/{id}` (admin-only)
@@ -65,6 +70,13 @@ Currently implemented endpoints:
 - `DELETE /admin/api/connections/{id}` (admin-only)
 - `GET /admin/api/connections/{id}/usage` (admin-only, Quota Tracker lookup for Codex connections)
 - `POST /admin/api/connections/oauth` (admin-only)
+- `GET /admin/api/settings` (admin-only)
+- `PUT /admin/api/settings` (admin-only)
+- `GET /admin/api/analytics/usage/summary` (admin-only)
+- `GET /admin/api/analytics/usage/timeseries` (admin-only)
+- `GET /admin/api/analytics/usage/provider-breakdown` (admin-only)
+- `GET /admin/api/analytics/usage/recent-requests` (admin-only)
+- `GET /admin/api/logs/stream` (admin-only)
 
 ## Example Usage
 
@@ -80,6 +92,8 @@ A local client might be configured with:
 - `gpt-5.4` -> the model passed to user-configured connections for provider `cx`
 
 The client remains unchanged while routing policy evolves server-side.
+
+The built-in OpenAI provider uses the `openai` prefix. For example, `openai/gpt-4.1` resolves to the standard OpenAI upstream through configured OpenAI connections.
 
 `/v1/responses` follows the same prefixed-model routing behavior. For OpenAI connections the request and response body are passed through in Responses shape. For Codex connections streaming is passed through as Responses SSE and sync responses are reconstructed from the upstream event stream.
 
@@ -156,7 +170,7 @@ Current implemented shape:
 `server.web_ui_dir` defaults to `web/dist`; when that folder exists, `goroute` also serves the built admin UI from the same server.
 When `llmLogging` is omitted, both `flow` and `thirdParty` default to enabled. `llmLogging: false` or `llmLogging: {}` disables both optional LLM log stores while still keeping `ai_request_runs`.
 `rtk` defaults to enabled. When enabled, it applies deterministic compression to large machine-generated user/tool request text before upstream dispatch and persists diagnostics in `rtk_records`.
-Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API or UI.
+Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API and UI.
 
 Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
 
@@ -186,6 +200,15 @@ The Quota Tracker page fetches Codex usage from `GET /admin/api/connections/{id}
 - `weekly`
 - `review_session`
 - `review_weekly`
+
+The analytics pages read persisted request diagnostics from:
+
+- `GET /admin/api/analytics/usage/summary`
+- `GET /admin/api/analytics/usage/timeseries`
+- `GET /admin/api/analytics/usage/provider-breakdown`
+- `GET /admin/api/analytics/usage/recent-requests`
+
+The console log page streams live log lines from `GET /admin/api/logs/stream`.
 
 During frontend development you can still use Vite separately with `make web-dev`.
 
@@ -220,7 +243,14 @@ The Compose setup exposes `localhost:2232` and persists `~/.goroute` container d
 - `GOROUTE_ENV=prod` or `GOROUTE_ENV=production` emits JSON logs
 - any other value, including empty, emits pretty console logs for local development
 
-Logs include request routing and fallback metadata such as `request_id`, provider/connection fields, latency, and HTTP response status. Secrets such as bearer tokens, API keys, and request bodies are not logged.
+Logs include request routing and fallback metadata such as `request_id`, provider/connection fields, latency, and HTTP response status. Secrets such as bearer tokens, API keys, and request bodies are not written to structured logs.
+
+Request diagnostics are persisted to SQLite:
+
+- `ai_request_runs` is always written
+- `ai_request_flows` is controlled by `llmLogging.flow`
+- `third_party_request_logs` is controlled by `llmLogging.thirdParty`
+- `rtk_records` stores RTK compression diagnostics when compression is evaluated
 
 See [Configuration and data model](./docs/configuration.md) for the fuller contract and rationale.
 
