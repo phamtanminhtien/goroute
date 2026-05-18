@@ -1,6 +1,6 @@
 services:
   goroute:
-    image: ${GOROUTE_IMAGE:-phamtanminhtien/goroute:latest}
+    image: ${GOROUTE_IMAGE:-ghcr.io/phamtanminhtien/goroute:latest}
     build:
       context: .
       dockerfile: Dockerfile

@@ -189,7 +189,7 @@ During frontend development you can still use Vite separately with `make web-dev
 
 ## Docker
 
-You can run `goroute` with Docker Compose using either a published image from Docker Hub or a local build from this repository.
+You can run `goroute` with Docker Compose using either a published image from GitHub Container Registry or a local build from this repository.
 
 Start from a published image:
 
@@ -206,7 +206,7 @@ docker compose up --build
 Override the image tag explicitly when needed:
 
 ```bash
-GOROUTE_IMAGE=phamtanminhtien/goroute:latest docker compose up
+GOROUTE_IMAGE=ghcr.io/phamtanminhtien/goroute:latest docker compose up
 ```
 
 The Compose setup exposes `localhost:2232` and persists `~/.goroute` container data in the named Docker volume `goroute-data`, including `config.json` and `goroute.db`.
