@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import {
   completeOAuthConnection,
   connectionUsageQueryKey,
   createConnection,
+  createProviderModel,
   deleteConnection,
   generateProviderOAuthURL,
   getConnectionUsage,
@@ -26,6 +27,7 @@ vi.mock("@/features/providers/api", () => ({
   ]),
   completeOAuthConnection: vi.fn(),
   createConnection: vi.fn(),
+  createProviderModel: vi.fn(),
   deleteConnection: vi.fn(),
   generateProviderOAuthURL: vi.fn(),
   getConnectionUsage: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock("@/features/providers/api", () => ({
 const connectionUsageQueryKeyMock = vi.mocked(connectionUsageQueryKey);
 const completeOAuthConnectionMock = vi.mocked(completeOAuthConnection);
 const createConnectionMock = vi.mocked(createConnection);
+const createProviderModelMock = vi.mocked(createProviderModel);
 const deleteConnectionMock = vi.mocked(deleteConnection);
 const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
 const getConnectionUsageMock = vi.mocked(getConnectionUsage);
@@ -98,6 +101,11 @@ describe("providers pages", () => {
       "usage",
     ]);
     createConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
+    createProviderModelMock.mockResolvedValue({
+      description: "",
+      id: "cx/gpt-5.5",
+      name: "GPT-5.5",
+    });
     updateConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
     deleteConnectionMock.mockResolvedValue(undefined);
     getConnectionUsageMock.mockResolvedValue({
@@ -217,6 +225,63 @@ describe("providers pages", () => {
       await screen.findByText(/model test succeeded\./i),
     ).toBeInTheDocument();
     expect(screen.getByText(/^ok$/i)).toBeInTheDocument();
+  });
+
+  it("adds a provider model when the model id uses the provider prefix", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /available models/i });
+
+    await user.click(screen.getByRole("button", { name: /add model/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.type(within(dialog).getByLabelText(/model id/i), "cx/gpt-5.5");
+    await user.type(within(dialog).getByLabelText(/^name/i), "GPT-5.5");
+    await user.click(
+      within(dialog).getByRole("button", { name: /add model/i }),
+    );
+
+    await waitFor(() => {
+      expect(createProviderModelMock).toHaveBeenCalledWith("cx", {
+        description: "",
+        id: "cx/gpt-5.5",
+        name: "GPT-5.5",
+      });
+    });
+  });
+
+  it("rejects a provider model before submit when the prefix does not match", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", { level: 2, name: /available models/i });
+
+    await user.click(screen.getByRole("button", { name: /add model/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.type(
+      within(dialog).getByLabelText(/model id/i),
+      "openai/gpt-5.5",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: /add model/i }),
+    );
+
+    expect(
+      await screen.findByText(/model id must start with cx\//i),
+    ).toBeInTheDocument();
+    expect(createProviderModelMock).not.toHaveBeenCalled();
   });
 
   it("renders an inline error when the model test fails", async () => {

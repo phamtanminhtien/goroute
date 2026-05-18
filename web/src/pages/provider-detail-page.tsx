@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Pencil, Play, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
   completeOAuthConnection,
   type ConnectionPayload,
   createConnection,
+  createProviderModel,
   deleteConnection,
   listProviders,
   type ProviderConnection,
@@ -36,8 +37,15 @@ import {
 import { Button } from "@/shared/ui/button";
 import { CardActionRow } from "@/shared/ui/card-action-row";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { Field } from "@/shared/ui/field";
 import { InlineAlert } from "@/shared/ui/inline-alert";
-import { Modal, ModalContent, ModalPanel } from "@/shared/ui/modal";
+import { Input } from "@/shared/ui/input";
+import {
+  Modal,
+  ModalContent,
+  ModalFooter,
+  ModalPanel,
+} from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
 import { Skeleton } from "@/shared/ui/skeleton";
@@ -54,6 +62,11 @@ type ModelTestState = {
   pending: boolean;
   result: ProviderModelTestResult | null;
   error: string | null;
+};
+type ModelFormState = {
+  description: string;
+  id: string;
+  name: string;
 };
 
 type ConnectionModalState =
@@ -72,6 +85,13 @@ export function ProviderDetailPage() {
   const [modelTests, setModelTests] = useState<Record<string, ModelTestState>>(
     {},
   );
+  const [modelForm, setModelForm] = useState<ModelFormState>({
+    description: "",
+    id: "",
+    name: "",
+  });
+  const [modelFeedback, setModelFeedback] = useState<FeedbackState>(null);
+  const [modelModalOpen, setModelModalOpen] = useState(false);
 
   const providersQuery = useQuery({
     queryFn: listProviders,
@@ -146,6 +166,32 @@ export function ProviderDetailPage() {
     },
   });
 
+  const createProviderModelMutation = useMutation({
+    mutationFn: async (values: ModelFormState) => {
+      if (!provider) {
+        throw new Error("Provider not found");
+      }
+
+      return createProviderModel(provider.id, {
+        description: values.description.trim(),
+        id: values.id.trim(),
+        name: values.name.trim(),
+      });
+    },
+    onError: (error) => {
+      setModelFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setModelFeedback({ text: "Model added.", tone: "success" });
+      setModelForm({ description: "", id: "", name: "" });
+      setModelModalOpen(false);
+    },
+  });
+
   const activeModal =
     provider && formRegistryEntry
       ? buildConnectionModal({
@@ -215,6 +261,26 @@ export function ProviderDetailPage() {
         },
       }));
     }
+  }
+
+  async function handleCreateModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!provider) {
+      return;
+    }
+
+    const modelID = modelForm.id.trim();
+    const requiredPrefix = `${provider.id}/`;
+    if (!modelID.startsWith(requiredPrefix) || modelID === requiredPrefix) {
+      setModelFeedback({
+        text: `Model ID must start with ${requiredPrefix}`,
+        tone: "error",
+      });
+      return;
+    }
+
+    setModelFeedback(null);
+    await createProviderModelMutation.mutateAsync(modelForm);
   }
 
   return (
@@ -352,28 +418,52 @@ export function ProviderDetailPage() {
 
           <SectionCard
             description="Quick visibility into the models this provider currently exposes."
+            headerAction={
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone="info">Prefix {provider.id}/</StatusBadge>
+                <Button
+                  leadingIcon={<Plus className="size-[15px]" />}
+                  onClick={() => {
+                    setModelFeedback(null);
+                    setModelModalOpen(true);
+                  }}
+                >
+                  Add model
+                </Button>
+              </div>
+            }
             title="Available models"
             tone="solid"
           >
-            {provider.models.length === 0 ? (
-              <EmptyState
-                body="No models are currently advertised for this provider."
-                title="No available models"
-              />
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {provider.models.map((model) => (
-                  <ModelChip
-                    hasConnections={provider.connection_count > 0}
-                    isDefault={model.id === provider.default_model}
-                    key={model.id}
-                    model={model}
-                    onTest={() => void handleModelTest(model.id)}
-                    testState={modelTests[model.id] ?? null}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="space-y-5">
+              {modelFeedback?.tone === "success" ? (
+                <InlineAlert
+                  tone={modelFeedback.tone === "success" ? "success" : "error"}
+                >
+                  {modelFeedback.text}
+                </InlineAlert>
+              ) : null}
+
+              {provider.models.length === 0 ? (
+                <EmptyState
+                  body="No models are currently advertised for this provider."
+                  title="No available models"
+                />
+              ) : (
+                <div className="flex flex-wrap gap-3">
+                  {provider.models.map((model) => (
+                    <ModelChip
+                      hasConnections={provider.connection_count > 0}
+                      isDefault={model.id === provider.default_model}
+                      key={model.id}
+                      model={model}
+                      onTest={() => void handleModelTest(model.id)}
+                      testState={modelTests[model.id] ?? null}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </SectionCard>
         </div>
       ) : null}
@@ -393,6 +483,98 @@ export function ProviderDetailPage() {
               title={activeModal.title}
             >
               {activeModal.content}
+            </ModalPanel>
+          </ModalContent>
+        ) : null}
+      </Modal>
+
+      <Modal
+        onOpenChange={(open) => {
+          setModelModalOpen(open);
+          if (!open && modelFeedback?.tone !== "success") {
+            setModelFeedback(null);
+          }
+        }}
+        open={modelModalOpen}
+      >
+        {provider ? (
+          <ModalContent>
+            <ModalPanel
+              description={`Add a model to ${provider.name}. The model ID must use the ${provider.id}/ prefix.`}
+              title="Add model"
+            >
+              <form
+                className="space-y-4"
+                onSubmit={(event) => void handleCreateModel(event)}
+              >
+                <Field
+                  help={`Use ${provider.id}/ before the upstream model name.`}
+                  label="Model ID"
+                  required
+                >
+                  <Input
+                    autoFocus
+                    onChange={(event) =>
+                      setModelForm((current) => ({
+                        ...current,
+                        id: event.target.value,
+                      }))
+                    }
+                    placeholder={`${provider.id}/gpt-5.5`}
+                    value={modelForm.id}
+                  />
+                </Field>
+                <Field help="Optional catalog label." label="Name">
+                  <Input
+                    onChange={(event) =>
+                      setModelForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="GPT-5.5"
+                    value={modelForm.name}
+                  />
+                </Field>
+                <Field
+                  help="Optional short note for the model catalog."
+                  label="Description"
+                >
+                  <Input
+                    onChange={(event) =>
+                      setModelForm((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Latest routing target for this provider"
+                    value={modelForm.description}
+                  />
+                </Field>
+
+                {modelFeedback?.tone === "error" ? (
+                  <InlineAlert tone="error">{modelFeedback.text}</InlineAlert>
+                ) : null}
+
+                <ModalFooter>
+                  <Button
+                    onClick={() => setModelModalOpen(false)}
+                    tone="secondary"
+                    type="button"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={createProviderModelMutation.isPending}
+                    leadingIcon={<Plus className="size-[15px]" />}
+                    type="submit"
+                  >
+                    {createProviderModelMutation.isPending
+                      ? "Adding..."
+                      : "Add model"}
+                  </Button>
+                </ModalFooter>
+              </form>
             </ModalPanel>
           </ModalContent>
         ) : null}

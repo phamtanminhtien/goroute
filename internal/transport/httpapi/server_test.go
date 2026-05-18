@@ -235,7 +235,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		}},
 	}, &logger)
 	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)
-	return NewServer(testCatalog(), &registry, service, repo, settingsManager, testAdminToken, webUIRoot, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, repo, settingsManager, testAdminToken, webUIRoot, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {

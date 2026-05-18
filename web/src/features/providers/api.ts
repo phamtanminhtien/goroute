@@ -7,7 +7,9 @@ export const connectionUsageQueryKey = (connectionID: string) =>
 export type ProviderModel = {
   description: string;
   id: string;
+  input_price_per_million_usd?: number;
   name: string;
+  output_price_per_million_usd?: number;
 };
 
 export type ProviderConnection = {
@@ -52,6 +54,14 @@ export type ProviderUsage = {
 
 export type ProviderModelTestPayload = {
   model: string;
+};
+
+export type ProviderModelPayload = {
+  description?: string;
+  id: string;
+  input_price_per_million_usd?: number;
+  name?: string;
+  output_price_per_million_usd?: number;
 };
 
 export type ProviderModelTestResult = {
@@ -155,6 +165,17 @@ export async function testProviderModel(
 ) {
   const response = await apiClient.post<ProviderModelTestResult>(
     `/providers/${providerID}/test`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function createProviderModel(
+  providerID: string,
+  payload: ProviderModelPayload,
+) {
+  const response = await apiClient.post<ProviderModel>(
+    `/providers/${providerID}/models`,
     payload,
   );
   return response.data;

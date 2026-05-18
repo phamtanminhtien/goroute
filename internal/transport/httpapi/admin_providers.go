@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -29,9 +30,15 @@ type adminProviderItem struct {
 	Connections     []connectionsusecase.Item `json:"connections"`
 }
 
+type providerModelRepository interface {
+	ListProviderModels() ([]provider.ModelRecord, error)
+	CreateProviderModel(provider.ModelRecord) error
+}
+
 func providersHandler(
 	catalog provider.Catalog,
 	connectionService *connectionsusecase.Service,
+	modelRepo providerModelRepository,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -39,10 +46,65 @@ func providersHandler(
 			return
 		}
 
+		resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
+		if err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+
 		writeJSON(w, http.StatusOK, adminProvidersListResponse{
 			Object: "list",
-			Data:   buildAdminProviderItems(catalog, connectionService.List()),
+			Data:   buildAdminProviderItems(resolvedCatalog, connectionService.List()),
 		})
+	})
+}
+
+type providerModelCreateRequest struct {
+	ID                       string  `json:"id"`
+	Name                     string  `json:"name"`
+	Description              string  `json:"description"`
+	InputPricePerMillionUSD  float64 `json:"input_price_per_million_usd"`
+	OutputPricePerMillionUSD float64 `json:"output_price_per_million_usd"`
+}
+
+func providerModelsHandler(catalog provider.Catalog, modelRepo providerModelRepository) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if modelRepo == nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", "provider model repository is not configured")
+			return
+		}
+
+		providerID := strings.TrimSpace(chi.URLParam(r, "id"))
+		if providerID == "" || strings.Contains(providerID, "/") {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+		if _, ok := catalog.FindByID(providerID); !ok {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+
+		var input providerModelCreateRequest
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+			return
+		}
+
+		record, err := buildProviderModelRecord(providerID, input)
+		if err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if err := modelRepo.CreateProviderModel(record); err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, record)
 	})
 }
 
@@ -102,6 +164,7 @@ type providerModelTestResponse struct {
 func providerModelTestHandler(
 	catalog provider.Catalog,
 	tester providerModelTester,
+	modelRepo providerModelRepository,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -115,7 +178,13 @@ func providerModelTestHandler(
 			return
 		}
 
-		resolvedProvider, ok := catalog.FindByID(providerID)
+		resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
+		if err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+
+		resolvedProvider, ok := resolvedCatalog.FindByID(providerID)
 		if !ok {
 			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
 			return
@@ -177,6 +246,44 @@ func providerHasModel(resolvedProvider provider.Provider, modelID string) bool {
 	}
 
 	return false
+}
+
+func catalogWithCustomModels(catalog provider.Catalog, modelRepo providerModelRepository) (provider.Catalog, error) {
+	if modelRepo == nil {
+		return catalog, nil
+	}
+
+	records, err := modelRepo.ListProviderModels()
+	if err != nil {
+		return provider.Catalog{}, err
+	}
+
+	return catalog.WithModelRecords(records), nil
+}
+
+func buildProviderModelRecord(providerID string, input providerModelCreateRequest) (provider.ModelRecord, error) {
+	modelID := strings.TrimSpace(input.ID)
+	if modelID == "" {
+		return provider.ModelRecord{}, fmt.Errorf("model id is required")
+	}
+	prefix := providerID + "/"
+	if !strings.HasPrefix(modelID, prefix) || strings.TrimSpace(strings.TrimPrefix(modelID, prefix)) == "" {
+		return provider.ModelRecord{}, fmt.Errorf("model id must start with provider prefix %q", prefix)
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = strings.TrimPrefix(modelID, prefix)
+	}
+
+	return provider.ModelRecord{
+		ID:                       modelID,
+		ProviderID:               providerID,
+		Name:                     name,
+		Description:              strings.TrimSpace(input.Description),
+		InputPricePerMillionUSD:  input.InputPricePerMillionUSD,
+		OutputPricePerMillionUSD: input.OutputPricePerMillionUSD,
+	}, nil
 }
 
 func firstCompletionText(response openaiwire.ChatCompletionsResponse) string {

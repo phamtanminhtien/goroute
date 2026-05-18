@@ -56,6 +56,53 @@ func TestProviderModelTestHandlerRejectsUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestProviderModelsHandlerCreatesModelWhenPrefixMatches(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/models", strings.NewReader(`{"id":"cx/gpt-5.5","name":"GPT-5.5","description":"New test model"}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"id":"cx/gpt-5.5"`) {
+		t.Fatalf("expected created model response, got %s", rec.Body.String())
+	}
+
+	listRec := httptest.NewRecorder()
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/providers", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), `"id":"cx/gpt-5.5"`) {
+		t.Fatalf("expected custom model in provider list, got %s", listRec.Body.String())
+	}
+}
+
+func TestProviderModelsHandlerRejectsModelPrefixMismatch(t *testing.T) {
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/models", strings.NewReader(`{"id":"openai/gpt-5.5","name":"GPT-5.5"}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `model id must start with provider prefix \"cx/\"`) {
+		t.Fatalf("expected prefix mismatch error, got %s", rec.Body.String())
+	}
+}
+
 func TestProviderModelTestHandlerRejectsInvalidModelInput(t *testing.T) {
 	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{
 		initialConnections: []connection.Record{{
@@ -312,5 +359,5 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 		&logger,
 	)
 
-	return NewServer(testCatalog(), &registry, service, repo, settingsManager, testAdminToken, nil, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, repo, settingsManager, testAdminToken, nil, &logger)
 }
