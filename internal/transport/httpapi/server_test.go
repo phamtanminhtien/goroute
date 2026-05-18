@@ -1398,7 +1398,7 @@ func TestChatCompletionsStreamsConnectionBodyFlushesEachEvent(t *testing.T) {
 
 func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "goroute.db")
-	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, loggingStreamingTestProvider{testProvider: &testProvider{}, body: "data: {\"text\":\"first\"}\n\ndata: [DONE]\n\n"}, nil, databasePath, testSettingsConfig())
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, loggingStreamingTestProvider{testProvider: &testProvider{}, body: "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"}}]}\n\ndata: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"final\"}}]}\n\ndata: [DONE]\n\n"}, nil, databasePath, testSettingsConfig())
 	body := []byte(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -1444,13 +1444,13 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 		t.Fatalf("unexpected flow provider request mode %#v", flows)
 	}
 	if !strings.Contains(flows[0].ResponseBody, `"content":"first"`) {
-		t.Fatalf("expected raw SSE response body, got %#v", flows[0])
+		t.Fatalf("expected upstream response body to stay sourced from third-party logs, got %#v", flows[0])
 	}
 	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) || !strings.Contains(flows[0].TranslatedRequestBody, `"stream":true`) {
 		t.Fatalf("expected translated request body, got %#v", flows[0])
 	}
-	if !strings.Contains(flows[0].TranslatedResponseBody, `"content":"first"`) {
-		t.Fatalf("unexpected flow records %#v", flows)
+	if !strings.Contains(flows[0].TranslatedResponseBody, `"content":"final"`) {
+		t.Fatalf("expected translated response body to keep only the final SSE event, got %#v", flows)
 	}
 	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeStream || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)

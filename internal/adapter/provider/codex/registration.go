@@ -59,7 +59,8 @@ func Registration() providerregistry.Registration {
 		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
 			client := NewClient(connectionConfig)
 			return chatcompletion.ProtocolConnections{
-				Responses: client,
+				ChatCompletions: client,
+				Responses:       client,
 			}, nil
 		},
 		GetAccessToken: func(connectionConfig connection.Record) (string, error) {

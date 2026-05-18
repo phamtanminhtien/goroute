@@ -1,5 +1,10 @@
 package codex
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 const defaultInstruction = `You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.
 
 ## General
@@ -117,3 +122,57 @@ You are producing plain text that will later be styled by the CLI. Follow these 
   * Do not use URIs like file://, vscode://, or https://.
   * Do not provide range of lines
   * Examples: src/app.ts, src/app.ts:42, b/server/index.js#L10, C:\\repo\\project\\main.rs:12:5`
+
+func applyDefaultInstruction(req responsesRequestInstructionsWriter) {
+	if strings.TrimSpace(req.getInstructions()) != "" {
+		return
+	}
+	req.setInstructions(defaultInstruction)
+}
+
+func applyDefaultInstructionToRawPayload(payload map[string]any) {
+	raw, ok := payload["instructions"]
+	if ok {
+		switch typed := raw.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return
+			}
+		case nil:
+		default:
+			return
+		}
+	}
+	payload["instructions"] = defaultInstruction
+}
+
+func decodeResponsesRawPayload(raw json.RawMessage) (map[string]any, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+type responsesRequestInstructionsWriter interface {
+	getInstructions() string
+	setInstructions(string)
+}
+
+type responsesRequestBridge struct {
+	instructions *string
+}
+
+func (r responsesRequestBridge) getInstructions() string {
+	if r.instructions == nil {
+		return ""
+	}
+	return *r.instructions
+}
+
+func (r responsesRequestBridge) setInstructions(value string) {
+	if r.instructions == nil {
+		return
+	}
+	*r.instructions = value
+}

@@ -158,18 +158,23 @@ func (c *Client) marshalResponsesUpstreamRequest(ctx context.Context, req openai
 	}
 
 	forceStream := true
+	forceStore := false
 	if len(upstreamRequest.RawBody) > 0 {
-		var payload map[string]any
-		if err := json.Unmarshal(upstreamRequest.RawBody, &payload); err != nil {
+		payload, err := decodeResponsesRawPayload(upstreamRequest.RawBody)
+		if err != nil {
 			return nil, err
 		}
+		applyDefaultInstructionToRawPayload(payload)
 		payload["model"] = target.RequestedModel
 		payload["stream"] = forceStream
+		payload["store"] = forceStore
 		return json.Marshal(payload)
 	}
 
+	applyDefaultInstruction(responsesRequestBridge{instructions: &upstreamRequest.Instructions})
 	upstreamRequest.Model = target.RequestedModel
 	upstreamRequest.Stream = forceStream
+	upstreamRequest.Store = forceStore
 	upstreamRequest.RawBody = nil
 	return json.Marshal(upstreamRequest)
 }

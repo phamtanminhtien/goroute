@@ -71,8 +71,8 @@ func TestClientResponsesForcesStreamingAndReconstructsSSE(t *testing.T) {
 	if upstreamBody["stream"] != true {
 		t.Fatalf("expected responses request to force stream, got %#v", upstreamBody["stream"])
 	}
-	if upstreamBody["store"] != true {
-		t.Fatalf("expected raw body fields to be preserved, got %#v", upstreamBody["store"])
+	if upstreamBody["store"] != false {
+		t.Fatalf("expected responses request to force store=false, got %#v", upstreamBody["store"])
 	}
 	if response.ID != "resp_1" || response.Status != openaiwire.ResponsesStatusCompleted {
 		t.Fatalf("unexpected response metadata %#v", response)
@@ -195,5 +195,46 @@ func TestClientResponsesStreamRecordsReconstructedResponse(t *testing.T) {
 	}
 	if flow.ProviderRequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("expected provider request mode stream, got %q", flow.ProviderRequestMode)
+	}
+}
+
+func TestClientResponsesAppliesDefaultInstructionWhenMissingAndLogsTranslatedPayload(t *testing.T) {
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_3\",\"object\":\"response\",\"created_at\":789,\"status\":\"completed\",\"model\":\"cx/gpt-5.4\",\"output\":[]}}\n\ndata: [DONE]\n\n")),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ID: "cx-1", ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+	client.baseURL = "https://example.com/backend-api/codex"
+
+	recorder := chatcompletion.NewFlowRecorder("req-2", time.Unix(0, 0).UTC())
+	ctx := chatcompletion.WithFlowRecorder(context.Background(), recorder)
+
+	_, err := client.Responses(ctx, openaiwire.ResponsesRequest{
+		Model:   "cx/gpt-5.4",
+		RawBody: json.RawMessage(`{"input":"hello","instructions":"   "}`),
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "cx/gpt-5.4"})
+	if err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+
+	if upstreamBody["instructions"] != defaultInstruction {
+		t.Fatalf("expected default instruction fallback, got %#v", upstreamBody["instructions"])
+	}
+
+	flow, _ := recorder.SnapshotDetails(time.Unix(1, 0).UTC(), 1)
+	if !strings.Contains(flow.TranslatedRequestBody, `"instructions":`) || !strings.Contains(flow.TranslatedRequestBody, `You are Codex, based on GPT-5.`) {
+		t.Fatalf("expected translated request log to include default instruction, got %q", flow.TranslatedRequestBody)
 	}
 }

@@ -86,6 +86,8 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 			bodyWriter.WriteHeader(http.StatusOK)
 			if err := writeSSEStream(bodyWriter, output.Body); err != nil {
 				recorder.SetError("stream_error", err.Error())
+			} else {
+				recorder.SetTranslatedSSEResponseBody(bodyWriter.bodyString())
 			}
 			return
 		}

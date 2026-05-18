@@ -6,7 +6,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 )
 
-func TestRegistrationBuildConnectionProvidesResponsesClient(t *testing.T) {
+func TestRegistrationBuildConnectionProvidesProtocolClients(t *testing.T) {
 	registration := Registration()
 	connectionConfig := connection.Record{
 		ID:         "cx-1",
@@ -22,8 +22,8 @@ func TestRegistrationBuildConnectionProvidesResponsesClient(t *testing.T) {
 	if protocols.Responses == nil {
 		t.Fatal("expected responses capability to be registered")
 	}
-	if protocols.ChatCompletions != nil {
-		t.Fatal("expected chat completions capability to remain unset")
+	if protocols.ChatCompletions == nil {
+		t.Fatal("expected chat completions capability to be registered")
 	}
 
 	client, ok := protocols.Responses.(*Client)
@@ -35,5 +35,12 @@ func TestRegistrationBuildConnectionProvidesResponsesClient(t *testing.T) {
 	}
 	if client.connection.APIKey != connectionConfig.APIKey {
 		t.Fatalf("expected api key to be preserved, got %q", client.connection.APIKey)
+	}
+	chatClient, ok := protocols.ChatCompletions.(*Client)
+	if !ok {
+		t.Fatalf("expected chat client to be *Client, got %T", protocols.ChatCompletions)
+	}
+	if chatClient.connection.ID != connectionConfig.ID {
+		t.Fatalf("expected chat connection id %q, got %q", connectionConfig.ID, chatClient.connection.ID)
 	}
 }
