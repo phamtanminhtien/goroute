@@ -761,7 +761,7 @@ function ConnectionCard({
   return (
     <CardActionRow
       actions={
-        <>
+        <div className="flex items-center">
           <Button
             leadingIcon={<Pencil className="size-[15px]" />}
             onClick={onEdit}
@@ -803,7 +803,7 @@ function ConnectionCard({
             disabled={toggling}
             onCheckedChange={onToggleEnabled}
           />
-        </>
+        </div>
       }
       description={
         <div className="flex flex-wrap gap-2">

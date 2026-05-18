@@ -519,7 +519,7 @@ function ComboRow({
   return (
     <CardActionRow
       actions={
-        <>
+        <div className="flex items-center">
           <Button
             leadingIcon={<Pencil className="size-[15px]" />}
             onClick={onEdit}
@@ -558,7 +558,7 @@ function ComboRow({
             disabled={toggling}
             onCheckedChange={onToggleEnabled}
           />
-        </>
+        </div>
       }
       description={
         <div className="space-y-2">
