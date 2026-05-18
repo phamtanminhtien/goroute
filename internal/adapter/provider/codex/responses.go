@@ -19,6 +19,21 @@ import (
 	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 )
 
+var forwardedInboundResponseHeaders = map[string]struct{}{
+	"accept":                {},
+	"content-type":          {},
+	"originator":            {},
+	"session-id":            {},
+	"session_id":            {},
+	"thread-id":             {},
+	"thread_id":             {},
+	"user-agent":            {},
+	"x-client-request-id":   {},
+	"x-codex-beta-features": {},
+	"x-codex-turn-metadata": {},
+	"x-codex-window-id":     {},
+}
+
 func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
 	resp, payload, httpReq, startedAt, attemptIndex, err := c.doResponsesRequest(ctx, req, target)
 	if err != nil {
@@ -164,10 +179,33 @@ func (c *Client) newResponsesRequest(ctx context.Context, payload []byte) (*http
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("originator", "codex-cli")
-	httpReq.Header.Set("User-Agent", defaultUserAgent)
+	forwardInboundHeaders(httpReq.Header, chatcompletion.InboundHeaders(ctx))
+	if httpReq.Header.Get("Content-Type") == "" {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	if httpReq.Header.Get("originator") == "" {
+		httpReq.Header.Set("originator", "codex-cli")
+	}
+	if httpReq.Header.Get("User-Agent") == "" {
+		httpReq.Header.Set("User-Agent", defaultUserAgent)
+	}
 	return httpReq, nil
+}
+
+func forwardInboundHeaders(dst http.Header, src http.Header) {
+	if len(src) == 0 {
+		return
+	}
+	for key, values := range src {
+		normalizedKey := strings.ToLower(key)
+		if _, ok := forwardedInboundResponseHeaders[normalizedKey]; !ok {
+			continue
+		}
+		dst.Del(key)
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
 }
 
 func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target, requestBody []byte, request *http.Request, response *http.Response, responseBody []byte, startedAt time.Time, completedAt time.Time, err error, attemptIndex int) {

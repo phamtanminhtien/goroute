@@ -89,6 +89,60 @@ func TestClientResponsesForcesStreamingAndReconstructsSSE(t *testing.T) {
 	}
 }
 
+func TestClientResponsesForwardsOnlyWhitelistedInboundHeaders(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if got := r.Header.Get("Authorization"); got != "Bearer token" {
+			t.Fatalf("expected upstream bearer token, got %q", got)
+		}
+		if got := r.Header.Get("Originator"); got != "Codex Desktop" {
+			t.Fatalf("expected forwarded originator header, got %q", got)
+		}
+		if got := r.Header.Get("User-Agent"); got != "Codex Desktop/0.131.0-alpha.9" {
+			t.Fatalf("expected forwarded user-agent, got %q", got)
+		}
+		if got := r.Header.Get("Session-Id"); got != "session-123" {
+			t.Fatalf("expected forwarded session-id, got %q", got)
+		}
+		if got := r.Header.Get("X-Codex-Beta-Features"); got != "terminal_resize_reflow" {
+			t.Fatalf("expected forwarded beta feature header, got %q", got)
+		}
+		if got := r.Header.Get("X-Codex-Turn-Metadata"); got != "{\"thread_id\":\"thread-123\"}" {
+			t.Fatalf("expected forwarded turn metadata header, got %q", got)
+		}
+		if got := r.Header.Get("X-Unrelated-Header"); got != "" {
+			t.Fatalf("expected non-whitelisted header to be dropped, got %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Fatalf("expected stream accept header, got %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":123,\"status\":\"completed\",\"model\":\"cx/gpt-5.5\",\"output\":[]}}\n\ndata: [DONE]\n\n")),
+		}, nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+	client.baseURL = "https://example.com/backend-api/codex"
+
+	ctx := chatcompletion.WithInboundHeaders(context.Background(), http.Header{
+		"Authorization":         []string{"Bearer client-token"},
+		"Originator":            []string{"Codex Desktop"},
+		"User-Agent":            []string{"Codex Desktop/0.131.0-alpha.9"},
+		"Session-Id":            []string{"session-123"},
+		"X-Codex-Beta-Features": []string{"terminal_resize_reflow"},
+		"X-Codex-Turn-Metadata": []string{"{\"thread_id\":\"thread-123\"}"},
+		"X-Unrelated-Header":    []string{"should-not-pass"},
+	})
+
+	if _, err := client.Responses(ctx, openaiwire.ResponsesRequest{
+		Model:   "cx/gpt-5.4",
+		RawBody: json.RawMessage(`{"input":"hello"}`),
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "cx/gpt-5.5"}); err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+}
+
 func TestClientResponsesStreamRecordsReconstructedResponse(t *testing.T) {
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
