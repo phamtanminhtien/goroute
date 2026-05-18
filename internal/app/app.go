@@ -32,9 +32,12 @@ func New(logger zerolog.Logger) (*App, error) {
 		return nil, fmt.Errorf("resolve user config path: %w", err)
 	}
 
-	cfg, err := config.LoadPath(configPath)
+	cfg, createdConfig, err := config.LoadOrCreatePath(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("load user config: %w", err)
+	}
+	if createdConfig {
+		logger.Info().Str("config_path", configPath).Msg("user_config_created")
 	}
 	settingsManager := config.NewSettingsManager(configPath, cfg)
 	databasePath, err := config.ResolveDatabasePath()

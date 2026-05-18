@@ -2,10 +2,13 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
+
+const DefaultAuthToken = "change-me"
 
 func Load() (Config, error) {
 	resolvedPath, err := ResolvePath()
@@ -34,6 +37,35 @@ func LoadPath(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func LoadOrCreatePath(path string) (Config, bool, error) {
+	cfg, err := LoadPath(path)
+	if err == nil {
+		return cfg, false, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return Config{}, false, err
+	}
+
+	cfg = NewDefaultConfig()
+	if err := SavePath(path, cfg); err != nil {
+		return Config{}, false, err
+	}
+
+	return cfg, true, nil
+}
+
+func NewDefaultConfig() Config {
+	return Config{
+		Server: ServerConfig{
+			Listen:    DefaultListenAddr,
+			AuthToken: DefaultAuthToken,
+			WebUIDir:  DefaultWebUIDir,
+		},
+		LLMLogging: NewLLMLoggingConfig(true, true),
+		RTK:        NewRTKConfig(false),
+	}
 }
 
 func SavePath(path string, cfg Config) error {

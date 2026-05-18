@@ -1,0 +1,17 @@
+services:
+  goroute:
+    image: ${GOROUTE_IMAGE:-phamtanminhtien/goroute:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: goroute
+    environment:
+      GOROUTE_ENV: production
+    ports:
+      - "2232:2232"
+    volumes:
+      - goroute-data:/home/goroute/.goroute
+    restart: unless-stopped
+
+volumes:
+  goroute-data:

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,5 +63,26 @@ func TestNewStartsWithEmptySQLiteDatabase(t *testing.T) {
 	}
 	if app.repo == nil {
 		t.Fatal("expected repository to be initialized")
+	}
+}
+
+func TestNewCreatesMissingUserConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var logs bytes.Buffer
+	logger := logging.NewWithWriter("prod", &logs)
+	app, err := New(logger)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	defer app.repo.Close()
+
+	configPath := filepath.Join(home, ".goroute", "config.json")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected config file to be created: %v", err)
+	}
+	if !strings.Contains(logs.String(), `"message":"user_config_created"`) {
+		t.Fatalf("expected config creation log, got %s", logs.String())
 	}
 }

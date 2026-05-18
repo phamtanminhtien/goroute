@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -71,6 +72,65 @@ func TestLoadPathRejectsInvalidLLMLoggingValue(t *testing.T) {
 	_, err := LoadPath(path)
 	if err == nil {
 		t.Fatal("expected invalid llmLogging error")
+	}
+}
+
+func TestLoadOrCreatePathCreatesDefaultConfigWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".goroute", "config.json")
+
+	cfg, created, err := LoadOrCreatePath(path)
+	if err != nil {
+		t.Fatalf("LoadOrCreatePath returned error: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected config to be created")
+	}
+	if cfg.Server.Listen != DefaultListenAddr {
+		t.Fatalf("expected default listen addr, got %q", cfg.Server.Listen)
+	}
+	if cfg.Server.AuthToken != DefaultAuthToken {
+		t.Fatalf("expected default auth token, got %q", cfg.Server.AuthToken)
+	}
+	if cfg.Server.WebUIDir != DefaultWebUIDir {
+		t.Fatalf("expected default web UI dir, got %q", cfg.Server.WebUIDir)
+	}
+	if !cfg.LLMLogging.Flow || !cfg.LLMLogging.ThirdParty {
+		t.Fatalf("expected llm logging to default enabled, got %#v", cfg.LLMLogging)
+	}
+	if cfg.RTK.Enabled {
+		t.Fatalf("expected default config to disable rtk, got %#v", cfg.RTK)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("expected config file to exist: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("expected config file mode 0600, got %v", got)
+	}
+}
+
+func TestLoadOrCreatePathLoadsExistingConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, path, `{"server":{"listen":":3000","auth_token":"secret","web_ui_dir":"dist"},"rtk":true}`)
+
+	cfg, created, err := LoadOrCreatePath(path)
+	if err != nil {
+		t.Fatalf("LoadOrCreatePath returned error: %v", err)
+	}
+
+	if created {
+		t.Fatal("expected existing config to be loaded")
+	}
+	if cfg.Server.Listen != ":3000" {
+		t.Fatalf("expected existing listen addr, got %q", cfg.Server.Listen)
+	}
+	if cfg.Server.AuthToken != "secret" {
+		t.Fatalf("expected existing auth token, got %q", cfg.Server.AuthToken)
+	}
+	if !cfg.RTK.Enabled {
+		t.Fatalf("expected existing rtk value, got %#v", cfg.RTK)
 	}
 }
 
