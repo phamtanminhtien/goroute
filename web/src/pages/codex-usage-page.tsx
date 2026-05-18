@@ -608,17 +608,21 @@ function SessionQuotaRow({
               tone.text,
             )}
           >
-            {quota.used}%
+            {quota.remaining}%
           </p>
-          <p className="text-fg-secondary mt-0.5 text-[10px]">used quota</p>
+          <p className="text-fg-secondary mt-0.5 text-[10px]">
+            remaining quota
+          </p>
         </div>
 
         <div className="min-w-0 text-right">
           <p className="text-fg-primary text-[11px] leading-none font-semibold">
-            {quota.unlimited ? "Unlimited" : `${quota.used}/${quota.total}`}
+            {quota.unlimited
+              ? "Unlimited"
+              : `${quota.remaining}/${quota.total}`}
           </p>
           <p className="text-fg-muted mt-0.5 text-[10px]">
-            {quota.unlimited ? "No cap reported" : `${quota.remaining} left`}
+            {quota.unlimited ? "No cap reported" : `${quota.total} total`}
           </p>
         </div>
       </div>

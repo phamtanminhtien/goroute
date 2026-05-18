@@ -168,8 +168,8 @@ describe("quota tracker page", () => {
     expect(screen.getByRole("combobox")).toHaveTextContent(/all providers/i);
     expect(screen.getByText(/openai-user/i)).toBeInTheDocument();
     expect(screen.getByText(/^session$/i)).toBeInTheDocument();
-    expect(screen.getByText(/^42\/100$/i)).toBeInTheDocument();
-    expect(screen.getByText(/used quota/i)).toBeInTheDocument();
+    expect(screen.getByText(/^58\/100$/i)).toBeInTheDocument();
+    expect(screen.getByText(/remaining quota/i)).toBeInTheDocument();
     expect(screen.getByText(/4d 17h 55m/i)).toBeInTheDocument();
     expect(getConnectionUsageMock).toHaveBeenCalledWith("codex-1");
     expect(getConnectionUsageMock).toHaveBeenCalledWith("openai-1");
