@@ -6,6 +6,10 @@ import { useUIStore } from "@/shared/store/ui-store";
 import { Button } from "@/shared/ui/button";
 
 const topbarMeta = {
+  "/": {
+    eyebrow: "Home",
+    title: "Connect clients and manage system API keys",
+  },
   "/providers": {
     eyebrow: "Providers",
     title: "Manage your AI provider connections",
@@ -90,7 +94,5 @@ function resolveTopbarMeta(pathname: string) {
     return topbarMeta["/providers/detail"];
   }
 
-  return (
-    topbarMeta[pathname as keyof typeof topbarMeta] ?? topbarMeta["/providers"]
-  );
+  return topbarMeta[pathname as keyof typeof topbarMeta] ?? topbarMeta["/"];
 }

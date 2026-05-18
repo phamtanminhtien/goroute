@@ -23,15 +23,18 @@ type aiRequestLogRepository interface {
 	analytics.Repository
 }
 
-func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
+func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, systemKeyRepo interface {
+	systemAPIKeyRepository
+	systemAPIKeyAuthRepository
+}, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
 	analyticsService := analytics.NewService(requestLogRepo, catalog)
 
 	router.Handle("/healthz", health.Handler())
-	router.Handle("/v1/models", modelsHandler(catalog, modelRepo, modelComboRepo))
-	router.Handle("/v1/chat/completions", chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger))
-	router.Handle("/v1/responses", responsesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger))
+	router.Handle("/v1/models", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, modelsHandler(catalog, modelRepo, modelComboRepo)))
+	router.Handle("/v1/chat/completions", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
+	router.Handle("/v1/responses", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, responsesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
 
 	router.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
@@ -49,6 +52,8 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Handle("/admin/api/connections/{id}", connectionByIDHandler(connectionService))
 		r.Handle("/admin/api/connections/{id}/usage", connectionUsageHandler(connectionService))
 		r.Handle("/admin/api/connections/oauth", connectionOAuthHandler(connectionService))
+		r.Handle("/admin/api/system-api-keys", systemAPIKeysHandler(systemKeyRepo))
+		r.Handle("/admin/api/system-api-keys/{id}", systemAPIKeyByIDHandler(systemKeyRepo))
 		r.Handle("/admin/api/settings", settingsHandler(settingsManager))
 		r.Handle("/admin/api/analytics/usage/summary", analyticsUsageSummaryHandler(analyticsService))
 		r.Handle("/admin/api/analytics/usage/timeseries", analyticsUsageTimeseriesHandler(analyticsService))

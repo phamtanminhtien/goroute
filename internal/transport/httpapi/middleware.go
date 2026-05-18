@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/rs/zerolog"
 )
@@ -60,6 +61,46 @@ func authMiddleware(token string, next http.Handler) http.Handler {
 			return
 		}
 		if strings.TrimPrefix(authHeader, "Bearer ") != token {
+			writeError(r, w, http.StatusUnauthorized, "unauthorized", "invalid bearer token")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func openAICompatibleAuthMiddleware(settingsManager *config.SettingsManager, repo systemAPIKeyAuthRepository, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if settingsManager == nil || !settingsManager.OpenAICompatibleAuth().Enabled || repo == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		hasKeys, err := repo.HasSystemAPIKeys()
+		if err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+		if !hasKeys {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			writeError(r, w, http.StatusUnauthorized, "unauthorized", "missing bearer token")
+			return
+		}
+
+		key := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		if key == "" {
+			writeError(r, w, http.StatusUnauthorized, "unauthorized", "missing bearer token")
+			return
+		}
+		if _, ok, err := repo.AuthenticateSystemAPIKey(key); err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		} else if !ok {
 			writeError(r, w, http.StatusUnauthorized, "unauthorized", "invalid bearer token")
 			return
 		}

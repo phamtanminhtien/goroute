@@ -19,6 +19,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
+	"github.com/phamtanminhtien/goroute/internal/domain/systemapikey"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
@@ -236,7 +237,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		}},
 	}, &logger)
 	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)
-	return NewServer(testCatalog(), &registry, service, repo, repo, repo, settingsManager, testAdminToken, webUIRoot, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, repo, repo, repo, settingsManager, testAdminToken, webUIRoot, &logger)
 }
 
 func TestAuthMiddlewareRequiresBearerToken(t *testing.T) {
@@ -323,7 +324,7 @@ func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
 	}
 	settingsManager := config.NewSettingsManager(configPath, cfg)
 	handler := authMiddleware(testAdminToken, settingsHandler(settingsManager))
-	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}},"rtk":{"enabled":true}}`))
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}},"rtk":{"enabled":true},"openAICompatibleAuth":{"enabled":true}}`))
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -343,6 +344,9 @@ func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
 	if !updated.RTK.Enabled {
 		t.Fatalf("expected updated rtk config, got %#v", updated.RTK)
 	}
+	if !updated.OpenAICompatibleAuth.Enabled {
+		t.Fatalf("expected updated OpenAI-compatible auth config, got %#v", updated.OpenAICompatibleAuth)
+	}
 
 	state := settingsManager.LLMLogging()
 	if state.FlowEnabled || !state.ThirdPartyEnabled {
@@ -351,6 +355,183 @@ func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
 	if !settingsManager.RTK().Enabled {
 		t.Fatalf("expected rtk settings manager state to apply immediately")
 	}
+	if !settingsManager.OpenAICompatibleAuth().Enabled {
+		t.Fatalf("expected OpenAI-compatible auth settings manager state to apply immediately")
+	}
+}
+
+func TestSystemAPIKeysCRUD(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/system-api-keys", strings.NewReader(`{"name":"Production app"}`))
+	createReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusCreated, createRec.Code, createRec.Body.String())
+	}
+
+	var created systemapikey.Record
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal created key: %v", err)
+	}
+	if !strings.HasPrefix(created.ID, "sak_") || !strings.HasPrefix(created.Key, "sk-goroute-") || !created.Enabled {
+		t.Fatalf("unexpected created system api key %#v", created)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/system-api-keys/"+created.ID, strings.NewReader(`{"name":"Production app v2","enabled":false}`))
+	updateReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	updateRec := httptest.NewRecorder()
+	handler.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, updateRec.Code, updateRec.Body.String())
+	}
+
+	var updated systemapikey.Record
+	if err := json.Unmarshal(updateRec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("unmarshal updated key: %v", err)
+	}
+	if updated.Name != "Production app v2" || updated.Enabled {
+		t.Fatalf("unexpected updated system api key %#v", updated)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/system-api-keys", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+	if !strings.Contains(listRec.Body.String(), created.Key) {
+		t.Fatalf("expected raw key in list response, got body=%s", listRec.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/api/system-api-keys/"+created.ID, nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	deleteRec := httptest.NewRecorder()
+	handler.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNoContent, deleteRec.Code, deleteRec.Body.String())
+	}
+}
+
+func TestOpenAICompatibleAuthAllowsRequestsWhenDisabledEvenWithKeys(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	createSystemAPIKeyForTest(t, handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
+func TestOpenAICompatibleAuthAllowsRequestsWhenEnabledWithoutKeys(t *testing.T) {
+	cfg := testSettingsConfig()
+	cfg.OpenAICompatibleAuth.Enabled = true
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, filepath.Join(t.TempDir(), "goroute.db"), cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
+func TestOpenAICompatibleAuthRequiresEnabledSystemKeyWhenEnabled(t *testing.T) {
+	cfg := testSettingsConfig()
+	cfg.OpenAICompatibleAuth.Enabled = true
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, filepath.Join(t.TempDir(), "goroute.db"), cfg)
+	apiKey := createSystemAPIKeyForTest(t, handler)
+
+	for _, path := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected %s to require auth, got %d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	invalidReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	invalidReq.Header.Set("Authorization", "Bearer bad-key")
+	invalidRec := httptest.NewRecorder()
+	handler.ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid key to be unauthorized, got %d body=%s", invalidRec.Code, invalidRec.Body.String())
+	}
+
+	validReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	validReq.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	validRec := httptest.NewRecorder()
+	handler.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("expected valid key to pass, got %d body=%s", validRec.Code, validRec.Body.String())
+	}
+
+	keys := listSystemAPIKeysForTest(t, handler)
+	if len(keys) != 1 || keys[0].LastUsedAt == 0 {
+		t.Fatalf("expected last_used_at to be updated, got %#v", keys)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/system-api-keys/"+apiKey.ID, strings.NewReader(`{"enabled":false}`))
+	updateReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	updateRec := httptest.NewRecorder()
+	handler.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, updateRec.Code, updateRec.Body.String())
+	}
+
+	disabledReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	disabledReq.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	disabledRec := httptest.NewRecorder()
+	handler.ServeHTTP(disabledRec, disabledReq)
+	if disabledRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled key to be unauthorized, got %d body=%s", disabledRec.Code, disabledRec.Body.String())
+	}
+}
+
+func createSystemAPIKeyForTest(t *testing.T, handler http.Handler) systemapikey.Record {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/system-api-keys", strings.NewReader(`{"name":"Production app"}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var record systemapikey.Record
+	if err := json.Unmarshal(rec.Body.Bytes(), &record); err != nil {
+		t.Fatalf("unmarshal system api key: %v", err)
+	}
+
+	return record
+}
+
+func listSystemAPIKeysForTest(t *testing.T, handler http.Handler) []systemapikey.Record {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/system-api-keys", nil)
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response systemAPIKeyListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal system api keys: %v", err)
+	}
+
+	return response.Data
 }
 
 func TestSettingsHandlerRejectsInvalidPayload(t *testing.T) {
@@ -361,7 +542,7 @@ func TestSettingsHandlerRejectsInvalidPayload(t *testing.T) {
 	}
 
 	handler := authMiddleware(testAdminToken, settingsHandler(config.NewSettingsManager(configPath, cfg)))
-	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":true}},"rtk":{"enabled":true}}`))
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":true}},"rtk":{"enabled":true},"openAICompatibleAuth":{"enabled":false}}`))
 	req.Header.Set("Authorization", "Bearer "+testAdminToken)
 	rec := httptest.NewRecorder()
 
@@ -943,7 +1124,7 @@ func TestSettingsUpdateChangesLogPersistenceForSubsequentRequests(t *testing.T) 
 		},
 	}, nil, databasePath, testSettingsConfig())
 
-	settingsReq := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}},"rtk":{"enabled":false}}`))
+	settingsReq := httptest.NewRequest(http.MethodPut, "/admin/api/settings", strings.NewReader(`{"llmLogging":{"enabled":{"flow":false,"thirdParty":true}},"rtk":{"enabled":false},"openAICompatibleAuth":{"enabled":false}}`))
 	settingsReq.Header.Set("Authorization", "Bearer "+testAdminToken)
 	settingsRec := httptest.NewRecorder()
 	handler.ServeHTTP(settingsRec, settingsReq)

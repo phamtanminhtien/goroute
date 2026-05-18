@@ -27,7 +27,7 @@ export function TabsTrigger({
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        "text-fg-secondary data-[state=active]:bg-primary inline-flex min-h-10 items-center rounded-[14px] px-4 text-sm font-semibold [--tw-ring-color:var(--focus-ring)] transition-colors outline-none focus-visible:ring-4 data-[state=active]:text-white",
+        "text-fg-secondary data-[state=active]:bg-primary inline-flex min-h-10 cursor-pointer items-center rounded-[14px] px-4 text-sm font-semibold [--tw-ring-color:var(--focus-ring)] transition-colors outline-none focus-visible:ring-4 data-[state=active]:text-white",
         className,
       )}
       {...props}

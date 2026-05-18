@@ -7,9 +7,10 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig     `json:"server"`
-	LLMLogging LLMLoggingConfig `json:"llmLogging"`
-	RTK        RTKConfig        `json:"rtk"`
+	Server               ServerConfig               `json:"server"`
+	LLMLogging           LLMLoggingConfig           `json:"llmLogging"`
+	RTK                  RTKConfig                  `json:"rtk"`
+	OpenAICompatibleAuth OpenAICompatibleAuthConfig `json:"openAICompatibleAuth"`
 }
 
 type ServerConfig struct {
@@ -24,6 +25,10 @@ type LLMLoggingConfig struct {
 	present    bool
 }
 
+type OpenAICompatibleAuthConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 type llmLoggingJSON struct {
 	Flow       bool `json:"flow,omitempty"`
 	ThirdParty bool `json:"thirdParty,omitempty"`
@@ -31,21 +36,24 @@ type llmLoggingJSON struct {
 
 func (c Config) MarshalJSON() ([]byte, error) {
 	type rawConfig struct {
-		Server     ServerConfig     `json:"server"`
-		LLMLogging LLMLoggingConfig `json:"llmLogging"`
-		RTK        RTKConfig        `json:"rtk"`
+		Server               ServerConfig               `json:"server"`
+		LLMLogging           LLMLoggingConfig           `json:"llmLogging"`
+		RTK                  RTKConfig                  `json:"rtk"`
+		OpenAICompatibleAuth OpenAICompatibleAuthConfig `json:"openAICompatibleAuth"`
 	}
 
 	return json.Marshal(rawConfig{
-		Server:     c.Server,
-		LLMLogging: c.LLMLogging,
-		RTK:        c.RTK,
+		Server:               c.Server,
+		LLMLogging:           c.LLMLogging,
+		RTK:                  c.RTK,
+		OpenAICompatibleAuth: c.OpenAICompatibleAuth,
 	})
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type rawConfig struct {
-		Server ServerConfig `json:"server"`
+		Server               ServerConfig               `json:"server"`
+		OpenAICompatibleAuth OpenAICompatibleAuthConfig `json:"openAICompatibleAuth"`
 	}
 
 	var decoded rawConfig
@@ -54,7 +62,8 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	}
 
 	*c = Config{
-		Server: decoded.Server,
+		Server:               decoded.Server,
+		OpenAICompatibleAuth: decoded.OpenAICompatibleAuth,
 	}
 
 	var raw map[string]json.RawMessage

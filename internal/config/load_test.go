@@ -147,7 +147,7 @@ func TestSavePathCanonicalizesDisabledLLMLoggingToFalse(t *testing.T) {
 		t.Fatalf("SavePath returned error: %v", err)
 	}
 
-	assertConfigFile(t, path, "{\n  \"server\": {\n    \"listen\": \":2232\",\n    \"auth_token\": \"secret\",\n    \"web_ui_dir\": \"web/dist\"\n  },\n  \"llmLogging\": false,\n  \"rtk\": {\n    \"enabled\": true\n  }\n}\n")
+	assertConfigFile(t, path, "{\n  \"server\": {\n    \"listen\": \":2232\",\n    \"auth_token\": \"secret\",\n    \"web_ui_dir\": \"web/dist\"\n  },\n  \"llmLogging\": false,\n  \"rtk\": {\n    \"enabled\": true\n  },\n  \"openAICompatibleAuth\": {\n    \"enabled\": false\n  }\n}\n")
 }
 
 func TestLoadPathParsesRTKObject(t *testing.T) {

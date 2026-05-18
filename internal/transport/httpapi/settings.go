@@ -8,9 +8,10 @@ import (
 )
 
 type settingsResponse struct {
-	Server     settingsServerResponse     `json:"server"`
-	LLMLogging settingsLLMLoggingResponse `json:"llmLogging"`
-	RTK        settingsRTKResponse        `json:"rtk"`
+	Server               settingsServerResponse               `json:"server"`
+	LLMLogging           settingsLLMLoggingResponse           `json:"llmLogging"`
+	RTK                  settingsRTKResponse                  `json:"rtk"`
+	OpenAICompatibleAuth settingsOpenAICompatibleAuthResponse `json:"openAICompatibleAuth"`
 }
 
 type settingsServerResponse struct {
@@ -31,9 +32,14 @@ type settingsRTKResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
+type settingsOpenAICompatibleAuthResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
 type updateSettingsRequest struct {
-	LLMLogging *updateSettingsLLMLoggingRequest `json:"llmLogging"`
-	RTK        *updateSettingsRTKRequest        `json:"rtk"`
+	LLMLogging           *updateSettingsLLMLoggingRequest           `json:"llmLogging"`
+	RTK                  *updateSettingsRTKRequest                  `json:"rtk"`
+	OpenAICompatibleAuth *updateSettingsOpenAICompatibleAuthRequest `json:"openAICompatibleAuth"`
 }
 
 type updateSettingsLLMLoggingRequest struct {
@@ -46,6 +52,10 @@ type updateSettingsLLMLoggingEnabledRequest struct {
 }
 
 type updateSettingsRTKRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+type updateSettingsOpenAICompatibleAuthRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 
@@ -66,8 +76,8 @@ func settingsHandler(settingsManager *config.SettingsManager) http.Handler {
 				return
 			}
 
-			if input.LLMLogging == nil || input.LLMLogging.Enabled == nil || input.LLMLogging.Enabled.Flow == nil || input.LLMLogging.Enabled.ThirdParty == nil || input.RTK == nil || input.RTK.Enabled == nil {
-				writeError(r, w, http.StatusBadRequest, "invalid_request", "llmLogging.enabled.flow, llmLogging.enabled.thirdParty, and rtk.enabled are required")
+			if input.LLMLogging == nil || input.LLMLogging.Enabled == nil || input.LLMLogging.Enabled.Flow == nil || input.LLMLogging.Enabled.ThirdParty == nil || input.RTK == nil || input.RTK.Enabled == nil || input.OpenAICompatibleAuth == nil || input.OpenAICompatibleAuth.Enabled == nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "llmLogging.enabled.flow, llmLogging.enabled.thirdParty, rtk.enabled, and openAICompatibleAuth.enabled are required")
 				return
 			}
 
@@ -76,6 +86,8 @@ func settingsHandler(settingsManager *config.SettingsManager) http.Handler {
 				ThirdPartyEnabled: *input.LLMLogging.Enabled.ThirdParty,
 			}, config.RTKState{
 				Enabled: *input.RTK.Enabled,
+			}, config.OpenAICompatibleAuthState{
+				Enabled: *input.OpenAICompatibleAuth.Enabled,
 			})
 			if err != nil {
 				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -103,6 +115,9 @@ func buildSettingsResponse(cfg config.Config) settingsResponse {
 		},
 		RTK: settingsRTKResponse{
 			Enabled: cfg.RTK.Enabled,
+		},
+		OpenAICompatibleAuth: settingsOpenAICompatibleAuthResponse{
+			Enabled: cfg.OpenAICompatibleAuth.Enabled,
 		},
 	}
 }

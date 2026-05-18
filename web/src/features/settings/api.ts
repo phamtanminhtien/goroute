@@ -12,6 +12,9 @@ export type SettingsResponse = {
   rtk: {
     enabled: boolean;
   };
+  openAICompatibleAuth: {
+    enabled: boolean;
+  };
   server: {
     listen: string;
     web_ui_dir: string;
@@ -26,6 +29,9 @@ export type UpdateSettingsPayload = {
     };
   };
   rtk: {
+    enabled: boolean;
+  };
+  openAICompatibleAuth: {
     enabled: boolean;
   };
 };

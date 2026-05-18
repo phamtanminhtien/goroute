@@ -41,6 +41,9 @@ describe("settings page", () => {
       rtk: {
         enabled: false,
       },
+      openAICompatibleAuth: {
+        enabled: false,
+      },
       server: {
         listen: ":2232",
         web_ui_dir: "web/dist",
@@ -55,6 +58,9 @@ describe("settings page", () => {
       },
       rtk: {
         enabled: true,
+      },
+      openAICompatibleAuth: {
+        enabled: false,
       },
       server: {
         listen: ":2232",
@@ -128,6 +134,9 @@ describe("settings page", () => {
         },
         rtk: {
           enabled: true,
+        },
+        openAICompatibleAuth: {
+          enabled: false,
         },
       });
     });

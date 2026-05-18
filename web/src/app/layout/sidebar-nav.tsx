@@ -1,6 +1,7 @@
 import {
   Boxes,
   ChartNoAxesColumn,
+  House,
   PanelsTopLeft,
   Settings,
   TerminalSquare,
@@ -12,6 +13,12 @@ import { SidebarNavItem } from "@/app/layout/sidebar-nav-item";
 import { Button } from "@/shared/ui/button";
 
 const navItems = [
+  {
+    description: "OpenAI-compatible connection details and system API keys",
+    icon: House,
+    label: "Home",
+    to: "/",
+  },
   {
     description: "Registry, health posture, and fallback readiness",
     icon: Workflow,

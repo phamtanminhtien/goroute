@@ -27,12 +27,14 @@ import { Switch } from "@/shared/ui/switch";
 
 type LoggingDraft = UpdateSettingsPayload["llmLogging"]["enabled"];
 type RTKDraft = UpdateSettingsPayload["rtk"];
+type OpenAICompatibleAuthDraft = UpdateSettingsPayload["openAICompatibleAuth"];
 type FeedbackState = null | { text: string; tone: "error" | "success" };
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<{
     llmLogging: LoggingDraft;
+    openAICompatibleAuth: OpenAICompatibleAuthDraft;
     rtk: RTKDraft;
   } | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -63,6 +65,7 @@ export function SettingsPage() {
   const current = settingsQuery.data
     ? {
         llmLogging: settingsQuery.data.llmLogging.enabled,
+        openAICompatibleAuth: settingsQuery.data.openAICompatibleAuth,
         rtk: settingsQuery.data.rtk,
       }
     : null;
@@ -86,6 +89,8 @@ export function SettingsPage() {
     current !== null &&
     (draft.llmLogging.flow !== current.llmLogging.flow ||
       draft.llmLogging.thirdParty !== current.llmLogging.thirdParty ||
+      draft.openAICompatibleAuth.enabled !==
+        current.openAICompatibleAuth.enabled ||
       draft.rtk.enabled !== current.rtk.enabled);
 
   return (
@@ -214,6 +219,7 @@ export function SettingsPage() {
                   try {
                     await updateSettingsMutation.mutateAsync({
                       llmLogging: { enabled: effectiveDraft.llmLogging },
+                      openAICompatibleAuth: effectiveDraft.openAICompatibleAuth,
                       rtk: effectiveDraft.rtk,
                     });
                   } catch {

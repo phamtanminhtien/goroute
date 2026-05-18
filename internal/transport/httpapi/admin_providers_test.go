@@ -526,5 +526,5 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 		&logger,
 	)
 
-	return NewServer(testCatalog(), &registry, service, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
+	return NewServer(testCatalog(), &registry, service, repo, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
 }

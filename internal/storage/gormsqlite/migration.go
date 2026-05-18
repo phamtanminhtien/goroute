@@ -7,6 +7,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
+	"github.com/phamtanminhtien/goroute/internal/domain/systemapikey"
 )
 
 func (r *Repository) Migrate() error {
@@ -15,6 +16,7 @@ func (r *Repository) Migrate() error {
 		&provider.ModelRecord{},
 		&modelcombo.Combo{},
 		&modelcombo.Target{},
+		&systemapikey.Record{},
 		&airequestlog.RunRecord{},
 		&airequestlog.FlowRecord{},
 		&airequestlog.ThirdPartyRequestLogRecord{},

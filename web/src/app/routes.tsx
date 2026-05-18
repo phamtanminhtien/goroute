@@ -7,6 +7,7 @@ import { AIRequestLogsPage } from "@/pages/ai-request-logs-page";
 import { CodexUsagePage } from "@/pages/codex-usage-page";
 import { CombosPage } from "@/pages/combos-page";
 import { ConsoleLogPage } from "@/pages/console-log-page";
+import { HomePage } from "@/pages/home-page";
 import { LoginPage } from "@/pages/login-page";
 import { ProviderDetailPage } from "@/pages/provider-detail-page";
 import { ProvidersPage } from "@/pages/providers-page";
@@ -29,7 +30,7 @@ const appRoutes: RouteObject[] = [
       {
         element: <AdminLayout />,
         children: [
-          { index: true, element: <Navigate to="/providers" replace /> },
+          { index: true, element: <HomePage /> },
           { path: "providers", element: <ProvidersPage /> },
           { path: "providers/:providerId", element: <ProviderDetailPage /> },
           { path: "combos", element: <CombosPage /> },
@@ -45,7 +46,7 @@ const appRoutes: RouteObject[] = [
   },
   {
     path: "*",
-    element: <Navigate to="/providers" replace />,
+    element: <Navigate to="/" replace />,
   },
 ];
 

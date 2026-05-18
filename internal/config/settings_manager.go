@@ -11,6 +11,10 @@ type RTKState struct {
 	Enabled bool
 }
 
+type OpenAICompatibleAuthState struct {
+	Enabled bool
+}
+
 type SettingsManager struct {
 	mu   sync.RWMutex
 	path string
@@ -47,6 +51,13 @@ func (m *SettingsManager) RTK() RTKState {
 	cfg := m.Snapshot()
 	return RTKState{
 		Enabled: cfg.RTK.Enabled,
+	}
+}
+
+func (m *SettingsManager) OpenAICompatibleAuth() OpenAICompatibleAuthState {
+	cfg := m.Snapshot()
+	return OpenAICompatibleAuthState{
+		Enabled: cfg.OpenAICompatibleAuth.Enabled,
 	}
 }
 
@@ -93,7 +104,7 @@ func (m *SettingsManager) UpdateRTK(state RTKState) (Config, error) {
 	return m.cfg, nil
 }
 
-func (m *SettingsManager) UpdateSettings(llmLogging LLMLoggingState, rtk RTKState) (Config, error) {
+func (m *SettingsManager) UpdateSettings(llmLogging LLMLoggingState, rtk RTKState, openAICompatibleAuth OpenAICompatibleAuthState) (Config, error) {
 	if m == nil {
 		return Config{}, nil
 	}
@@ -110,6 +121,9 @@ func (m *SettingsManager) UpdateSettings(llmLogging LLMLoggingState, rtk RTKStat
 	next.RTK = RTKConfig{
 		Enabled: rtk.Enabled,
 		present: true,
+	}
+	next.OpenAICompatibleAuth = OpenAICompatibleAuthConfig{
+		Enabled: openAICompatibleAuth.Enabled,
 	}
 	if err := SavePath(m.path, next); err != nil {
 		return Config{}, err
