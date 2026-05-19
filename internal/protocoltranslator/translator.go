@@ -754,6 +754,7 @@ type chatStreamState struct {
 	toolCallsByKey       map[string]toolCallState
 	toolCallOrder        []string
 	outputIndexToToolKey map[int]string
+	doneSent             bool
 }
 
 type toolCallState struct {
@@ -780,6 +781,7 @@ func ResponsesStreamToChatCompletions(body io.ReadCloser) io.ReadCloser {
 		buffered := bufio.NewScanner(body)
 		buffered.Buffer(make([]byte, 0, 1024), 1024*1024)
 		dataLines := make([]string, 0, 4)
+		sawPayload := false
 
 		flushEvent := func() error {
 			if len(dataLines) == 0 {
@@ -787,6 +789,9 @@ func ResponsesStreamToChatCompletions(body io.ReadCloser) io.ReadCloser {
 			}
 			payload := strings.Join(dataLines, "\n")
 			dataLines = dataLines[:0]
+			if strings.TrimSpace(payload) != "" {
+				sawPayload = true
+			}
 			return state.writeTranslatedEvent(writer, payload)
 		}
 
@@ -809,6 +814,12 @@ func ResponsesStreamToChatCompletions(body io.ReadCloser) io.ReadCloser {
 		}
 		if err := flushEvent(); err != nil {
 			_ = writer.CloseWithError(err)
+			return
+		}
+		if sawPayload {
+			if err := state.writeDone(writer); err != nil {
+				_ = writer.CloseWithError(err)
+			}
 		}
 	}()
 
@@ -820,13 +831,7 @@ func (s *chatStreamState) writeTranslatedEvent(w io.Writer, payload string) erro
 		return nil
 	}
 	if payload == "[DONE]" {
-		if !s.terminalSent {
-			if err := s.writeTerminalChunk(w, nil); err != nil {
-				return err
-			}
-		}
-		_, err := fmt.Fprint(w, "data: [DONE]\n\n")
-		return err
+		return s.writeDone(w)
 	}
 
 	var envelope map[string]json.RawMessage
@@ -870,8 +875,10 @@ func (s *chatStreamState) writeTranslatedEvent(w io.Writer, payload string) erro
 		return s.writeFunctionArgumentDelta(w, envelope)
 	case responsesEventFunctionArgsDone:
 		return nil
-	case responsesEventOutputItemAdded, string(openaiwire.ResponsesStreamEventTypeOutputItemDone):
-		return s.writeOutputItemEvent(w, envelope)
+	case responsesEventOutputItemAdded:
+		return s.writeOutputItemEvent(w, envelope, false)
+	case string(openaiwire.ResponsesStreamEventTypeOutputItemDone):
+		return s.writeOutputItemEvent(w, envelope, true)
 	case string(openaiwire.ResponsesStreamEventTypeCompleted):
 		return s.writeTerminalChunk(w, envelope["response"])
 	default:
@@ -879,7 +886,21 @@ func (s *chatStreamState) writeTranslatedEvent(w io.Writer, payload string) erro
 	}
 }
 
-func (s *chatStreamState) writeOutputItemEvent(w io.Writer, envelope map[string]json.RawMessage) error {
+func (s *chatStreamState) writeDone(w io.Writer) error {
+	if s.doneSent {
+		return nil
+	}
+	s.doneSent = true
+	if !s.terminalSent {
+		if err := s.writeTerminalChunk(w, nil); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprint(w, "data: [DONE]\n\n")
+	return err
+}
+
+func (s *chatStreamState) writeOutputItemEvent(w io.Writer, envelope map[string]json.RawMessage, itemDone bool) error {
 	rawItem := envelope["item"]
 	if len(rawItem) == 0 {
 		return nil
@@ -921,6 +942,9 @@ func (s *chatStreamState) writeOutputItemEvent(w io.Writer, envelope map[string]
 	case openaiwire.OutputItemTypeFunctionCall:
 		key := s.registerToolCall(item, outputIndex)
 		state := s.toolCallsByKey[key]
+		if itemDone && (state.MetadataSent || state.Arguments != "") {
+			return nil
+		}
 		if state.MetadataSent && item.Arguments == "" {
 			return nil
 		}

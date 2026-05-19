@@ -150,6 +150,75 @@ func TestResponsesStreamToChatCompletionsTranslatesSSE(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamToChatCompletionsAddsDoneWhenResponsesStreamOmitsIt(t *testing.T) {
+	body := ResponsesStreamToChatCompletions(io.NopCloser(strings.NewReader(
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_2\",\"object\":\"response\",\"created_at\":456,\"status\":\"in_progress\",\"model\":\"cx/gpt-5.4\",\"output\":[]}}\n\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_2\",\"object\":\"response\",\"created_at\":456,\"status\":\"completed\",\"model\":\"cx/gpt-5.4\"}}\n\n",
+	)))
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+
+	streamText := string(data)
+	if !strings.HasSuffix(streamText, "data: [DONE]\n\n") {
+		t.Fatalf("expected translated chat stream to end with [DONE], got %q", streamText)
+	}
+	if strings.Count(streamText, "data: [DONE]") != 1 {
+		t.Fatalf("expected exactly one [DONE], got %q", streamText)
+	}
+}
+
+func TestResponsesStreamToChatCompletionsDoesNotReplayFullToolArgumentsOnDone(t *testing.T) {
+	body := ResponsesStreamToChatCompletions(io.NopCloser(strings.NewReader(
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"created_at\":456,\"status\":\"in_progress\",\"model\":\"cx/gpt-5.4\",\"output\":[]}}\n\n" +
+			"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"create_transaction\",\"arguments\":\"\"}}\n\n" +
+			"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"transactions\\\":[\"}\n\n" +
+			"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"amount\\\":10000}]}\"}\n\n" +
+			"data: {\"type\":\"response.function_call_arguments.done\",\"output_index\":0,\"arguments\":\"{\\\"transactions\\\":[{\\\"amount\\\":10000}]}\"}\n\n" +
+			"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"create_transaction\",\"arguments\":\"{\\\"transactions\\\":[{\\\"amount\\\":10000}]}\"}}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"created_at\":456,\"status\":\"completed\",\"model\":\"cx/gpt-5.4\"}}\n\n" +
+			"data: [DONE]\n\n",
+	)))
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+
+	var argumentDeltas []string
+	var finishReason openaiwire.FinishReason
+	for _, event := range sseDataEvents(data) {
+		if event == "[DONE]" {
+			continue
+		}
+		var chunk openaiwire.ChatCompletionsStreamChunk
+		if err := json.Unmarshal([]byte(event), &chunk); err != nil {
+			t.Fatalf("decode chunk %q: %v", event, err)
+		}
+		for _, choice := range chunk.Choices {
+			for _, call := range choice.Delta.ToolCalls {
+				argumentDeltas = append(argumentDeltas, call.Function.Arguments)
+			}
+			if choice.FinishReason != "" {
+				finishReason = choice.FinishReason
+			}
+		}
+	}
+
+	expected := []string{"", `{"transactions":[`, `{"amount":10000}]}`}
+	if strings.Join(argumentDeltas, "|") != strings.Join(expected, "|") {
+		t.Fatalf("unexpected argument deltas %#v", argumentDeltas)
+	}
+	if finishReason != openaiwire.FinishReasonToolCalls {
+		t.Fatalf("unexpected finish reason %q", finishReason)
+	}
+}
+
 func TestChatCompletionsStreamToResponsesTranslatesSSE(t *testing.T) {
 	body := ChatCompletionsStreamToResponses(io.NopCloser(strings.NewReader(
 		"data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"created\":456,\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello \"}}]}\n\n" +
