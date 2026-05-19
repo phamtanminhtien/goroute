@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/phamtanminhtien/goroute/compare/v1.3.0...v1.4.0) (2026-05-19)
+
+
+### Features
+
+* implement automatic conversation session ID generation and input transformation for Codex provider requests ([26ac543](https://github.com/phamtanminhtien/goroute/commit/26ac543e98026cf7f54c5cc7da59012c8b83743a))
+
 ## [1.3.0](https://github.com/phamtanminhtien/goroute/compare/v1.2.0...v1.3.0) (2026-05-18)
 
 
