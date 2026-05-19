@@ -6,7 +6,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 )
 
-func TestRegistrationBuildConnectionProvidesResponsesClient(t *testing.T) {
+func TestRegistrationBuildConnectionProvidesProtocolClients(t *testing.T) {
 	registration := Registration()
 	connectionConfig := connection.Record{
 		ID:         "cx-1",
@@ -23,7 +23,7 @@ func TestRegistrationBuildConnectionProvidesResponsesClient(t *testing.T) {
 		t.Fatal("expected responses capability to be registered")
 	}
 	if protocols.ChatCompletions != nil {
-		t.Fatal("expected chat completions capability to remain unset")
+		t.Fatal("expected chat completions capability to be handled by translator, not registered by Codex client")
 	}
 
 	client, ok := protocols.Responses.(*Client)

@@ -3,6 +3,7 @@ package chatcompletion
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -250,7 +251,7 @@ func TestConnectionRegistryResponsesOnlyUsesResponsesCapability(t *testing.T) {
 	}
 }
 
-func TestConnectionRegistryFallsBackWhenProtocolUnsupported(t *testing.T) {
+func TestConnectionRegistryBridgesChatCompletionsThroughResponsesCapability(t *testing.T) {
 	registry := newTestRegistry(map[string][]ConnectionEntry{
 		"cx": {
 			newConnectionEntry("cx", 1, nil, recordingConnection{responsesResponse: openaiwire.ResponsesResponse{ID: "resp"}}),
@@ -262,8 +263,105 @@ func TestConnectionRegistryFallsBackWhenProtocolUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChatCompletions returned error: %v", err)
 	}
-	if response.ID != "chat" {
-		t.Fatalf("expected fallback chat response, got %q", response.ID)
+	if response.ID != "resp" {
+		t.Fatalf("expected bridged responses result, got %q", response.ID)
+	}
+}
+
+func TestConnectionRegistryBridgesResponsesThroughChatCompletionsCapability(t *testing.T) {
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"opena": {newConnectionEntry("opena", 1, recordingConnection{
+			response: openaiwire.ChatCompletionsResponse{
+				ID:      "chat",
+				Object:  "chat.completion",
+				Created: 123,
+				Model:   "gpt-4.1",
+				Choices: []openaiwire.ChatChoice{{
+					Message: openaiwire.Message{Role: openaiwire.ChatRoleAssistant, Content: "hello"},
+				}},
+			},
+		}, nil)},
+	})
+
+	response, err := registry.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model:     "opena/gpt-4.1",
+		InputText: "hi",
+	}, routing.Target{ProviderID: "opena", ProviderName: "OpenAI"})
+	if err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+	if response.ID != "chat" || response.TextValue() != "hello" {
+		t.Fatalf("expected bridged chat response, got %#v", response)
+	}
+}
+
+func TestConnectionRegistryLogsChatToResponsesBridgeBeforeAndAfterTranslate(t *testing.T) {
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {newConnectionEntry("cx", 1, nil, bridgeLoggingResponsesConnection{})},
+	})
+	recorder := NewFlowRecorder("req-bridge", time.Unix(0, 0).UTC())
+	target := routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4"}
+	recorder.SetResolvedTarget(target)
+	ctx := WithFlowRecorder(context.Background(), recorder)
+
+	response, err := registry.ChatCompletions(ctx, openaiwire.ChatCompletionsRequest{
+		Model: "cx/gpt-5.4",
+		Messages: []openaiwire.ChatMessage{{
+			Role:    openaiwire.ChatRoleUser,
+			Content: openaiwire.TextContent("hello"),
+		}},
+	}, target)
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	recorder.SetFlowResponse(response, true)
+
+	flow, thirdPartyLogs := recorder.SnapshotDetails(time.Unix(1, 0).UTC(), 1)
+	if !strings.Contains(flow.TranslatedRequestBody, `"input"`) || strings.Contains(flow.TranslatedRequestBody, `"messages"`) {
+		t.Fatalf("expected translated request to be responses-shaped upstream body, got %q", flow.TranslatedRequestBody)
+	}
+	if !strings.Contains(flow.ResponseBody, `"object":"response"`) {
+		t.Fatalf("expected raw upstream response body before client translation, got %q", flow.ResponseBody)
+	}
+	if !strings.Contains(flow.TranslatedResponseBody, `"object":"chat.completion"`) || !strings.Contains(flow.TranslatedResponseBody, `"model":"gpt-5.4"`) {
+		t.Fatalf("expected translated response to be client-facing chat body, got %q", flow.TranslatedResponseBody)
+	}
+	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].RequestBody, `"input"`) || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"object":"response"`) {
+		t.Fatalf("unexpected third-party bridge logs %#v", thirdPartyLogs)
+	}
+}
+
+func TestConnectionRegistryLogsResponsesToChatBridgeBeforeAndAfterTranslate(t *testing.T) {
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"opena": {newConnectionEntry("opena", 1, bridgeLoggingChatConnection{}, nil)},
+	})
+	recorder := NewFlowRecorder("req-bridge", time.Unix(0, 0).UTC())
+	target := routing.Target{ProviderID: "opena", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"}
+	recorder.SetRequestType(RequestTypeResponses)
+	recorder.SetResolvedTarget(target)
+	ctx := WithFlowRecorder(context.Background(), recorder)
+
+	response, err := registry.Responses(ctx, openaiwire.ResponsesRequest{
+		Model:     "opena/gpt-4.1",
+		InputText: "hello",
+	}, target)
+	if err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+	recorder.SetResponsesResponse(response, true)
+
+	flow, thirdPartyLogs := recorder.SnapshotDetails(time.Unix(1, 0).UTC(), 1)
+	if !strings.Contains(flow.TranslatedRequestBody, `"messages"`) || strings.Contains(flow.TranslatedRequestBody, `"input"`) {
+		t.Fatalf("expected translated request to be chat-shaped upstream body, got %q", flow.TranslatedRequestBody)
+	}
+	if !strings.Contains(flow.ResponseBody, `"object":"chat.completion"`) {
+		t.Fatalf("expected raw upstream response body before client translation, got %q", flow.ResponseBody)
+	}
+	if !strings.Contains(flow.TranslatedResponseBody, `"object":"response"`) || !strings.Contains(flow.TranslatedResponseBody, `"model":"gpt-4.1"`) {
+		t.Fatalf("expected translated response to be client-facing responses body, got %q", flow.TranslatedResponseBody)
+	}
+	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].RequestBody, `"messages"`) || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"object":"chat.completion"`) {
+		t.Fatalf("unexpected third-party bridge logs %#v", thirdPartyLogs)
 	}
 }
 
@@ -456,6 +554,100 @@ type recordingConnection struct {
 	err               error
 	onCall            func()
 	onCallContext     func(context.Context)
+}
+
+type bridgeLoggingResponsesConnection struct{}
+
+func (c bridgeLoggingResponsesConnection) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
+	response := openaiwire.ResponsesResponse{
+		ID:        "resp_bridge",
+		Object:    "response",
+		CreatedAt: 123,
+		Status:    openaiwire.ResponsesStatusCompleted,
+		Model:     target.RequestedModel,
+		Output: []openaiwire.OutputItem{{
+			Type: openaiwire.OutputItemTypeMessage,
+			Role: string(openaiwire.ChatRoleAssistant),
+			Content: []openaiwire.OutputContent{{
+				Type: openaiwire.OutputContentTypeOutputText,
+				Text: "hello from responses",
+			}},
+		}},
+	}
+	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+		upstreamReq := req
+		upstreamReq.Model = target.RequestedModel
+		requestPayload, _ := json.Marshal(upstreamReq)
+		responsePayload, _ := json.Marshal(response)
+		recorder.SetProviderRequestMode(false)
+		recorder.SetTranslatedRequestBody(string(requestPayload))
+		recorder.AddThirdPartyLog(ThirdPartyLog{
+			ProviderID:          target.ProviderID,
+			ProviderName:        target.ProviderName,
+			ConnectionID:        "cx-1",
+			ConnectionName:      "cx-1",
+			AttemptIndex:        AttemptIndex(ctx),
+			ProviderRequestMode: RequestModeSync,
+			RequestMethod:       "POST",
+			RequestURL:          "https://provider.example/v1/responses",
+			RequestBody:         string(requestPayload),
+			ResponseStatusCode:  200,
+			ResponseHeaders:     `{"Content-Type":["application/json"]}`,
+			ResponseBody:        string(responsePayload),
+			StartedAt:           time.Now().UTC(),
+			CompletedAt:         time.Now().UTC(),
+		})
+	}
+	return response, nil
+}
+
+func (c bridgeLoggingResponsesConnection) ResponsesStream(context.Context, openaiwire.ResponsesRequest, routing.Target) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil
+}
+
+type bridgeLoggingChatConnection struct{}
+
+func (c bridgeLoggingChatConnection) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+	response := openaiwire.ChatCompletionsResponse{
+		ID:      "chat_bridge",
+		Object:  "chat.completion",
+		Created: 123,
+		Model:   target.RequestedModel,
+		Choices: []openaiwire.ChatChoice{{
+			Index:        0,
+			Message:      openaiwire.Message{Role: openaiwire.ChatRoleAssistant, Content: "hello from chat"},
+			FinishReason: openaiwire.FinishReasonStop,
+		}},
+	}
+	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+		upstreamReq := req
+		upstreamReq.Model = target.RequestedModel
+		requestPayload, _ := json.Marshal(upstreamReq)
+		responsePayload, _ := json.Marshal(response)
+		recorder.SetProviderRequestMode(false)
+		recorder.SetTranslatedRequestBody(string(requestPayload))
+		recorder.AddThirdPartyLog(ThirdPartyLog{
+			ProviderID:          target.ProviderID,
+			ProviderName:        target.ProviderName,
+			ConnectionID:        "opena-1",
+			ConnectionName:      "opena-1",
+			AttemptIndex:        AttemptIndex(ctx),
+			ProviderRequestMode: RequestModeSync,
+			RequestMethod:       "POST",
+			RequestURL:          "https://provider.example/v1/chat/completions",
+			RequestBody:         string(requestPayload),
+			ResponseStatusCode:  200,
+			ResponseHeaders:     `{"Content-Type":["application/json"]}`,
+			ResponseBody:        string(responsePayload),
+			StartedAt:           time.Now().UTC(),
+			CompletedAt:         time.Now().UTC(),
+		})
+	}
+	return response, nil
+}
+
+func (c bridgeLoggingChatConnection) ChatCompletionsStream(context.Context, openaiwire.ChatCompletionsRequest, routing.Target) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("data: [DONE]\n\n")), nil
 }
 
 func (c recordingConnection) ChatCompletions(ctx context.Context, _ openaiwire.ChatCompletionsRequest, _ routing.Target) (openaiwire.ChatCompletionsResponse, error) {

@@ -14,10 +14,24 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
 	"github.com/phamtanminhtien/goroute/internal/rtk"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
-	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 )
+
+var forwardedInboundResponseHeaders = map[string]struct{}{
+	"content-type":          {},
+	"originator":            {},
+	"session-id":            {},
+	"session_id":            {},
+	"thread-id":             {},
+	"thread_id":             {},
+	"user-agent":            {},
+	"x-client-request-id":   {},
+	"x-codex-beta-features": {},
+	"x-codex-turn-metadata": {},
+	"x-codex-window-id":     {},
+}
 
 func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
 	resp, payload, httpReq, startedAt, attemptIndex, err := c.doResponsesRequest(ctx, req, target)
@@ -33,7 +47,7 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("read upstream response: %w", readErr)
 	}
 
-	reconstructed, parseErr := responsesusecase.ParseSSE(body)
+	reconstructed, parseErr := protocoltranslator.ParseResponsesSSE(body)
 	if parseErr != nil {
 		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, parseErr, attemptIndex)
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("reconstruct upstream response: %w", parseErr)
@@ -51,7 +65,7 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 
 	return chatcompletion.CaptureStream(resp.Body, func(streamBody []byte, streamErr error) {
 		completedAt := time.Now().UTC()
-		if reconstructed, parseErr := responsesusecase.ParseSSE(streamBody); parseErr == nil {
+		if reconstructed, parseErr := protocoltranslator.ParseResponsesSSE(streamBody); parseErr == nil {
 			if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
 				recorder.SetResponsesResponse(reconstructed, true)
 			}
@@ -143,18 +157,23 @@ func (c *Client) marshalResponsesUpstreamRequest(ctx context.Context, req openai
 	}
 
 	forceStream := true
+	forceStore := false
 	if len(upstreamRequest.RawBody) > 0 {
-		var payload map[string]any
-		if err := json.Unmarshal(upstreamRequest.RawBody, &payload); err != nil {
+		payload, err := decodeResponsesRawPayload(upstreamRequest.RawBody)
+		if err != nil {
 			return nil, err
 		}
+		applyDefaultInstructionToRawPayload(payload)
 		payload["model"] = target.RequestedModel
 		payload["stream"] = forceStream
+		payload["store"] = forceStore
 		return json.Marshal(payload)
 	}
 
+	applyDefaultInstruction(responsesRequestBridge{instructions: &upstreamRequest.Instructions})
 	upstreamRequest.Model = target.RequestedModel
 	upstreamRequest.Stream = forceStream
+	upstreamRequest.Store = forceStore
 	upstreamRequest.RawBody = nil
 	return json.Marshal(upstreamRequest)
 }
@@ -164,16 +183,44 @@ func (c *Client) newResponsesRequest(ctx context.Context, payload []byte) (*http
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("originator", "codex-cli")
-	httpReq.Header.Set("User-Agent", defaultUserAgent)
+	forwardInboundHeaders(httpReq.Header, chatcompletion.InboundHeaders(ctx))
+	if httpReq.Header.Get("Content-Type") == "" {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	if httpReq.Header.Get("originator") == "" {
+		httpReq.Header.Set("originator", "codex-cli")
+	}
+	if httpReq.Header.Get("User-Agent") == "" {
+		httpReq.Header.Set("User-Agent", defaultUserAgent)
+	}
 	return httpReq, nil
+}
+
+func forwardInboundHeaders(dst http.Header, src http.Header) {
+	if len(src) == 0 {
+		return
+	}
+	for key, values := range src {
+		normalizedKey := strings.ToLower(key)
+		if _, ok := forwardedInboundResponseHeaders[normalizedKey]; !ok {
+			continue
+		}
+		dst.Del(key)
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
 }
 
 func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target, requestBody []byte, request *http.Request, response *http.Response, responseBody []byte, startedAt time.Time, completedAt time.Time, err error, attemptIndex int) {
 	recorder := chatcompletion.FlowRecorderFromContext(ctx)
 	if recorder == nil || request == nil {
 		return
+	}
+
+	var responseHeaders http.Header
+	if response != nil {
+		responseHeaders = response.Header
 	}
 
 	logRecord := chatcompletion.ThirdPartyLog{
@@ -187,7 +234,7 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 		ProviderRequestMode: chatcompletion.RequestModeStream,
 		RequestHeaders:      chatcompletion.RedactHeadersForStorage(request.Header),
 		RequestBody:         chatcompletion.RedactBodyForStorage(string(requestBody)),
-		ResponseBody:        chatcompletion.ThirdPartyResponseBodyForStorage(responseHeader(response), string(responseBody)),
+		ResponseBody:        chatcompletion.ThirdPartyResponseBodyForStorage(responseHeaders, string(responseBody)),
 		StartedAt:           startedAt,
 		CompletedAt:         completedAt,
 	}
@@ -201,13 +248,6 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 	}
 
 	recorder.AddThirdPartyLog(logRecord)
-}
-
-func responseHeader(response *http.Response) http.Header {
-	if response == nil {
-		return nil
-	}
-	return response.Header
 }
 
 func thirdPartyErrorType(err error) string {

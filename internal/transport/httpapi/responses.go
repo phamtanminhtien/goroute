@@ -49,6 +49,7 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 			return
 		}
 		recorder.ConfigureInbound(r, rawBody)
+		r = r.WithContext(chatcompletion.WithInboundHeaders(r.Context(), r.Header))
 
 		var request openaiwire.ResponsesRequest
 		if err := json.Unmarshal(rawBody, &request); err != nil {

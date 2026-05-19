@@ -8,6 +8,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
 )
 
 func Execute(ctx context.Context, catalog provider.Catalog, combos []modelcombo.Combo, connectionRegistry *ConnectionRegistry, input Input) (Output, error) {
@@ -61,5 +62,5 @@ func ExecuteStream(ctx context.Context, catalog provider.Catalog, combos []model
 		return StreamOutput{}, err
 	}
 
-	return StreamOutput{Body: RewriteChatCompletionsStreamModel(body, plan.ResponseModel)}, nil
+	return StreamOutput{Body: protocoltranslator.RewriteChatCompletionsStreamModel(body, plan.ResponseModel)}, nil
 }
