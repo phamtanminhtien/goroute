@@ -1,6 +1,7 @@
 package chatcompletion
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
 	"github.com/rs/zerolog"
 )
 
@@ -70,9 +72,9 @@ func (r *ConnectionRegistry) ChatCompletionsTargets(ctx context.Context, req ope
 		ctx,
 		req.Model,
 		targets,
-		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil },
+		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil || entry.Responses != nil },
 		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
-			return entry.ChatCompletions.ChatCompletions(ctx, req, target)
+			return invokeChatCompletions(ctx, entry, req, target)
 		},
 		"chat_completions_unsupported",
 	)
@@ -88,9 +90,9 @@ func (r *ConnectionRegistry) ResponsesTargets(ctx context.Context, req openaiwir
 		ctx,
 		req.Model,
 		targets,
-		func(entry ConnectionEntry) bool { return entry.Responses != nil },
+		func(entry ConnectionEntry) bool { return entry.Responses != nil || entry.ChatCompletions != nil },
 		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (openaiwire.ResponsesResponse, error) {
-			return entry.Responses.Responses(ctx, req, target)
+			return invokeResponses(ctx, entry, req, target)
 		},
 		"responses_unsupported",
 	)
@@ -106,9 +108,9 @@ func (r *ConnectionRegistry) ChatCompletionsStreamTargets(ctx context.Context, r
 		ctx,
 		req.Model,
 		targets,
-		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil },
+		func(entry ConnectionEntry) bool { return entry.ChatCompletions != nil || entry.Responses != nil },
 		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
-			return entry.ChatCompletions.ChatCompletionsStream(ctx, req, target)
+			return invokeChatCompletionsStream(ctx, entry, req, target)
 		},
 		"chat_completions_unsupported",
 	)
@@ -124,12 +126,106 @@ func (r *ConnectionRegistry) ResponsesStreamTargets(ctx context.Context, req ope
 		ctx,
 		req.Model,
 		targets,
-		func(entry ConnectionEntry) bool { return entry.Responses != nil },
+		func(entry ConnectionEntry) bool { return entry.Responses != nil || entry.ChatCompletions != nil },
 		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
-			return entry.Responses.ResponsesStream(ctx, req, target)
+			return invokeResponsesStream(ctx, entry, req, target)
 		},
 		"responses_unsupported",
 	)
+}
+
+func invokeChatCompletions(ctx context.Context, entry ConnectionEntry, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
+	if entry.ChatCompletions != nil {
+		return entry.ChatCompletions.ChatCompletions(ctx, req, target)
+	}
+
+	translated, err := protocoltranslator.ChatCompletionsToResponses(req)
+	if err != nil {
+		return openaiwire.ChatCompletionsResponse{}, err
+	}
+	response, err := invokeResponses(ctx, entry, translated, target)
+	if err != nil {
+		return openaiwire.ChatCompletionsResponse{}, err
+	}
+	return protocoltranslator.ResponsesToChatCompletion(response), nil
+}
+
+func invokeResponses(ctx context.Context, entry ConnectionEntry, req openaiwire.ResponsesRequest, target routing.Target) (openaiwire.ResponsesResponse, error) {
+	if entry.Responses != nil {
+		return entry.Responses.Responses(ctx, req, target)
+	}
+
+	translated, err := protocoltranslator.ResponsesToChatCompletions(req)
+	if err != nil {
+		return openaiwire.ResponsesResponse{}, err
+	}
+	response, err := entry.ChatCompletions.ChatCompletions(ctx, translated, target)
+	if err != nil {
+		return openaiwire.ResponsesResponse{}, err
+	}
+	return protocoltranslator.ChatCompletionToResponses(response), nil
+}
+
+func invokeChatCompletionsStream(ctx context.Context, entry ConnectionEntry, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
+	if entry.ChatCompletions != nil {
+		return entry.ChatCompletions.ChatCompletionsStream(ctx, req, target)
+	}
+
+	translated, err := protocoltranslator.ChatCompletionsToResponses(req)
+	if err != nil {
+		return nil, err
+	}
+	translated.Stream = true
+	body, err := entry.Responses.ResponsesStream(ctx, translated, target)
+	if err != nil {
+		return nil, err
+	}
+
+	upstreamBody := CaptureStream(body, func(streamBody []byte, _ error) {
+		if reconstructed, parseErr := protocoltranslator.ParseResponsesSSE(streamBody); parseErr == nil {
+			if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+				recorder.SetFlowResponse(protocoltranslator.ResponsesToChatCompletion(reconstructed), true)
+			}
+		}
+	})
+	return protocoltranslator.ResponsesStreamToChatCompletions(upstreamBody), nil
+}
+
+func invokeResponsesStream(ctx context.Context, entry ConnectionEntry, req openaiwire.ResponsesRequest, target routing.Target) (io.ReadCloser, error) {
+	if entry.Responses != nil {
+		translated := req
+		translated.Stream = true
+		return entry.Responses.ResponsesStream(ctx, translated, target)
+	}
+
+	translated, err := protocoltranslator.ResponsesToChatCompletions(req)
+	if err != nil {
+		return nil, err
+	}
+	translated.Stream = true
+	body, err := entry.ChatCompletions.ChatCompletionsStream(ctx, translated, target)
+	if err != nil {
+		return nil, err
+	}
+
+	upstreamBody := CaptureStream(body, func(streamBody []byte, _ error) {
+		if reconstructed, parseErr := protocoltranslator.ParseResponsesSSE(readTranslatedChatStream(streamBody)); parseErr == nil {
+			if recorder := FlowRecorderFromContext(ctx); recorder != nil {
+				recorder.SetResponsesResponse(reconstructed, true)
+			}
+		}
+	})
+	return protocoltranslator.ChatCompletionsStreamToResponses(upstreamBody), nil
+}
+
+func readTranslatedChatStream(streamBody []byte) []byte {
+	body := protocoltranslator.ChatCompletionsStreamToResponses(io.NopCloser(bytes.NewReader(streamBody)))
+	defer body.Close()
+	translated, err := io.ReadAll(body)
+	if err != nil {
+		return nil
+	}
+	return translated
 }
 
 func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requestedModel string, targets []routing.Target, supported func(ConnectionEntry) bool, invoke func(context.Context, ConnectionEntry, routing.Target) (T, error), unsupportedCategory string) (T, error) {

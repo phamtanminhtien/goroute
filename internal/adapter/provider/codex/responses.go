@@ -14,13 +14,12 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
+	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
 	"github.com/phamtanminhtien/goroute/internal/rtk"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
-	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 )
 
 var forwardedInboundResponseHeaders = map[string]struct{}{
-	"accept":                {},
 	"content-type":          {},
 	"originator":            {},
 	"session-id":            {},
@@ -48,7 +47,7 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("read upstream response: %w", readErr)
 	}
 
-	reconstructed, parseErr := responsesusecase.ParseSSE(body)
+	reconstructed, parseErr := protocoltranslator.ParseResponsesSSE(body)
 	if parseErr != nil {
 		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, parseErr, attemptIndex)
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("reconstruct upstream response: %w", parseErr)
@@ -66,7 +65,7 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 
 	return chatcompletion.CaptureStream(resp.Body, func(streamBody []byte, streamErr error) {
 		completedAt := time.Now().UTC()
-		if reconstructed, parseErr := responsesusecase.ParseSSE(streamBody); parseErr == nil {
+		if reconstructed, parseErr := protocoltranslator.ParseResponsesSSE(streamBody); parseErr == nil {
 			if recorder := chatcompletion.FlowRecorderFromContext(ctx); recorder != nil {
 				recorder.SetResponsesResponse(reconstructed, true)
 			}
@@ -219,6 +218,11 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 		return
 	}
 
+	var responseHeaders http.Header
+	if response != nil {
+		responseHeaders = response.Header
+	}
+
 	logRecord := chatcompletion.ThirdPartyLog{
 		ProviderID:          target.ProviderID,
 		ProviderName:        target.ProviderName,
@@ -230,7 +234,7 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 		ProviderRequestMode: chatcompletion.RequestModeStream,
 		RequestHeaders:      chatcompletion.RedactHeadersForStorage(request.Header),
 		RequestBody:         chatcompletion.RedactBodyForStorage(string(requestBody)),
-		ResponseBody:        chatcompletion.ThirdPartyResponseBodyForStorage(responseHeader(response), string(responseBody)),
+		ResponseBody:        chatcompletion.ThirdPartyResponseBodyForStorage(responseHeaders, string(responseBody)),
 		StartedAt:           startedAt,
 		CompletedAt:         completedAt,
 	}
@@ -244,13 +248,6 @@ func (c *Client) recordThirdPartyLog(ctx context.Context, target routing.Target,
 	}
 
 	recorder.AddThirdPartyLog(logRecord)
-}
-
-func responseHeader(response *http.Response) http.Header {
-	if response == nil {
-		return nil
-	}
-	return response.Header
 }
 
 func thirdPartyErrorType(err error) string {

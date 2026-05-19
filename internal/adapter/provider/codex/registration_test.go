@@ -22,8 +22,8 @@ func TestRegistrationBuildConnectionProvidesProtocolClients(t *testing.T) {
 	if protocols.Responses == nil {
 		t.Fatal("expected responses capability to be registered")
 	}
-	if protocols.ChatCompletions == nil {
-		t.Fatal("expected chat completions capability to be registered")
+	if protocols.ChatCompletions != nil {
+		t.Fatal("expected chat completions capability to be handled by translator, not registered by Codex client")
 	}
 
 	client, ok := protocols.Responses.(*Client)
@@ -35,12 +35,5 @@ func TestRegistrationBuildConnectionProvidesProtocolClients(t *testing.T) {
 	}
 	if client.connection.APIKey != connectionConfig.APIKey {
 		t.Fatalf("expected api key to be preserved, got %q", client.connection.APIKey)
-	}
-	chatClient, ok := protocols.ChatCompletions.(*Client)
-	if !ok {
-		t.Fatalf("expected chat client to be *Client, got %T", protocols.ChatCompletions)
-	}
-	if chatClient.connection.ID != connectionConfig.ID {
-		t.Fatalf("expected chat connection id %q, got %q", connectionConfig.ID, chatClient.connection.ID)
 	}
 }

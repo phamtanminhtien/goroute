@@ -6,6 +6,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
+	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
@@ -45,5 +46,5 @@ func ExecuteStream(ctx context.Context, catalog provider.Catalog, combos []model
 		return StreamOutput{}, err
 	}
 
-	return StreamOutput{Body: chatcompletion.RewriteResponsesStreamModel(body, plan.ResponseModel)}, nil
+	return StreamOutput{Body: protocoltranslator.RewriteResponsesStreamModel(body, plan.ResponseModel)}, nil
 }

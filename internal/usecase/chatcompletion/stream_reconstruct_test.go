@@ -1,8 +1,6 @@
 package chatcompletion
 
 import (
-	"io"
-	"strings"
 	"testing"
 )
 
@@ -45,35 +43,5 @@ func TestExtractTextFromSSEForResponsesFormats(t *testing.T) {
 	text := ExtractTextFromSSE(data)
 	if text != "Hello there! Done" {
 		t.Fatalf("unexpected text %q", text)
-	}
-}
-
-func TestRewriteResponsesStreamModelPreservesEventShape(t *testing.T) {
-	body := io.NopCloser(strings.NewReader(
-		"data: {\"type\":\"response.completed\",\"sequence_number\":88,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1779098607,\"status\":\"completed\",\"background\":false,\"completed_at\":1779098610,\"error\":null,\"model\":\"gpt-5.3\",\"tool_usage\":{\"web_search\":{\"num_requests\":0}},\"usage\":{\"input_tokens\":2490,\"input_tokens_details\":{\"cached_tokens\":2304},\"output_tokens\":122,\"output_tokens_details\":{\"reasoning_tokens\":42},\"total_tokens\":2612}}}\n\n" +
-			"data: [DONE]\n\n",
-	))
-
-	stream := RewriteResponsesStreamModel(body, "cx/gpt-5.4")
-	defer stream.Close()
-
-	data, err := io.ReadAll(stream)
-	if err != nil {
-		t.Fatalf("read stream: %v", err)
-	}
-
-	text := string(data)
-	for _, snippet := range []string{
-		`"sequence_number":88`,
-		`"background":false`,
-		`"completed_at":1779098610`,
-		`"error":null`,
-		`"tool_usage":{"web_search":{"num_requests":0}}`,
-		`"output_tokens_details":{"reasoning_tokens":42}`,
-		`"model":"cx/gpt-5.4"`,
-	} {
-		if !strings.Contains(text, snippet) {
-			t.Fatalf("expected %s in %s", snippet, text)
-		}
 	}
 }
