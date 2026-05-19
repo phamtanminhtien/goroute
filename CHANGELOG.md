@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0](https://github.com/phamtanminhtien/goroute/compare/v1.4.1...v1.5.0) (2026-05-19)
+
+
+### Features
+
+* add support for input and output token pricing in model management and update docker configuration ([5186348](https://github.com/phamtanminhtien/goroute/commit/5186348003b83fb06750e1de3960fa60eecce982))
+* implement custom provider management and registration support ([2c074b7](https://github.com/phamtanminhtien/goroute/commit/2c074b7bd0e004d131b027e68c592892807a4b1e))
+* implement dynamic pricing updates in analytics service and update docker-compose port and volume mappings ([a91b2dd](https://github.com/phamtanminhtien/goroute/commit/a91b2ddeec2d145a6f295c2223d9e7afd22a2112))
+
 ## [1.4.1](https://github.com/phamtanminhtien/goroute/compare/v1.4.0...v1.4.1) (2026-05-19)
 
 
