@@ -238,3 +238,236 @@ func TestClientResponsesAppliesDefaultInstructionWhenMissingAndLogsTranslatedPay
 		t.Fatalf("expected translated request log to include default instruction, got %q", flow.TranslatedRequestBody)
 	}
 }
+
+func TestClientResponsesGeneratesFallbackSessionAndNormalizesEmptyInput(t *testing.T) {
+	restore := configureCodexSessionTest(t, "machine-test", time.Unix(100, 0).UTC())
+	defer restore()
+
+	var upstreamBody map[string]any
+	var sessionHeader string
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		sessionHeader = r.Header.Get("session_id")
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return codexSuccessStreamResponse("resp_session"), nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+	client.baseURL = "https://example.com/backend-api/codex"
+
+	if _, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model:   "cx/gpt-5.4",
+		RawBody: json.RawMessage(`{"model":"cx/gpt-5.4","input":[]}`),
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4"}); err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+
+	expectedSession := "sess_" + shortHash("machine-test")
+	if sessionHeader != expectedSession {
+		t.Fatalf("expected generated fallback session %q, got %q", expectedSession, sessionHeader)
+	}
+	input, ok := upstreamBody["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("expected normalized single input item, got %#v", upstreamBody["input"])
+	}
+	item, ok := input[0].(map[string]any)
+	if !ok || item["type"] != "message" || item["role"] != "user" {
+		t.Fatalf("expected normalized user message, got %#v", input[0])
+	}
+	content := item["content"].([]any)
+	part := content[0].(map[string]any)
+	if part["type"] != "input_text" || part["text"] != "..." {
+		t.Fatalf("expected placeholder input text, got %#v", part)
+	}
+}
+
+func TestClientResponsesReusesGeneratedSessionForFirstAssistantText(t *testing.T) {
+	restore := configureCodexSessionTest(t, "machine-test", time.Unix(200, 0).UTC())
+	defer restore()
+
+	sessionHeaders := make([]string, 0, 3)
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		sessionHeaders = append(sessionHeaders, r.Header.Get("session_id"))
+		return codexSuccessStreamResponse("resp_history"), nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+	client.baseURL = "https://example.com/backend-api/codex"
+
+	firstHistory := json.RawMessage(`{"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"first answer"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+	secondHistory := json.RawMessage(`{"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"different answer"}]}]}`)
+	for _, raw := range []json.RawMessage{firstHistory, firstHistory, secondHistory} {
+		if _, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+			Model:   "cx/gpt-5.4",
+			RawBody: raw,
+		}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4"}); err != nil {
+			t.Fatalf("Responses returned error: %v", err)
+		}
+	}
+
+	if len(sessionHeaders) != 3 {
+		t.Fatalf("expected 3 session headers, got %#v", sessionHeaders)
+	}
+	if sessionHeaders[0] == "" || !strings.HasPrefix(sessionHeaders[0], "sess_") {
+		t.Fatalf("expected generated session id, got %q", sessionHeaders[0])
+	}
+	if sessionHeaders[1] != sessionHeaders[0] {
+		t.Fatalf("expected same first assistant text to reuse session, got %#v", sessionHeaders)
+	}
+	if sessionHeaders[2] == sessionHeaders[0] {
+		t.Fatalf("expected different first assistant text to create a different session, got %#v", sessionHeaders)
+	}
+}
+
+func TestResolveConversationSessionIDExpiresHistorySession(t *testing.T) {
+	restore := configureCodexSessionTest(t, "machine-test", time.Unix(300, 0).UTC())
+	defer restore()
+
+	input := []openaiwire.ResponseInputItem{{
+		Type: codexInputTypeMessage,
+		Role: string(openaiwire.ChatRoleAssistant),
+		Content: []openaiwire.ResponseInputContentPart{{
+			Type: "output_text",
+			Text: "remember me",
+		}},
+	}}
+	first := resolveConversationSessionID(input, cachedMachineID)
+	sessionStore.now = func() time.Time { return time.Unix(300, 0).UTC().Add(codexSessionTTL + time.Second) }
+	second := resolveConversationSessionID(input, cachedMachineID)
+
+	if first == "" || second == "" || first == second {
+		t.Fatalf("expected expired history session to rotate, got first=%q second=%q", first, second)
+	}
+}
+
+func TestClientResponsesTransformsCodexPayloadReasoningAndUnsupportedParams(t *testing.T) {
+	restore := configureCodexSessionTest(t, "machine-test", time.Unix(400, 0).UTC())
+	defer restore()
+
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return codexSuccessStreamResponse("resp_transform"), nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+	client.baseURL = "https://example.com/backend-api/codex"
+
+	if _, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model: "cx/gpt-5.4-high",
+		RawBody: json.RawMessage(`{
+			"input":"hello",
+			"temperature":0.7,
+			"top_p":0.9,
+			"max_tokens":100,
+			"max_completion_tokens":200,
+			"metadata":{"trace":"abc"},
+			"stream_options":{"include_usage":true},
+			"include":["reasoning.encrypted_content"]
+		}`),
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4-high"}); err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+
+	if upstreamBody["model"] != "gpt-5.4" {
+		t.Fatalf("expected stripped upstream model, got %#v", upstreamBody["model"])
+	}
+	for _, key := range []string{"temperature", "top_p", "max_tokens", "max_completion_tokens", "metadata", "stream_options"} {
+		if _, ok := upstreamBody[key]; ok {
+			t.Fatalf("expected unsupported param %q to be removed from %#v", key, upstreamBody)
+		}
+	}
+	reasoning, ok := upstreamBody["reasoning"].(map[string]any)
+	if !ok || reasoning["effort"] != "high" || reasoning["summary"] != "auto" {
+		t.Fatalf("expected Codex reasoning payload, got %#v", upstreamBody["reasoning"])
+	}
+	include, ok := upstreamBody["include"].([]any)
+	if !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("expected deduped reasoning include, got %#v", upstreamBody["include"])
+	}
+	input := upstreamBody["input"].([]any)
+	item := input[0].(map[string]any)
+	content := item["content"].([]any)
+	part := content[0].(map[string]any)
+	if item["role"] != "user" || part["text"] != "hello" {
+		t.Fatalf("expected string input normalized to user message, got %#v", input)
+	}
+}
+
+func TestClientResponsesOmitsInjectedReasoningForNoneSuffix(t *testing.T) {
+	restore := configureCodexSessionTest(t, "machine-test", time.Unix(500, 0).UTC())
+	defer restore()
+
+	var upstreamBody map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if err := json.Unmarshal(data, &upstreamBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		return codexSuccessStreamResponse("resp_none"), nil
+	})}
+
+	client := NewClientWithHTTPClient(httpClient, connection.Record{ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+	client.baseURL = "https://example.com/backend-api/codex"
+
+	if _, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model:   "cx/gpt-5.4-none",
+		RawBody: json.RawMessage(`{"input":"hello","reasoning":{"effort":"high"}}`),
+	}, routing.Target{ProviderID: "cx", ProviderName: "Codex", RequestedModel: "gpt-5.4-none"}); err != nil {
+		t.Fatalf("Responses returned error: %v", err)
+	}
+
+	if upstreamBody["model"] != "gpt-5.4" {
+		t.Fatalf("expected stripped upstream model, got %#v", upstreamBody["model"])
+	}
+	if _, ok := upstreamBody["reasoning"]; ok {
+		t.Fatalf("expected reasoning to be omitted for none suffix, got %#v", upstreamBody["reasoning"])
+	}
+	if _, ok := upstreamBody["include"]; ok {
+		t.Fatalf("expected include to remain absent for none suffix, got %#v", upstreamBody["include"])
+	}
+}
+
+func configureCodexSessionTest(t *testing.T, machineID string, now time.Time) func() {
+	t.Helper()
+
+	previousMachineID := cachedMachineID
+	previousEntries := sessionStore.entries
+	previousNow := sessionStore.now
+
+	cachedMachineID = machineID
+	sessionStore.mu.Lock()
+	sessionStore.entries = make(map[string]codexConversationSessionEntry)
+	sessionStore.now = func() time.Time { return now }
+	sessionStore.mu.Unlock()
+
+	return func() {
+		cachedMachineID = previousMachineID
+		sessionStore.mu.Lock()
+		sessionStore.entries = previousEntries
+		sessionStore.now = previousNow
+		sessionStore.mu.Unlock()
+	}
+}
+
+func codexSuccessStreamResponse(id string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(`data: {"type":"response.completed","response":{"id":"` + id + `","object":"response","created_at":123,"status":"completed","model":"cx/gpt-5.4","output":[]}}` + "\n\ndata: [DONE]\n\n")),
+	}
+}

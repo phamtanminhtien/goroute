@@ -84,7 +84,7 @@ func (c *Client) doResponsesRequest(ctx context.Context, req openaiwire.Response
 		}
 	}
 
-	payload, err := c.marshalResponsesUpstreamRequest(ctx, req, target)
+	payload, sessionID, err := c.marshalResponsesUpstreamRequest(ctx, req, target)
 	if err != nil {
 		return nil, nil, nil, time.Time{}, 0, fmt.Errorf("encode upstream request: %w", err)
 	}
@@ -94,7 +94,7 @@ func (c *Client) doResponsesRequest(ctx context.Context, req openaiwire.Response
 	}
 	attemptIndex := chatcompletion.AttemptIndex(ctx)
 
-	httpReq, err := c.newResponsesRequest(ctx, payload)
+	httpReq, err := c.newResponsesRequest(ctx, payload, sessionID)
 	if err != nil {
 		return nil, nil, nil, time.Time{}, 0, err
 	}
@@ -120,7 +120,7 @@ func (c *Client) doResponsesRequest(ctx context.Context, req openaiwire.Response
 			}
 		}
 
-		httpReq, err = c.newResponsesRequest(ctx, payload)
+		httpReq, err = c.newResponsesRequest(ctx, payload, sessionID)
 		if err != nil {
 			return nil, nil, nil, time.Time{}, 0, err
 		}
@@ -146,7 +146,7 @@ func (c *Client) doResponsesRequest(ctx context.Context, req openaiwire.Response
 	return resp, payload, httpReq, startedAt, attemptIndex, nil
 }
 
-func (c *Client) marshalResponsesUpstreamRequest(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) ([]byte, error) {
+func (c *Client) marshalResponsesUpstreamRequest(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) ([]byte, string, error) {
 	upstreamRequest := req
 	if config.RTKEnabledFromContext(ctx) {
 		compressed, summary := rtk.NewService().CompressResponses(upstreamRequest)
@@ -161,29 +161,67 @@ func (c *Client) marshalResponsesUpstreamRequest(ctx context.Context, req openai
 	if len(upstreamRequest.RawBody) > 0 {
 		payload, err := decodeResponsesRawPayload(upstreamRequest.RawBody)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		applyDefaultInstructionToRawPayload(payload)
-		payload["model"] = target.RequestedModel
+		input, err := transformCodexResponsesPayload(payload, target.RequestedModel)
+		if err != nil {
+			return nil, "", err
+		}
 		payload["stream"] = forceStream
 		payload["store"] = forceStore
-		return json.Marshal(payload)
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return nil, "", err
+		}
+		return encoded, resolveConversationSessionID(input, cachedMachineID), nil
 	}
 
 	applyDefaultInstruction(responsesRequestBridge{instructions: &upstreamRequest.Instructions})
-	upstreamRequest.Model = target.RequestedModel
 	upstreamRequest.Stream = forceStream
 	upstreamRequest.Store = forceStore
 	upstreamRequest.RawBody = nil
-	return json.Marshal(upstreamRequest)
+	payload, err := responsesRequestPayloadMap(upstreamRequest)
+	if err != nil {
+		return nil, "", err
+	}
+	input, err := transformCodexResponsesPayload(payload, target.RequestedModel)
+	if err != nil {
+		return nil, "", err
+	}
+	payload["stream"] = forceStream
+	payload["store"] = forceStore
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, "", err
+	}
+	return encoded, resolveConversationSessionID(input, cachedMachineID), nil
 }
 
-func (c *Client) newResponsesRequest(ctx context.Context, payload []byte) (*http.Request, error) {
+func responsesRequestPayloadMap(req openaiwire.ResponsesRequest) (map[string]any, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := decodeResponsesRawPayload(data)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.InputText) != "" && len(req.Input) == 0 {
+		payload["input"] = req.InputText
+	}
+	return payload, nil
+}
+
+func (c *Client) newResponsesRequest(ctx context.Context, payload []byte, sessionID string) (*http.Request, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	forwardInboundHeaders(httpReq.Header, chatcompletion.InboundHeaders(ctx))
+	if httpReq.Header.Get("Session-Id") == "" && httpReq.Header.Get("session_id") == "" && sessionID != "" {
+		httpReq.Header.Set("session_id", sessionID)
+	}
 	if httpReq.Header.Get("Content-Type") == "" {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
