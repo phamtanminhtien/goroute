@@ -347,7 +347,9 @@ describe("providers pages", () => {
       expect(createProviderModelMock).toHaveBeenCalledWith("cx", {
         description: "",
         id: "cx/gpt-5.5",
+        input_price_per_million_usd: 0,
         name: "GPT-5.5",
+        output_price_per_million_usd: 0,
       });
     });
   });
@@ -367,7 +369,9 @@ describe("providers pages", () => {
           {
             description: "Custom model",
             id: "cx/gpt-5.5",
+            input_price_per_million_usd: 1.25,
             name: "GPT-5.5",
+            output_price_per_million_usd: 10,
             source: "custom",
           },
         ],
@@ -399,6 +403,12 @@ describe("providers pages", () => {
 
     await user.clear(within(dialog).getByLabelText(/^name/i));
     await user.type(within(dialog).getByLabelText(/^name/i), "GPT-5.5 Turbo");
+    expect(within(dialog).getByLabelText(/input price/i)).toHaveValue(1.25);
+    expect(within(dialog).getByLabelText(/output price/i)).toHaveValue(10);
+    await user.clear(within(dialog).getByLabelText(/input price/i));
+    await user.type(within(dialog).getByLabelText(/input price/i), "2.5");
+    await user.clear(within(dialog).getByLabelText(/output price/i));
+    await user.type(within(dialog).getByLabelText(/output price/i), "12.75");
     await user.click(
       within(dialog).getByRole("button", { name: /save model/i }),
     );
@@ -407,7 +417,9 @@ describe("providers pages", () => {
       expect(updateProviderModelMock).toHaveBeenCalledWith("cx", "cx/gpt-5.5", {
         description: "Custom model",
         id: "cx/gpt-5.5",
+        input_price_per_million_usd: 2.5,
         name: "GPT-5.5 Turbo",
+        output_price_per_million_usd: 12.75,
       });
     });
   });

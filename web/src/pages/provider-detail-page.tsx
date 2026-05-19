@@ -74,7 +74,9 @@ type ModelTestState = {
 type ModelFormState = {
   description: string;
   id: string;
+  inputPricePerMillionUSD: string;
   name: string;
+  outputPricePerMillionUSD: string;
 };
 type ProviderFormState = {
   apiKey: string;
@@ -107,7 +109,9 @@ export function ProviderDetailPage() {
   const [modelForm, setModelForm] = useState<ModelFormState>({
     description: "",
     id: "",
+    inputPricePerMillionUSD: "",
     name: "",
+    outputPricePerMillionUSD: "",
   });
   const [modelFeedback, setModelFeedback] = useState<FeedbackState>(null);
   const [modelModalState, setModelModalState] = useState<ModelModalState>({
@@ -228,7 +232,13 @@ export function ProviderDetailPage() {
       return createProviderModel(provider.id, {
         description: values.description.trim(),
         id: values.id.trim(),
+        input_price_per_million_usd: parseModelPrice(
+          values.inputPricePerMillionUSD,
+        ),
         name: values.name.trim(),
+        output_price_per_million_usd: parseModelPrice(
+          values.outputPricePerMillionUSD,
+        ),
       });
     },
     onError: (error) => {
@@ -240,7 +250,7 @@ export function ProviderDetailPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setModelFeedback({ text: "Model added.", tone: "success" });
-      setModelForm({ description: "", id: "", name: "" });
+      setModelForm(emptyModelFormState());
       setModelModalState({ kind: "closed" });
     },
   });
@@ -260,7 +270,13 @@ export function ProviderDetailPage() {
       return updateProviderModel(provider.id, modelID, {
         description: values.description.trim(),
         id: values.id.trim(),
+        input_price_per_million_usd: parseModelPrice(
+          values.inputPricePerMillionUSD,
+        ),
         name: values.name.trim(),
+        output_price_per_million_usd: parseModelPrice(
+          values.outputPricePerMillionUSD,
+        ),
       });
     },
     onError: (error) => {
@@ -272,7 +288,7 @@ export function ProviderDetailPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setModelFeedback({ text: "Model updated.", tone: "success" });
-      setModelForm({ description: "", id: "", name: "" });
+      setModelForm(emptyModelFormState());
       setModelModalState({ kind: "closed" });
     },
   });
@@ -708,7 +724,7 @@ export function ProviderDetailPage() {
                   leadingIcon={<Plus className="size-[15px]" />}
                   onClick={() => {
                     setModelFeedback(null);
-                    setModelForm({ description: "", id: "", name: "" });
+                    setModelForm(emptyModelFormState());
                     setModelModalState({ kind: "create" });
                   }}
                 >
@@ -750,7 +766,13 @@ export function ProviderDetailPage() {
                         setModelForm({
                           description: model.description,
                           id: model.id,
+                          inputPricePerMillionUSD: formatModelPrice(
+                            model.input_price_per_million_usd,
+                          ),
                           name: model.name,
+                          outputPricePerMillionUSD: formatModelPrice(
+                            model.output_price_per_million_usd,
+                          ),
                         });
                         setModelModalState({
                           kind: "edit",
@@ -966,6 +988,44 @@ export function ProviderDetailPage() {
                     value={modelForm.description}
                   />
                 </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    help="USD per 1M input tokens. Leave blank for 0."
+                    label="Input price"
+                  >
+                    <Input
+                      min="0"
+                      onChange={(event) =>
+                        setModelForm((current) => ({
+                          ...current,
+                          inputPricePerMillionUSD: event.target.value,
+                        }))
+                      }
+                      placeholder="0"
+                      step="0.000001"
+                      type="number"
+                      value={modelForm.inputPricePerMillionUSD}
+                    />
+                  </Field>
+                  <Field
+                    help="USD per 1M output tokens. Leave blank for 0."
+                    label="Output price"
+                  >
+                    <Input
+                      min="0"
+                      onChange={(event) =>
+                        setModelForm((current) => ({
+                          ...current,
+                          outputPricePerMillionUSD: event.target.value,
+                        }))
+                      }
+                      placeholder="0"
+                      step="0.000001"
+                      type="number"
+                      value={modelForm.outputPricePerMillionUSD}
+                    />
+                  </Field>
+                </div>
 
                 {modelFeedback?.tone === "error" ? (
                   <InlineAlert tone="error">{modelFeedback.text}</InlineAlert>
@@ -1281,6 +1341,32 @@ function ModelChip({
       ) : null}
     </div>
   );
+}
+
+function emptyModelFormState(): ModelFormState {
+  return {
+    description: "",
+    id: "",
+    inputPricePerMillionUSD: "",
+    name: "",
+    outputPricePerMillionUSD: "",
+  };
+}
+
+function formatModelPrice(value: number | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : "";
+}
+
+function parseModelPrice(value: string) {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return 0;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function buildConnectionModal({
