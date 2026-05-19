@@ -155,7 +155,7 @@ describe("quota tracker page", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads quota cards on the shared tracker screen", async () => {
+  it("loads quota cards for codex connections only", async () => {
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/quota"]}>
         <NuqsAdapter>
@@ -168,9 +168,9 @@ describe("quota tracker page", () => {
 
     expect(await screen.findByText(/normal ready/i)).toBeInTheDocument();
     expect(screen.getByText(/plan plus/i)).toBeInTheDocument();
-    expect(screen.getByText(/provider filter/i)).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveTextContent(/all providers/i);
-    expect(screen.getByText(/openai-user/i)).toBeInTheDocument();
+    expect(screen.getByText(/^provider$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^codex$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/openai-user/i)).not.toBeInTheDocument();
     expect(
       screen.getByText(/last: upstream_retryable_error/i),
     ).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe("quota tracker page", () => {
     expect(screen.getByText(/remaining quota/i)).toBeInTheDocument();
     expect(screen.getByText(/4d 17h 55m/i)).toBeInTheDocument();
     expect(getConnectionUsageMock).toHaveBeenCalledWith("codex-1");
-    expect(getConnectionUsageMock).toHaveBeenCalledWith("openai-1");
+    expect(getConnectionUsageMock).not.toHaveBeenCalledWith("openai-1");
     expect(
       screen.getByRole("button", { name: /refresh codex-user usage/i }),
     ).toBeInTheDocument();
@@ -325,9 +325,7 @@ describe("quota tracker page", () => {
     });
   });
 
-  it("filters quota cards by provider and defaults to all providers", async () => {
-    const user = userEvent.setup();
-
+  it("ignores non-codex providers in the quota tracker", async () => {
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/quota"]}>
         <NuqsAdapter>
@@ -336,15 +334,8 @@ describe("quota tracker page", () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText(/openai-user/i);
-    expect(screen.getByText(/codex-user/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("combobox"));
-    await screen.findByRole("option", { name: "Codex" });
-    await user.click(screen.getByRole("option", { name: "Codex" }));
-
     await screen.findByText(/codex-user/i);
+    expect(screen.getByText(/codex-user/i)).toBeInTheDocument();
     expect(screen.queryByText(/openai-user/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveTextContent(/^codex$/i);
   });
 });

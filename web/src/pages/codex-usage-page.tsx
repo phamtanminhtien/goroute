@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layers3, Pencil, RefreshCcw, Trash2 } from "lucide-react";
-import { parseAsString, useQueryState } from "nuqs";
-import { useEffect, useMemo, useState } from "react";
+import { Pencil, RefreshCcw, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import {
   type ConnectionPayload,
@@ -37,7 +36,6 @@ import { InlineAlert } from "@/shared/ui/inline-alert";
 import { Modal, ModalContent, ModalPanel } from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Progress } from "@/shared/ui/progress";
-import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 import { SurfaceCard } from "@/shared/ui/surface-card";
@@ -55,10 +53,6 @@ export function CodexUsagePage() {
     kind: "closed",
   });
   const [feedback, setFeedback] = useState<FeedbackState>(null);
-  const [providerFilter, setProviderFilter] = useQueryState(
-    "provider",
-    parseAsString.withDefault("all"),
-  );
 
   const providersQuery = useQuery({
     queryFn: listProviders,
@@ -69,43 +63,15 @@ export function CodexUsagePage() {
     () => providersQuery.data ?? [],
     [providersQuery.data],
   );
-  const providerOptions = [
-    { label: "All providers", value: "all" },
-    ...providers.map((provider) => ({
-      label: provider.name,
-      value: provider.id,
-    })),
-  ];
-  const quotaConnections = providers.flatMap((provider) =>
-    provider.connections.map((connection) => ({
-      connection,
-      providerID: provider.id,
-      providerName: provider.name,
-    })),
-  );
-
-  useEffect(() => {
-    if (providerFilter === "all") {
-      return;
-    }
-
-    const providerExists = providers.some(
-      (provider) => provider.id === providerFilter,
-    );
-    if (!providerExists) {
-      void setProviderFilter("all");
-    }
-  }, [providerFilter, providers, setProviderFilter]);
-
-  const selectedProvider =
-    providerFilter === "all"
-      ? null
-      : (providers.find((provider) => provider.id === providerFilter) ?? null);
-
-  const filteredConnections =
-    providerFilter === "all"
-      ? quotaConnections
-      : quotaConnections.filter((item) => item.providerID === providerFilter);
+  const codexProvider =
+    providers.find((provider) => provider.id === "cx") ?? null;
+  const quotaConnections = codexProvider
+    ? codexProvider.connections.map((connection) => ({
+        connection,
+        providerID: codexProvider.id,
+        providerName: codexProvider.name,
+      }))
+    : [];
   const editingRecord =
     modalState.kind === "edit"
       ? (quotaConnections.find(
@@ -234,26 +200,17 @@ export function CodexUsagePage() {
   return (
     <section className="space-y-4 pb-5">
       <PageHeader
-        description="Live quota snapshots across your provider connections."
+        description="Live quota snapshots for your Codex connections."
         eyebrow="Quota"
         title="Quota Tracker"
       >
-        <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:items-end">
-          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-            <StatusBadge tone="info" size="sm">
-              On-demand only
-            </StatusBadge>
-            <ProviderFilterBadge provider={selectedProvider} />
-          </div>
-          <div className="w-full sm:w-[260px]">
-            <Select
-              onValueChange={(value) => {
-                void setProviderFilter(value);
-              }}
-              options={providerOptions}
-              value={providerFilter}
-            />
-          </div>
+        <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+          <StatusBadge tone="info" size="sm">
+            On-demand only
+          </StatusBadge>
+          <ProviderFilterBadge
+            provider={codexProvider ?? { id: "cx", name: "Codex" }}
+          />
         </div>
       </PageHeader>
 
@@ -287,10 +244,10 @@ export function CodexUsagePage() {
         <SurfaceCard className="p-5" tone="solid">
           <div className="space-y-2">
             <p className="text-fg-primary text-sm font-semibold">
-              No provider connections yet
+              No Codex connections yet
             </p>
             <p className="text-fg-secondary text-sm leading-6">
-              Add a provider connection from the registry, then return here to
+              Add a Codex connection from the registry, then return here to
               inspect quota.
             </p>
           </div>
@@ -299,59 +256,40 @@ export function CodexUsagePage() {
 
       {!providersQuery.isPending &&
       !providersQuery.isError &&
-      quotaConnections.length > 0 &&
-      filteredConnections.length === 0 ? (
-        <SurfaceCard className="p-5" tone="solid">
-          <div className="space-y-2">
-            <p className="text-fg-primary text-sm font-semibold">
-              No connections match this filter
-            </p>
-            <p className="text-fg-secondary text-sm leading-6">
-              Switch back to All providers or choose another provider to inspect
-              available quota data.
-            </p>
-          </div>
-        </SurfaceCard>
-      ) : null}
-
-      {!providersQuery.isPending &&
-      !providersQuery.isError &&
-      filteredConnections.length > 0 ? (
+      quotaConnections.length > 0 ? (
         <div className="grid gap-3 md:grid-cols-2">
-          {filteredConnections.map(
-            ({ connection, providerID, providerName }) => (
-              <CodexUsageCard
-                busyDeleting={
-                  deleteConnectionMutation.isPending &&
-                  deleteConnectionMutation.variables === connection.id
-                }
-                busyToggling={
-                  updateConnectionEnabledMutation.isPending &&
-                  updateConnectionEnabledMutation.variables?.connection.id ===
-                    connection.id
-                }
-                connection={connection}
-                key={connection.id}
-                providerID={providerID}
-                providerName={providerName}
-                onDelete={async () => {
-                  setFeedback(null);
-                  await deleteConnectionMutation.mutateAsync(connection.id);
-                }}
-                onEdit={() => {
-                  setFeedback(null);
-                  setModalState({ connectionId: connection.id, kind: "edit" });
-                }}
-                onToggleEnabled={async (enabled) => {
-                  setFeedback(null);
-                  await updateConnectionEnabledMutation.mutateAsync({
-                    connection,
-                    enabled,
-                  });
-                }}
-              />
-            ),
-          )}
+          {quotaConnections.map(({ connection, providerID, providerName }) => (
+            <CodexUsageCard
+              busyDeleting={
+                deleteConnectionMutation.isPending &&
+                deleteConnectionMutation.variables === connection.id
+              }
+              busyToggling={
+                updateConnectionEnabledMutation.isPending &&
+                updateConnectionEnabledMutation.variables?.connection.id ===
+                  connection.id
+              }
+              connection={connection}
+              key={connection.id}
+              providerID={providerID}
+              providerName={providerName}
+              onDelete={async () => {
+                setFeedback(null);
+                await deleteConnectionMutation.mutateAsync(connection.id);
+              }}
+              onEdit={() => {
+                setFeedback(null);
+                setModalState({ connectionId: connection.id, kind: "edit" });
+              }}
+              onToggleEnabled={async (enabled) => {
+                setFeedback(null);
+                await updateConnectionEnabledMutation.mutateAsync({
+                  connection,
+                  enabled,
+                });
+              }}
+            />
+          ))}
         </div>
       ) : null}
 
@@ -381,27 +319,23 @@ export function CodexUsagePage() {
 function ProviderFilterBadge({
   provider,
 }: {
-  provider: { id: string; name: string } | null;
+  provider: { id: string; name: string };
 }) {
   return (
     <div className="border-border/70 bg-bg-secondary flex items-center gap-2 rounded-[16px] border px-3 py-2">
       <div className="border-border/70 flex size-8 items-center justify-center overflow-hidden rounded-[10px] border bg-[#080808]">
-        {provider ? (
-          <img
-            alt=""
-            className="size-full object-cover"
-            src={`/images/providers/${provider.id}.png`}
-          />
-        ) : (
-          <Layers3 className="size-4 text-white" />
-        )}
+        <img
+          alt=""
+          className="size-full object-cover"
+          src={`/images/providers/${provider.id}.png`}
+        />
       </div>
       <div className="min-w-0">
         <p className="text-fg-muted text-[10px] font-semibold tracking-[0.18em] uppercase">
-          Provider filter
+          Provider
         </p>
         <p className="text-fg-primary truncate text-sm font-semibold">
-          {provider?.name ?? "All providers"}
+          {provider.name}
         </p>
       </div>
     </div>
