@@ -35,6 +35,20 @@ go.work.sum
 .DS_Store
 Thumbs.db
 
+# Xcode / macOS app
+DerivedData/
+build/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+*.xcuserdatad/
+
 # Cache
 .gocache/
 .gomodcache/
