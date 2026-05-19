@@ -182,13 +182,13 @@ export type AIRequestLogFlow = {
   request_headers: string;
   request_id: string;
   request_mode: string;
-  response_body: string;
+  response_body: string | null;
   response_headers: string;
   response_status_code: number;
   run_id: number;
   started_at: number;
   translated_request_body: string;
-  translated_response_body: string;
+  translated_response_body: string | null;
   type: string;
   updated_at: number;
   user_agent: string;
@@ -213,7 +213,7 @@ export type AIRequestLogThirdParty = {
   request_method: string;
   request_mode: string;
   request_url: string;
-  response_body: string;
+  response_body: string | null;
   response_headers: string;
   response_status_code: number;
   run_id: number;

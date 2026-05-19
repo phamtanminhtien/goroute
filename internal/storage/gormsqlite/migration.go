@@ -25,5 +25,14 @@ func (r *Repository) Migrate() error {
 		return fmt.Errorf("migrate sqlite database: %w", err)
 	}
 
+	for _, column := range []string{"ResponseBody", "TranslatedResponseBody"} {
+		if err := r.db.Migrator().AlterColumn(&airequestlog.FlowRecord{}, column); err != nil {
+			return fmt.Errorf("relax ai request flow column %s nullability: %w", column, err)
+		}
+	}
+	if err := r.db.Migrator().AlterColumn(&airequestlog.ThirdPartyRequestLogRecord{}, "ResponseBody"); err != nil {
+		return fmt.Errorf("relax third party request log response body nullability: %w", err)
+	}
+
 	return nil
 }

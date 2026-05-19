@@ -176,10 +176,18 @@ describe("ai request logs pages", () => {
     await user.click(screen.getByRole("tab", { name: /flow/i }));
     expect(screen.getByText(/translated request body/i)).toBeInTheDocument();
     expect(screen.getAllByText(/gpt-5.4/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(
+        /stream data is not available for streaming requests/i,
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
 
     await user.click(screen.getByRole("tab", { name: /upstream attempts/i }));
     expect(screen.getByText(/attempt 0/i)).toBeInTheDocument();
     expect(screen.getByText(/rate limited/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/stream data is not available for streaming requests/i),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: /^rtk$/i }));
     expect(screen.getByText(/dedup-log/i)).toBeInTheDocument();
@@ -224,13 +232,13 @@ function buildDetailResponse() {
       request_headers: `{"Authorization":["REDACTED"]}`,
       request_id: "req-detail",
       request_mode: "stream",
-      response_body: `{"id":"chatcmpl-1"}`,
+      response_body: null,
       response_headers: `{"Content-Type":["application/json"]}`,
       response_status_code: 200,
       run_id: 1,
       started_at: 1778895600000,
       translated_request_body: `{"model":"gpt-5.4"}`,
-      translated_response_body: "",
+      translated_response_body: null,
       type: "completions",
       updated_at: 1778895601200,
       user_agent: "vitest",
@@ -300,7 +308,7 @@ function buildDetailResponse() {
         request_method: "POST",
         request_mode: "stream",
         request_url: "https://chatgpt.com/backend-api/codex",
-        response_body: "",
+        response_body: null,
         response_headers: "",
         response_status_code: 429,
         run_id: 1,

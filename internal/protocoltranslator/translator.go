@@ -22,6 +22,7 @@ const (
 	responsesInputTypeFunctionCall       = "function_call"
 	responsesInputTypeFunctionCallOutput = "function_call_output"
 	responsesInputContentTypeInputText   = "input_text"
+	responsesInputContentTypeOutputText  = "output_text"
 	responsesInputContentTypeInputImage  = "input_image"
 	chatCompletionsStreamObject          = "chat.completion.chunk"
 	chatCompletionsObject                = "chat.completion"
@@ -43,7 +44,7 @@ func ChatCompletionsToResponses(req openaiwire.ChatCompletionsRequest) (openaiwi
 				instructions = append(instructions, text)
 			}
 		case openaiwire.ChatRoleUser, openaiwire.ChatRoleAssistant:
-			content, err := translateChatMessageContent(message.Content)
+			content, err := translateChatMessageContent(message.Role, message.Content)
 			if err != nil {
 				return openaiwire.ResponsesRequest{}, fmt.Errorf("messages[%d].content: %w", index, err)
 			}
@@ -196,7 +197,7 @@ func ResponsesToChatCompletion(response openaiwire.ResponsesResponse) openaiwire
 	}
 
 	out := openaiwire.ChatCompletionsResponse{
-		ID:      response.ID,
+		ID:      chatCompletionID(response.ID),
 		Object:  chatCompletionsObject,
 		Created: response.CreatedAt,
 		Model:   response.Model,
@@ -285,13 +286,18 @@ func ChatCompletionToResponses(response openaiwire.ChatCompletionsResponse) open
 	return out
 }
 
-func translateChatMessageContent(content openaiwire.ChatMessageContent) ([]openaiwire.ResponseInputContentPart, error) {
+func translateChatMessageContent(role openaiwire.ChatRole, content openaiwire.ChatMessageContent) ([]openaiwire.ResponseInputContentPart, error) {
+	textContentType := responsesInputContentTypeInputText
+	if role == openaiwire.ChatRoleAssistant {
+		textContentType = responsesInputContentTypeOutputText
+	}
+
 	if !content.IsParts() {
 		if content.Text() == "" {
 			return nil, nil
 		}
 		return []openaiwire.ResponseInputContentPart{{
-			Type: responsesInputContentTypeInputText,
+			Type: textContentType,
 			Text: content.Text(),
 		}}, nil
 	}
@@ -302,7 +308,7 @@ func translateChatMessageContent(content openaiwire.ChatMessageContent) ([]opena
 		switch part.Type {
 		case "text":
 			out = append(out, openaiwire.ResponseInputContentPart{
-				Type: responsesInputContentTypeInputText,
+				Type: textContentType,
 				Text: part.Text,
 			})
 		case "image_url":
@@ -470,7 +476,7 @@ func responseInputItemToChatMessages(item openaiwire.ResponseInputItem) ([]opena
 		if role == "" {
 			role = openaiwire.ChatRoleUser
 		}
-		content, err := responseInputContentToChat(item.Content)
+		content, err := responseInputContentToChat(role, item.Content)
 		if err != nil {
 			return nil, err
 		}
@@ -501,18 +507,21 @@ func responseInputItemToChatMessages(item openaiwire.ResponseInputItem) ([]opena
 	}
 }
 
-func responseInputContentToChat(parts []openaiwire.ResponseInputContentPart) (openaiwire.ChatMessageContent, error) {
+func responseInputContentToChat(role openaiwire.ChatRole, parts []openaiwire.ResponseInputContentPart) (openaiwire.ChatMessageContent, error) {
 	if len(parts) == 0 {
 		return openaiwire.TextContent(""), nil
 	}
-	if len(parts) == 1 && parts[0].Type == responsesInputContentTypeInputText {
+	if len(parts) == 1 && isResponsesTextContent(role, parts[0].Type) {
 		return openaiwire.TextContent(parts[0].Text), nil
 	}
 
 	out := make([]openaiwire.ChatMessageContentPart, 0, len(parts))
 	for index, part := range parts {
 		switch part.Type {
-		case responsesInputContentTypeInputText:
+		case responsesInputContentTypeInputText, responsesInputContentTypeOutputText:
+			if !isResponsesTextContent(role, part.Type) {
+				return openaiwire.ChatMessageContent{}, fmt.Errorf("content[%d].type %q is not supported for role %q by chat completions translation", index, part.Type, role)
+			}
 			out = append(out, openaiwire.ChatMessageContentPart{Type: "text", Text: part.Text})
 		case responsesInputContentTypeInputImage:
 			if part.ImageURL == "" {
@@ -530,6 +539,15 @@ func responseInputContentToChat(parts []openaiwire.ResponseInputContentPart) (op
 		}
 	}
 	return openaiwire.PartsContent(out...), nil
+}
+
+func isResponsesTextContent(role openaiwire.ChatRole, contentType string) bool {
+	switch role {
+	case openaiwire.ChatRoleAssistant:
+		return contentType == responsesInputContentTypeOutputText
+	default:
+		return contentType == responsesInputContentTypeInputText
+	}
 }
 
 func translateRawResponsesToolsToChat(raw json.RawMessage) ([]openaiwire.Tool, error) {
@@ -736,6 +754,7 @@ type chatStreamState struct {
 	toolCallsByKey       map[string]toolCallState
 	toolCallOrder        []string
 	outputIndexToToolKey map[int]string
+	doneSent             bool
 }
 
 type toolCallState struct {
@@ -762,6 +781,7 @@ func ResponsesStreamToChatCompletions(body io.ReadCloser) io.ReadCloser {
 		buffered := bufio.NewScanner(body)
 		buffered.Buffer(make([]byte, 0, 1024), 1024*1024)
 		dataLines := make([]string, 0, 4)
+		sawPayload := false
 
 		flushEvent := func() error {
 			if len(dataLines) == 0 {
@@ -769,6 +789,9 @@ func ResponsesStreamToChatCompletions(body io.ReadCloser) io.ReadCloser {
 			}
 			payload := strings.Join(dataLines, "\n")
 			dataLines = dataLines[:0]
+			if strings.TrimSpace(payload) != "" {
+				sawPayload = true
+			}
 			return state.writeTranslatedEvent(writer, payload)
 		}
 
@@ -791,6 +814,12 @@ func ResponsesStreamToChatCompletions(body io.ReadCloser) io.ReadCloser {
 		}
 		if err := flushEvent(); err != nil {
 			_ = writer.CloseWithError(err)
+			return
+		}
+		if sawPayload {
+			if err := state.writeDone(writer); err != nil {
+				_ = writer.CloseWithError(err)
+			}
 		}
 	}()
 
@@ -802,13 +831,7 @@ func (s *chatStreamState) writeTranslatedEvent(w io.Writer, payload string) erro
 		return nil
 	}
 	if payload == "[DONE]" {
-		if !s.terminalSent {
-			if err := s.writeTerminalChunk(w, nil); err != nil {
-				return err
-			}
-		}
-		_, err := fmt.Fprint(w, "data: [DONE]\n\n")
-		return err
+		return s.writeDone(w)
 	}
 
 	var envelope map[string]json.RawMessage
@@ -852,8 +875,10 @@ func (s *chatStreamState) writeTranslatedEvent(w io.Writer, payload string) erro
 		return s.writeFunctionArgumentDelta(w, envelope)
 	case responsesEventFunctionArgsDone:
 		return nil
-	case responsesEventOutputItemAdded, string(openaiwire.ResponsesStreamEventTypeOutputItemDone):
-		return s.writeOutputItemEvent(w, envelope)
+	case responsesEventOutputItemAdded:
+		return s.writeOutputItemEvent(w, envelope, false)
+	case string(openaiwire.ResponsesStreamEventTypeOutputItemDone):
+		return s.writeOutputItemEvent(w, envelope, true)
 	case string(openaiwire.ResponsesStreamEventTypeCompleted):
 		return s.writeTerminalChunk(w, envelope["response"])
 	default:
@@ -861,7 +886,21 @@ func (s *chatStreamState) writeTranslatedEvent(w io.Writer, payload string) erro
 	}
 }
 
-func (s *chatStreamState) writeOutputItemEvent(w io.Writer, envelope map[string]json.RawMessage) error {
+func (s *chatStreamState) writeDone(w io.Writer) error {
+	if s.doneSent {
+		return nil
+	}
+	s.doneSent = true
+	if !s.terminalSent {
+		if err := s.writeTerminalChunk(w, nil); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprint(w, "data: [DONE]\n\n")
+	return err
+}
+
+func (s *chatStreamState) writeOutputItemEvent(w io.Writer, envelope map[string]json.RawMessage, itemDone bool) error {
 	rawItem := envelope["item"]
 	if len(rawItem) == 0 {
 		return nil
@@ -903,6 +942,9 @@ func (s *chatStreamState) writeOutputItemEvent(w io.Writer, envelope map[string]
 	case openaiwire.OutputItemTypeFunctionCall:
 		key := s.registerToolCall(item, outputIndex)
 		state := s.toolCallsByKey[key]
+		if itemDone && (state.MetadataSent || state.Arguments != "") {
+			return nil
+		}
 		if state.MetadataSent && item.Arguments == "" {
 			return nil
 		}
@@ -1064,7 +1106,7 @@ func (s *chatStreamState) captureResponseEnvelope(envelope map[string]json.RawMe
 
 func (s *chatStreamState) captureResponse(response openaiwire.ResponsesResponse) {
 	if response.ID != "" {
-		s.id = response.ID
+		s.id = chatCompletionID(response.ID)
 	}
 	if response.CreatedAt != 0 {
 		s.created = response.CreatedAt
@@ -1363,6 +1405,22 @@ func defaultCallID(callID string, fallback string) string {
 		return callID
 	}
 	return strings.TrimSpace(fallback)
+}
+
+func chatCompletionID(responseID string) string {
+	trimmed := strings.TrimSpace(responseID)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "chatcmpl-") {
+		return trimmed
+	}
+	for _, prefix := range []string{"resp_", "resp-"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return "chatcmpl-" + strings.TrimPrefix(trimmed, prefix)
+		}
+	}
+	return "chatcmpl-" + trimmed
 }
 
 func decodeStringField(fields map[string]json.RawMessage, key string) string {

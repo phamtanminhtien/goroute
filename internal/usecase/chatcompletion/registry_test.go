@@ -263,7 +263,7 @@ func TestConnectionRegistryBridgesChatCompletionsThroughResponsesCapability(t *t
 	if err != nil {
 		t.Fatalf("ChatCompletions returned error: %v", err)
 	}
-	if response.ID != "resp" {
+	if response.ID != "chatcmpl-resp" {
 		t.Fatalf("expected bridged responses result, got %q", response.ID)
 	}
 }
@@ -320,13 +320,13 @@ func TestConnectionRegistryLogsChatToResponsesBridgeBeforeAndAfterTranslate(t *t
 	if !strings.Contains(flow.TranslatedRequestBody, `"input"`) || strings.Contains(flow.TranslatedRequestBody, `"messages"`) {
 		t.Fatalf("expected translated request to be responses-shaped upstream body, got %q", flow.TranslatedRequestBody)
 	}
-	if !strings.Contains(flow.ResponseBody, `"object":"response"`) {
-		t.Fatalf("expected raw upstream response body before client translation, got %q", flow.ResponseBody)
+	if !stringPointerContains(flow.ResponseBody, `"object":"response"`) {
+		t.Fatalf("expected raw upstream response body before client translation, got %#v", flow.ResponseBody)
 	}
-	if !strings.Contains(flow.TranslatedResponseBody, `"object":"chat.completion"`) || !strings.Contains(flow.TranslatedResponseBody, `"model":"gpt-5.4"`) {
-		t.Fatalf("expected translated response to be client-facing chat body, got %q", flow.TranslatedResponseBody)
+	if !stringPointerContains(flow.TranslatedResponseBody, `"object":"chat.completion"`) || !stringPointerContains(flow.TranslatedResponseBody, `"model":"gpt-5.4"`) {
+		t.Fatalf("expected translated response to be client-facing chat body, got %#v", flow.TranslatedResponseBody)
 	}
-	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].RequestBody, `"input"`) || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"object":"response"`) {
+	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].RequestBody, `"input"`) || !stringPointerContains(thirdPartyLogs[0].ResponseBody, `"object":"response"`) {
 		t.Fatalf("unexpected third-party bridge logs %#v", thirdPartyLogs)
 	}
 }
@@ -354,13 +354,13 @@ func TestConnectionRegistryLogsResponsesToChatBridgeBeforeAndAfterTranslate(t *t
 	if !strings.Contains(flow.TranslatedRequestBody, `"messages"`) || strings.Contains(flow.TranslatedRequestBody, `"input"`) {
 		t.Fatalf("expected translated request to be chat-shaped upstream body, got %q", flow.TranslatedRequestBody)
 	}
-	if !strings.Contains(flow.ResponseBody, `"object":"chat.completion"`) {
-		t.Fatalf("expected raw upstream response body before client translation, got %q", flow.ResponseBody)
+	if !stringPointerContains(flow.ResponseBody, `"object":"chat.completion"`) {
+		t.Fatalf("expected raw upstream response body before client translation, got %#v", flow.ResponseBody)
 	}
-	if !strings.Contains(flow.TranslatedResponseBody, `"object":"response"`) || !strings.Contains(flow.TranslatedResponseBody, `"model":"gpt-4.1"`) {
-		t.Fatalf("expected translated response to be client-facing responses body, got %q", flow.TranslatedResponseBody)
+	if !stringPointerContains(flow.TranslatedResponseBody, `"object":"response"`) || !stringPointerContains(flow.TranslatedResponseBody, `"model":"gpt-4.1"`) {
+		t.Fatalf("expected translated response to be client-facing responses body, got %#v", flow.TranslatedResponseBody)
 	}
-	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].RequestBody, `"messages"`) || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"object":"chat.completion"`) {
+	if len(thirdPartyLogs) != 1 || !strings.Contains(thirdPartyLogs[0].RequestBody, `"messages"`) || !stringPointerContains(thirdPartyLogs[0].ResponseBody, `"object":"chat.completion"`) {
 		t.Fatalf("unexpected third-party bridge logs %#v", thirdPartyLogs)
 	}
 }

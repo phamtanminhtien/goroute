@@ -366,7 +366,7 @@ func TestAIRequestLogsListAndDetail(t *testing.T) {
 		RequestBody:           `{"model":"cx/gpt-5.4"}`,
 		TranslatedRequestBody: `{"model":"gpt-5.4"}`,
 		ResponseStatusCode:    200,
-		ResponseBody:          `{"id":"chatcmpl-1"}`,
+		ResponseBody:          stringPointer(`{"id":"chatcmpl-1"}`),
 		AttemptTrace:          `[{"connection_id":"codex-1"}]`,
 		StartedAt:             run.StartedAt,
 		CompletedAt:           run.CompletedAt,
@@ -389,7 +389,7 @@ func TestAIRequestLogsListAndDetail(t *testing.T) {
 			RequestMethod:      http.MethodPost,
 			RequestURL:         "https://chatgpt.com/backend-api/codex",
 			ResponseStatusCode: 200,
-			ResponseBody:       `{"ok":true}`,
+			ResponseBody:       stringPointer(`{"ok":true}`),
 			CreatedAt:          run.CreatedAt + 10,
 		},
 		{
@@ -479,10 +479,10 @@ func TestAIRequestLogsListAndDetail(t *testing.T) {
 			RequestBody string `json:"request_body"`
 		} `json:"flow"`
 		ThirdPartyLogs []struct {
-			AttemptIndex int    `json:"attempt_index"`
-			ConnectionID string `json:"connection_id"`
-			ErrorMessage string `json:"error_message"`
-			ResponseBody string `json:"response_body"`
+			AttemptIndex int     `json:"attempt_index"`
+			ConnectionID string  `json:"connection_id"`
+			ErrorMessage string  `json:"error_message"`
+			ResponseBody *string `json:"response_body"`
 		} `json:"third_party_logs"`
 		RTK *struct {
 			Applied bool `json:"applied"`

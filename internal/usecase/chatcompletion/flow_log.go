@@ -502,6 +502,8 @@ func (r *FlowRecorder) SnapshotDetails(completedAt time.Time, runID uint) (aireq
 
 	attemptTrace := marshalJSON(r.attemptTrace)
 	durationMs := completedAt.Sub(r.startedAt).Milliseconds()
+	responseBody := nullableBodyForMode(r.responseBody, defaultString(r.providerRequestMode, r.requestMode))
+	translatedResponseBody := nullableBodyForMode(r.translatedResponseBody, r.requestMode)
 	flow := airequestlog.FlowRecord{
 		RunID:                  runID,
 		RequestID:              r.requestID,
@@ -523,8 +525,8 @@ func (r *FlowRecorder) SnapshotDetails(completedAt time.Time, runID uint) (aireq
 		AttemptTrace:           attemptTrace,
 		ResponseStatusCode:     r.responseStatusCode,
 		ResponseHeaders:        r.responseHeaders,
-		ResponseBody:           r.responseBody,
-		TranslatedResponseBody: r.translatedResponseBody,
+		ResponseBody:           responseBody,
+		TranslatedResponseBody: translatedResponseBody,
 		ErrorType:              r.errorType,
 		ErrorMessage:           r.errorMessage,
 		StartedAt:              r.startedAt.UnixMilli(),
@@ -551,7 +553,7 @@ func (r *FlowRecorder) SnapshotDetails(completedAt time.Time, runID uint) (aireq
 			RequestBody:         current.RequestBody,
 			ResponseStatusCode:  current.ResponseStatusCode,
 			ResponseHeaders:     current.ResponseHeaders,
-			ResponseBody:        current.ResponseBody,
+			ResponseBody:        nullableBodyForMode(current.ResponseBody, defaultString(current.ProviderRequestMode, current.RequestMode)),
 			ErrorType:           current.ErrorType,
 			ErrorMessage:        current.ErrorMessage,
 			StartedAt:           current.StartedAt.UnixMilli(),
@@ -590,6 +592,13 @@ func (r *FlowRecorder) SnapshotRTK(runID uint) (airequestlog.RTKRecord, bool) {
 		HitCount:     r.rtkSummary.HitCount,
 		FieldCount:   r.rtkSummary.FieldCount,
 	}, true
+}
+
+func nullableBodyForMode(body string, mode string) *string {
+	if mode == RequestModeStream {
+		return nil
+	}
+	return &body
 }
 
 func CaptureStream(body io.ReadCloser, finalize func([]byte, error)) io.ReadCloser {

@@ -187,11 +187,14 @@ func TestClientResponsesStreamRecordsReconstructedResponse(t *testing.T) {
 	if thirdPartyLogs[0].ResponseStatusCode != http.StatusOK {
 		t.Fatalf("expected third-party log to capture status code, got %#v", thirdPartyLogs[0])
 	}
-	if !strings.Contains(flow.TranslatedResponseBody, `"id":"resp_2"`) {
-		t.Fatalf("expected reconstructed response in flow log, got %q", flow.TranslatedResponseBody)
+	if flow.ResponseBody != nil {
+		t.Fatalf("expected provider stream response body to be nil, got %q", *flow.ResponseBody)
 	}
-	if !strings.Contains(flow.TranslatedResponseBody, `"model":"combo/fast"`) {
-		t.Fatalf("expected normalized model in flow log, got %q", flow.TranslatedResponseBody)
+	if flow.TranslatedResponseBody == nil || !strings.Contains(*flow.TranslatedResponseBody, `"id":"resp_2"`) {
+		t.Fatalf("expected reconstructed response in flow log, got %#v", flow.TranslatedResponseBody)
+	}
+	if flow.TranslatedResponseBody == nil || !strings.Contains(*flow.TranslatedResponseBody, `"model":"combo/fast"`) {
+		t.Fatalf("expected normalized model in flow log, got %#v", flow.TranslatedResponseBody)
 	}
 	if flow.ProviderRequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("expected provider request mode stream, got %q", flow.ProviderRequestMode)
