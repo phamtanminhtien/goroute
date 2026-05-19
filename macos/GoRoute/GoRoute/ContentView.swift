@@ -264,7 +264,7 @@ struct ContentView: View {
             Spacer()
 
             Button {
-                openInSafari()
+                openInDefaultBrowser()
             } label: {
                 Label("Safari", systemImage: "safari")
             }
@@ -374,18 +374,12 @@ struct ContentView: View {
             ?? ISO8601DateFormatter.goroute.date(from: value)
     }
 
-    private func openInSafari() {
+    private func openInDefaultBrowser() {
         guard let url = URL(string: "http://127.0.0.1:12232") else {
             return
         }
 
-        let safariURL = URL(fileURLWithPath: "/Applications/Safari.app")
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open(
-            [url],
-            withApplicationAt: safariURL,
-            configuration: configuration
-        )
+        NSWorkspace.shared.open(url)
     }
 }
 
