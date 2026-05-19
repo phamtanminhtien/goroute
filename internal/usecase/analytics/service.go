@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/domain/airequestlog"
@@ -28,6 +29,14 @@ type Repository interface {
 	AnalyticsRecentRequests(filters Filters, limit int) ([]RecentRequestAggregate, error)
 	AnalyticsRequestLogs(filters Filters, limit int, offset int) ([]RecentRequestAggregate, error)
 	AnalyticsRequestLogDetail(requestID string) (RequestLogRecords, error)
+}
+
+type CatalogSource interface {
+	Catalog() provider.Catalog
+}
+
+type ProviderModelRepository interface {
+	ListProviderModels() ([]provider.ModelRecord, error)
 }
 
 type Bucket string
@@ -151,8 +160,11 @@ type RequestLogDetail struct {
 
 type Service struct {
 	repo          Repository
+	pricingMu     sync.RWMutex
 	inputPricing  map[string]float64
 	outputPricing map[string]float64
+	catalogSource CatalogSource
+	modelRepo     ProviderModelRepository
 }
 
 func NewService(repo Repository, catalog provider.Catalog) *Service {
@@ -170,6 +182,43 @@ func NewService(repo Repository, catalog provider.Catalog) *Service {
 	}
 
 	return service
+}
+
+func NewServiceWithPricingSource(repo Repository, catalogSource CatalogSource, modelRepo ProviderModelRepository) *Service {
+	service := NewService(repo, catalogSource.Catalog())
+	service.catalogSource = catalogSource
+	service.modelRepo = modelRepo
+	return service
+}
+
+func (s *Service) refreshPricing() error {
+	if s.catalogSource == nil {
+		return nil
+	}
+
+	catalog := s.catalogSource.Catalog()
+	if s.modelRepo != nil {
+		records, err := s.modelRepo.ListProviderModels()
+		if err != nil {
+			return err
+		}
+		catalog = catalog.WithModelRecords(records)
+	}
+
+	inputPricing := make(map[string]float64)
+	outputPricing := make(map[string]float64)
+	for _, item := range catalog.Providers {
+		for _, model := range item.Models {
+			inputPricing[model.ID] = model.InputPricePerMillionUSD
+			outputPricing[model.ID] = model.OutputPricePerMillionUSD
+		}
+	}
+
+	s.pricingMu.Lock()
+	defer s.pricingMu.Unlock()
+	s.inputPricing = inputPricing
+	s.outputPricing = outputPricing
+	return nil
 }
 
 func ParseFilters(values url.Values) (Filters, error) {
@@ -285,6 +334,10 @@ func ParseLimit(value string) (int, error) {
 }
 
 func (s *Service) Summary(filters Filters) (SummaryResult, error) {
+	if err := s.refreshPricing(); err != nil {
+		return SummaryResult{}, err
+	}
+
 	summary, err := s.repo.AnalyticsSummary(filters)
 	if err != nil {
 		return SummaryResult{}, err
@@ -355,6 +408,10 @@ func (s *Service) previousSummary(filters Filters) (SummaryResult, error) {
 }
 
 func (s *Service) Timeseries(filters Filters, bucket Bucket) ([]TimeseriesPoint, error) {
+	if err := s.refreshPricing(); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.repo.AnalyticsTimeseries(filters, bucket)
 	if err != nil {
 		return nil, err
@@ -397,6 +454,10 @@ func (s *Service) Timeseries(filters Filters, bucket Bucket) ([]TimeseriesPoint,
 }
 
 func (s *Service) ProviderBreakdown(filters Filters) ([]ProviderBreakdownItem, error) {
+	if err := s.refreshPricing(); err != nil {
+		return nil, err
+	}
+
 	items, err := s.repo.AnalyticsProviderBreakdown(filters)
 	if err != nil {
 		return nil, err
@@ -440,6 +501,10 @@ func (s *Service) ProviderBreakdown(filters Filters) ([]ProviderBreakdownItem, e
 }
 
 func (s *Service) RecentRequests(filters Filters, limit int) (RecentRequestsPage, error) {
+	if err := s.refreshPricing(); err != nil {
+		return RecentRequestsPage{}, err
+	}
+
 	rows, err := s.repo.AnalyticsRecentRequests(filters, limit+1)
 	if err != nil {
 		return RecentRequestsPage{}, err
@@ -465,6 +530,10 @@ func (s *Service) RecentRequests(filters Filters, limit int) (RecentRequestsPage
 }
 
 func (s *Service) RequestLogs(filters Filters, limit int, page int) (RecentRequestsPage, error) {
+	if err := s.refreshPricing(); err != nil {
+		return RecentRequestsPage{}, err
+	}
+
 	offset := (page - 1) * limit
 	rows, err := s.repo.AnalyticsRequestLogs(filters, limit+1, offset)
 	if err != nil {
@@ -491,6 +560,10 @@ func (s *Service) RequestLogs(filters Filters, limit int, page int) (RecentReque
 }
 
 func (s *Service) RequestLogDetail(requestID string) (RequestLogDetail, error) {
+	if err := s.refreshPricing(); err != nil {
+		return RequestLogDetail{}, err
+	}
+
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
 		return RequestLogDetail{}, ErrRequestLogNotFound
@@ -519,6 +592,9 @@ func (s *Service) calculateCost(model string, inputTokens int64, outputTokens in
 }
 
 func (s *Service) calculateCostByModel(inputTokens int64, outputTokens int64, model string) float64 {
+	s.pricingMu.RLock()
+	defer s.pricingMu.RUnlock()
+
 	inputPrice := s.inputPricing[model]
 	outputPrice := s.outputPricing[model]
 

@@ -33,7 +33,7 @@ func NewServer(catalog catalogSource, connectionRegistry *chatcompletion.Connect
 }, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
-	analyticsService := analytics.NewService(requestLogRepo, catalog.Catalog())
+	analyticsService := analytics.NewServiceWithPricingSource(requestLogRepo, catalog, modelRepo)
 
 	router.Handle("/healthz", health.Handler())
 	router.Handle("/v1/models", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, modelsHandler(catalog, modelRepo, modelComboRepo)))
