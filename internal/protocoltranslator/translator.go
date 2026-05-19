@@ -197,7 +197,7 @@ func ResponsesToChatCompletion(response openaiwire.ResponsesResponse) openaiwire
 	}
 
 	out := openaiwire.ChatCompletionsResponse{
-		ID:      response.ID,
+		ID:      chatCompletionID(response.ID),
 		Object:  chatCompletionsObject,
 		Created: response.CreatedAt,
 		Model:   response.Model,
@@ -1106,7 +1106,7 @@ func (s *chatStreamState) captureResponseEnvelope(envelope map[string]json.RawMe
 
 func (s *chatStreamState) captureResponse(response openaiwire.ResponsesResponse) {
 	if response.ID != "" {
-		s.id = response.ID
+		s.id = chatCompletionID(response.ID)
 	}
 	if response.CreatedAt != 0 {
 		s.created = response.CreatedAt
@@ -1405,6 +1405,22 @@ func defaultCallID(callID string, fallback string) string {
 		return callID
 	}
 	return strings.TrimSpace(fallback)
+}
+
+func chatCompletionID(responseID string) string {
+	trimmed := strings.TrimSpace(responseID)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "chatcmpl-") {
+		return trimmed
+	}
+	for _, prefix := range []string{"resp_", "resp-"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return "chatcmpl-" + strings.TrimPrefix(trimmed, prefix)
+		}
+	}
+	return "chatcmpl-" + trimmed
 }
 
 func decodeStringField(fields map[string]json.RawMessage, key string) string {

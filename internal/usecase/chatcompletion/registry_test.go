@@ -263,7 +263,7 @@ func TestConnectionRegistryBridgesChatCompletionsThroughResponsesCapability(t *t
 	if err != nil {
 		t.Fatalf("ChatCompletions returned error: %v", err)
 	}
-	if response.ID != "resp" {
+	if response.ID != "chatcmpl-resp" {
 		t.Fatalf("expected bridged responses result, got %q", response.ID)
 	}
 }

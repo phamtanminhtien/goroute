@@ -127,6 +127,41 @@ func TestResponsesToChatCompletionsMapsInputAndTools(t *testing.T) {
 	}
 }
 
+func TestResponsesToChatCompletionNormalizesID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{name: "underscore responses id", id: "resp_2", want: "chatcmpl-2"},
+		{name: "hyphen responses id", id: "resp-2", want: "chatcmpl-2"},
+		{name: "already chat completion id", id: "chatcmpl-2", want: "chatcmpl-2"},
+		{name: "unknown id", id: "custom_2", want: "chatcmpl-custom_2"},
+		{name: "empty id", id: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			translated := ResponsesToChatCompletion(openaiwire.ResponsesResponse{
+				ID:        tt.id,
+				CreatedAt: 456,
+				Model:     "cx/gpt-5.4",
+				Output: []openaiwire.OutputItem{{
+					Type: openaiwire.OutputItemTypeMessage,
+					Role: string(openaiwire.ChatRoleAssistant),
+					Content: []openaiwire.OutputContent{{
+						Type: openaiwire.OutputContentTypeOutputText,
+						Text: "hello",
+					}},
+				}},
+			})
+			if translated.ID != tt.want {
+				t.Fatalf("expected id %q, got %q", tt.want, translated.ID)
+			}
+		})
+	}
+}
+
 func TestResponsesStreamToChatCompletionsTranslatesSSE(t *testing.T) {
 	body := ResponsesStreamToChatCompletions(io.NopCloser(strings.NewReader(
 		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_2\",\"object\":\"response\",\"created_at\":456,\"status\":\"in_progress\",\"model\":\"cx/gpt-5.4\",\"output\":[]}}\n\n" +
@@ -144,6 +179,9 @@ func TestResponsesStreamToChatCompletionsTranslatesSSE(t *testing.T) {
 	streamText := string(data)
 	if !strings.Contains(streamText, `"object":"chat.completion.chunk"`) || !strings.Contains(streamText, `"content":"hello "`) || !strings.Contains(streamText, `"content":"world"`) {
 		t.Fatalf("expected translated chat chunks, got %q", streamText)
+	}
+	if !strings.Contains(streamText, `"id":"chatcmpl-2"`) || strings.Contains(streamText, `"id":"resp_2"`) {
+		t.Fatalf("expected normalized chat completion id, got %q", streamText)
 	}
 	if !strings.Contains(streamText, `"finish_reason":"stop"`) || !strings.Contains(streamText, `data: [DONE]`) {
 		t.Fatalf("expected translated terminal events, got %q", streamText)
