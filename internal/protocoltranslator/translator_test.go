@@ -59,6 +59,39 @@ func TestChatCompletionsToResponsesIncludesToolsAndToolOutputs(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsToResponsesUsesOutputTextForAssistantHistory(t *testing.T) {
+	translated, err := ChatCompletionsToResponses(openaiwire.ChatCompletionsRequest{
+		Model: "cx/gpt-5.4-mini",
+		Messages: []openaiwire.ChatMessage{
+			{Role: openaiwire.ChatRoleAssistant, Content: openaiwire.TextContent("previous answer")},
+			{Role: openaiwire.ChatRoleUser, Content: openaiwire.TextContent("next question")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletionsToResponses returned error: %v", err)
+	}
+
+	var payload struct {
+		Input []struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(translated.RawBody, &payload); err != nil {
+		t.Fatalf("decode raw body: %v", err)
+	}
+
+	if got := payload.Input[0].Content[0].Type; got != "output_text" {
+		t.Fatalf("expected assistant history to use output_text, got %q", got)
+	}
+	if got := payload.Input[1].Content[0].Type; got != "input_text" {
+		t.Fatalf("expected user input to use input_text, got %q", got)
+	}
+}
+
 func TestResponsesToChatCompletionsMapsInputAndTools(t *testing.T) {
 	translated, err := ResponsesToChatCompletions(openaiwire.ResponsesRequest{
 		RawBody: json.RawMessage(`{
@@ -66,6 +99,7 @@ func TestResponsesToChatCompletionsMapsInputAndTools(t *testing.T) {
 			"instructions":"be terse",
 			"input":[
 				{"type":"message","role":"user","content":[{"type":"input_text","text":"inspect"},{"type":"input_image","image_url":"https://example.com/image.png","detail":"high"}]},
+				{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]},
 				{"type":"function_call_output","call_id":"call_1","output":"sunny"}
 			],
 			"tools":[{"type":"function","name":"lookup_weather","parameters":{"type":"object"}}],
@@ -76,14 +110,17 @@ func TestResponsesToChatCompletionsMapsInputAndTools(t *testing.T) {
 		t.Fatalf("ResponsesToChatCompletions returned error: %v", err)
 	}
 
-	if len(translated.Messages) != 3 || translated.Messages[0].Role != openaiwire.ChatRoleSystem {
+	if len(translated.Messages) != 4 || translated.Messages[0].Role != openaiwire.ChatRoleSystem {
 		t.Fatalf("unexpected translated messages %#v", translated.Messages)
 	}
 	if !translated.Messages[1].Content.IsParts() {
 		t.Fatalf("expected image input to translate to chat content parts")
 	}
-	if translated.Messages[2].Role != openaiwire.ChatRoleTool || translated.Messages[2].ToolCallID != "call_1" {
-		t.Fatalf("unexpected tool output message %#v", translated.Messages[2])
+	if translated.Messages[2].Role != openaiwire.ChatRoleAssistant || translated.Messages[2].Content.Text() != "done" {
+		t.Fatalf("unexpected assistant message %#v", translated.Messages[2])
+	}
+	if translated.Messages[3].Role != openaiwire.ChatRoleTool || translated.Messages[3].ToolCallID != "call_1" {
+		t.Fatalf("unexpected tool output message %#v", translated.Messages[3])
 	}
 	if len(translated.Tools) != 1 || translated.Tools[0].Function.Name != "lookup_weather" {
 		t.Fatalf("unexpected tools %#v", translated.Tools)

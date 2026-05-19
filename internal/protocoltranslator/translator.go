@@ -22,6 +22,7 @@ const (
 	responsesInputTypeFunctionCall       = "function_call"
 	responsesInputTypeFunctionCallOutput = "function_call_output"
 	responsesInputContentTypeInputText   = "input_text"
+	responsesInputContentTypeOutputText  = "output_text"
 	responsesInputContentTypeInputImage  = "input_image"
 	chatCompletionsStreamObject          = "chat.completion.chunk"
 	chatCompletionsObject                = "chat.completion"
@@ -43,7 +44,7 @@ func ChatCompletionsToResponses(req openaiwire.ChatCompletionsRequest) (openaiwi
 				instructions = append(instructions, text)
 			}
 		case openaiwire.ChatRoleUser, openaiwire.ChatRoleAssistant:
-			content, err := translateChatMessageContent(message.Content)
+			content, err := translateChatMessageContent(message.Role, message.Content)
 			if err != nil {
 				return openaiwire.ResponsesRequest{}, fmt.Errorf("messages[%d].content: %w", index, err)
 			}
@@ -285,13 +286,18 @@ func ChatCompletionToResponses(response openaiwire.ChatCompletionsResponse) open
 	return out
 }
 
-func translateChatMessageContent(content openaiwire.ChatMessageContent) ([]openaiwire.ResponseInputContentPart, error) {
+func translateChatMessageContent(role openaiwire.ChatRole, content openaiwire.ChatMessageContent) ([]openaiwire.ResponseInputContentPart, error) {
+	textContentType := responsesInputContentTypeInputText
+	if role == openaiwire.ChatRoleAssistant {
+		textContentType = responsesInputContentTypeOutputText
+	}
+
 	if !content.IsParts() {
 		if content.Text() == "" {
 			return nil, nil
 		}
 		return []openaiwire.ResponseInputContentPart{{
-			Type: responsesInputContentTypeInputText,
+			Type: textContentType,
 			Text: content.Text(),
 		}}, nil
 	}
@@ -302,7 +308,7 @@ func translateChatMessageContent(content openaiwire.ChatMessageContent) ([]opena
 		switch part.Type {
 		case "text":
 			out = append(out, openaiwire.ResponseInputContentPart{
-				Type: responsesInputContentTypeInputText,
+				Type: textContentType,
 				Text: part.Text,
 			})
 		case "image_url":
@@ -470,7 +476,7 @@ func responseInputItemToChatMessages(item openaiwire.ResponseInputItem) ([]opena
 		if role == "" {
 			role = openaiwire.ChatRoleUser
 		}
-		content, err := responseInputContentToChat(item.Content)
+		content, err := responseInputContentToChat(role, item.Content)
 		if err != nil {
 			return nil, err
 		}
@@ -501,18 +507,21 @@ func responseInputItemToChatMessages(item openaiwire.ResponseInputItem) ([]opena
 	}
 }
 
-func responseInputContentToChat(parts []openaiwire.ResponseInputContentPart) (openaiwire.ChatMessageContent, error) {
+func responseInputContentToChat(role openaiwire.ChatRole, parts []openaiwire.ResponseInputContentPart) (openaiwire.ChatMessageContent, error) {
 	if len(parts) == 0 {
 		return openaiwire.TextContent(""), nil
 	}
-	if len(parts) == 1 && parts[0].Type == responsesInputContentTypeInputText {
+	if len(parts) == 1 && isResponsesTextContent(role, parts[0].Type) {
 		return openaiwire.TextContent(parts[0].Text), nil
 	}
 
 	out := make([]openaiwire.ChatMessageContentPart, 0, len(parts))
 	for index, part := range parts {
 		switch part.Type {
-		case responsesInputContentTypeInputText:
+		case responsesInputContentTypeInputText, responsesInputContentTypeOutputText:
+			if !isResponsesTextContent(role, part.Type) {
+				return openaiwire.ChatMessageContent{}, fmt.Errorf("content[%d].type %q is not supported for role %q by chat completions translation", index, part.Type, role)
+			}
 			out = append(out, openaiwire.ChatMessageContentPart{Type: "text", Text: part.Text})
 		case responsesInputContentTypeInputImage:
 			if part.ImageURL == "" {
@@ -530,6 +539,15 @@ func responseInputContentToChat(parts []openaiwire.ResponseInputContentPart) (op
 		}
 	}
 	return openaiwire.PartsContent(out...), nil
+}
+
+func isResponsesTextContent(role openaiwire.ChatRole, contentType string) bool {
+	switch role {
+	case openaiwire.ChatRoleAssistant:
+		return contentType == responsesInputContentTypeOutputText
+	default:
+		return contentType == responsesInputContentTypeInputText
+	}
 }
 
 func translateRawResponsesToolsToChat(raw json.RawMessage) ([]openaiwire.Tool, error) {
