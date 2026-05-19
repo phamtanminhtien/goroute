@@ -8,9 +8,9 @@ services:
     environment:
       GOROUTE_ENV: production
     ports:
-      - "12232:2232"
+      - "2232:2232"
     volumes:
-      - ./.data:/home/goroute/.goroute
+      - goroute-data:/home/goroute/.goroute
     restart: unless-stopped
 
 volumes:
