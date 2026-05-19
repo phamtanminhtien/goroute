@@ -230,8 +230,13 @@ function FlowTab({ flow }: { flow: AIRequestLogFlow | null }) {
           label="Translated request body"
           value={flow.translated_request_body}
         />
-        <DebugBlock label="Response body" value={flow.response_body} />
         <DebugBlock
+          emptyText={streamBodyUnavailableText}
+          label="Response body"
+          value={flow.response_body}
+        />
+        <DebugBlock
+          emptyText={streamBodyUnavailableText}
           label="Translated response body"
           value={flow.translated_response_body}
         />
@@ -282,7 +287,11 @@ function UpstreamTab({ logs }: { logs: AIRequestLogThirdParty[] }) {
             <DebugBlock label="Request headers" value={log.request_headers} />
             <DebugBlock label="Request body" value={log.request_body} />
             <DebugBlock label="Response headers" value={log.response_headers} />
-            <DebugBlock label="Response body" value={log.response_body} />
+            <DebugBlock
+              emptyText={streamBodyUnavailableText}
+              label="Response body"
+              value={log.response_body}
+            />
           </div>
         </SectionCard>
       ))}
@@ -350,11 +359,22 @@ function MetricCard({
   );
 }
 
-function DebugBlock({ label, value }: { label: string; value: unknown }) {
+const streamBodyUnavailableText =
+  "Stream data is not available for streaming requests.";
+
+function DebugBlock({
+  emptyText = "No data",
+  label,
+  value,
+}: {
+  emptyText?: string;
+  label: string;
+  value: unknown;
+}) {
   return (
     <SectionCard title={label}>
       <pre className="border-border/70 max-h-[520px] overflow-auto rounded-[18px] border bg-[#111111] p-4 text-xs leading-5 whitespace-pre-wrap text-slate-200">
-        {formatDebugValue(value)}
+        {formatDebugValue(value, emptyText)}
       </pre>
     </SectionCard>
   );
@@ -374,9 +394,9 @@ function AIRequestLogDetailSkeleton() {
   );
 }
 
-function formatDebugValue(value: unknown) {
+function formatDebugValue(value: unknown, emptyText = "No data") {
   if (value === null || value === undefined || value === "") {
-    return "No data";
+    return emptyText;
   }
 
   if (typeof value !== "string") {

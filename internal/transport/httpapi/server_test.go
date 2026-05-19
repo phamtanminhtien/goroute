@@ -871,7 +871,7 @@ func TestResponsesPersistsSyncLogs(t *testing.T) {
 	if len(flows) != 1 || flows[0].ID == 0 || flows[0].RunID != runs[0].ID || flows[0].Type != chatcompletion.RequestTypeResponses {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
-	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
+	if !stringPointerContains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
 }
@@ -942,10 +942,10 @@ func TestChatCompletionsPersistsSyncLogs(t *testing.T) {
 	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) {
 		t.Fatalf("expected translated request body, got %#v", flows[0])
 	}
-	if !strings.Contains(flows[0].ResponseBody, `"id":"upstream-1"`) {
+	if !stringPointerContains(flows[0].ResponseBody, `"id":"upstream-1"`) {
 		t.Fatalf("expected raw response body, got %#v", flows[0])
 	}
-	if !strings.Contains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
+	if !stringPointerContains(flows[0].TranslatedResponseBody, `"model":"cx/gpt-5.4"`) {
 		t.Fatalf("unexpected flow records %#v", flows)
 	}
 	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID || thirdPartyLogs[0].RequestMode != chatcompletion.RequestModeSync || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeSync {
@@ -1443,16 +1443,16 @@ func TestChatCompletionsPersistsStreamLogsWithReconstructedResponse(t *testing.T
 	if flows[0].ProviderRequestMode != chatcompletion.RequestModeStream {
 		t.Fatalf("unexpected flow provider request mode %#v", flows)
 	}
-	if !strings.Contains(flows[0].ResponseBody, `"content":"first"`) {
-		t.Fatalf("expected upstream response body to stay sourced from third-party logs, got %#v", flows[0])
+	if flows[0].ResponseBody != nil {
+		t.Fatalf("expected stream response body to be nil, got %#v", flows[0])
 	}
 	if !strings.Contains(flows[0].TranslatedRequestBody, `"model":"gpt-5.4"`) || !strings.Contains(flows[0].TranslatedRequestBody, `"stream":true`) {
 		t.Fatalf("expected translated request body, got %#v", flows[0])
 	}
-	if !strings.Contains(flows[0].TranslatedResponseBody, `"content":"final"`) {
-		t.Fatalf("expected translated response body to keep only the final SSE event, got %#v", flows)
+	if flows[0].TranslatedResponseBody != nil {
+		t.Fatalf("expected stream translated response body to be nil, got %#v", flows)
 	}
-	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeStream || !strings.Contains(thirdPartyLogs[0].ResponseBody, `"content":"first"`) {
+	if len(thirdPartyLogs) != 1 || thirdPartyLogs[0].RunID != runs[0].ID || thirdPartyLogs[0].RequestID != runs[0].RequestID || thirdPartyLogs[0].ProviderRequestMode != chatcompletion.RequestModeStream || thirdPartyLogs[0].ResponseBody != nil {
 		t.Fatalf("unexpected third party logs %#v", thirdPartyLogs)
 	}
 }
@@ -1497,7 +1497,7 @@ func TestChatCompletionsPersistsMalformedRequestWithoutThirdPartyLogs(t *testing
 	if flows[0].TranslatedRequestBody != "" {
 		t.Fatalf("expected empty translated request body, got %#v", flows[0].TranslatedRequestBody)
 	}
-	if flows[0].TranslatedResponseBody != "" {
+	if flows[0].TranslatedResponseBody == nil || *flows[0].TranslatedResponseBody != "" {
 		t.Fatalf("expected empty translated response body, got %#v", flows[0].TranslatedResponseBody)
 	}
 	if len(thirdPartyLogs) != 0 {
@@ -1970,4 +1970,12 @@ func (r *streamResponseRecorder) FlushCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.flushCount
+}
+
+func stringPointerContains(value *string, needle string) bool {
+	return value != nil && strings.Contains(*value, needle)
+}
+
+func stringPointer(value string) *string {
+	return &value
 }
