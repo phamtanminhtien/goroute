@@ -36,10 +36,13 @@ apiClient.interceptors.response.use(
       redirectToLogin();
     }
 
-    return Promise.reject({
-      ...error,
-      status,
-      message,
-    });
+    const normalizedError = error instanceof Error ? error : new Error(message);
+    normalizedError.message = message;
+
+    return Promise.reject(
+      Object.assign(normalizedError, {
+        status,
+      }),
+    );
   },
 );

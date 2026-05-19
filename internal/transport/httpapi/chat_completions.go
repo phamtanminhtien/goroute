@@ -10,13 +10,12 @@ import (
 	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
-	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/rs/zerolog"
 )
 
-func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
+func chatCompletionsHandler(catalog catalogSource, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -57,7 +56,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 		}
 
 		if request.Stream {
-			resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+			resolvedCatalog, combos, err := routingInputs(catalog.Catalog(), modelRepo, modelComboRepo)
 			if err != nil {
 				recorder.SetError("internal_error", err.Error())
 				writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())
@@ -92,7 +91,7 @@ func chatCompletionsHandler(catalog provider.Catalog, connectionRegistry *chatco
 			return
 		}
 
-		resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+		resolvedCatalog, combos, err := routingInputs(catalog.Catalog(), modelRepo, modelComboRepo)
 		if err != nil {
 			recorder.SetError("internal_error", err.Error())
 			writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())

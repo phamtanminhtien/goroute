@@ -9,14 +9,13 @@ import (
 	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/config"
-	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	responsesusecase "github.com/phamtanminhtien/goroute/internal/usecase/responses"
 	"github.com/rs/zerolog"
 )
 
-func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
+func responsesHandler(catalog catalogSource, connectionRegistry *chatcompletion.ConnectionRegistry, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, settingsManager *config.SettingsManager, logger *zerolog.Logger) http.Handler {
 	if logger == nil {
 		noop := zerolog.Nop()
 		logger = &noop
@@ -60,7 +59,7 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 		request.RawBody = append(request.RawBody[:0], rawBody...)
 
 		if request.Stream {
-			resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+			resolvedCatalog, combos, err := routingInputs(catalog.Catalog(), modelRepo, modelComboRepo)
 			if err != nil {
 				recorder.SetError("internal_error", err.Error())
 				writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())
@@ -95,7 +94,7 @@ func responsesHandler(catalog provider.Catalog, connectionRegistry *chatcompleti
 			return
 		}
 
-		resolvedCatalog, combos, err := routingInputs(catalog, modelRepo, modelComboRepo)
+		resolvedCatalog, combos, err := routingInputs(catalog.Catalog(), modelRepo, modelComboRepo)
 		if err != nil {
 			recorder.SetError("internal_error", err.Error())
 			writeError(r, bodyWriter, http.StatusInternalServerError, "internal_error", err.Error())

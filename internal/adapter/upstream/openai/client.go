@@ -25,14 +25,23 @@ const defaultBaseURL = "https://api.openai.com"
 type Client struct {
 	httpClient *http.Client
 	connection connection.Record
+	baseURL    string
 }
 
 func NewClient(httpClient *http.Client, connection connection.Record) *Client {
+	return NewClientWithBaseURL(httpClient, connection, defaultBaseURL)
+}
+
+func NewClientWithBaseURL(httpClient *http.Client, connection connection.Record, baseURL string) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 
-	return &Client{httpClient: httpClient, connection: connection}
+	return &Client{httpClient: httpClient, connection: connection, baseURL: baseURL}
 }
 
 func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
@@ -296,7 +305,7 @@ func (c *Client) credential() (string, error) {
 }
 
 func (c *Client) newChatCompletionsRequest(ctx context.Context, payload []byte, credential string) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, defaultBaseURL+"/v1/chat/completions", bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
@@ -307,7 +316,7 @@ func (c *Client) newChatCompletionsRequest(ctx context.Context, payload []byte, 
 }
 
 func (c *Client) newResponsesRequest(ctx context.Context, payload []byte, credential string) (*http.Request, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, defaultBaseURL+"/v1/responses", bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/responses", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}

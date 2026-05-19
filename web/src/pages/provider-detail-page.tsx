@@ -9,14 +9,17 @@ import {
   createConnection,
   createProviderModel,
   deleteConnection,
+  deleteProvider,
   deleteProviderModel,
   listProviders,
   type ProviderConnection,
   type ProviderItem,
   type ProviderModelTestResult,
+  type ProviderPayload,
   providersQueryKey,
   testProviderModel,
   updateConnection,
+  updateProvider,
   updateProviderConnectionsEnabled,
   updateProviderModel,
 } from "@/features/providers/api";
@@ -73,6 +76,13 @@ type ModelFormState = {
   id: string;
   name: string;
 };
+type ProviderFormState = {
+  apiKey: string;
+  baseURL: string;
+  defaultModel: string;
+  enabled: boolean;
+  name: string;
+};
 
 type ConnectionModalState =
   | { kind: "closed" }
@@ -103,6 +113,15 @@ export function ProviderDetailPage() {
   const [modelModalState, setModelModalState] = useState<ModelModalState>({
     kind: "closed",
   });
+  const [providerFormOpen, setProviderFormOpen] = useState(false);
+  const [providerForm, setProviderForm] = useState<ProviderFormState>({
+    apiKey: "",
+    baseURL: "",
+    defaultModel: "",
+    enabled: true,
+    name: "",
+  });
+  const [providerFeedback, setProviderFeedback] = useState<FeedbackState>(null);
 
   const providersQuery = useQuery({
     queryFn: listProviders,
@@ -120,6 +139,10 @@ export function ProviderDetailPage() {
       : null;
   const formRegistryEntry = provider
     ? getProviderConnectionFormEntry(provider.id)
+    : null;
+  const isCustomProvider = provider?.category === "custom";
+  const managedConnection = isCustomProvider
+    ? (provider?.connections[0] ?? null)
     : null;
 
   const createConnectionMutation = useMutation({
@@ -273,6 +296,71 @@ export function ProviderDetailPage() {
       setModelFeedback({ text: "Model deleted.", tone: "success" });
     },
   });
+
+  const updateProviderMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: ProviderPayload }) =>
+      updateProvider(id, payload),
+    onError: (error) => {
+      setProviderFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setProviderFeedback({ text: "Provider saved.", tone: "success" });
+      setProviderFormOpen(false);
+    },
+  });
+
+  const deleteProviderMutation = useMutation({
+    mutationFn: deleteProvider,
+    onError: (error) => {
+      setProviderFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      navigate("/providers");
+    },
+  });
+
+  function openProviderForm() {
+    if (!provider) {
+      return;
+    }
+    setProviderFeedback(null);
+    setProviderForm({
+      apiKey: "",
+      baseURL: provider.base_url ?? "",
+      defaultModel: provider.default_model,
+      enabled: managedConnection?.enabled ?? true,
+      name: provider.name,
+    });
+    setProviderFormOpen(true);
+  }
+
+  async function handleProviderUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!provider) {
+      return;
+    }
+    const payload: ProviderPayload = {
+      adapter_type: provider.adapter_type ?? "openai_compatible",
+      base_url: providerForm.baseURL.trim(),
+      default_model: providerForm.defaultModel.trim(),
+      enabled: providerForm.enabled,
+      id: provider.id,
+      name: providerForm.name.trim(),
+    };
+    if (providerForm.apiKey.trim()) {
+      payload.api_key = providerForm.apiKey.trim();
+    }
+    setProviderFeedback(null);
+    await updateProviderMutation.mutateAsync({ id: provider.id, payload });
+  }
 
   const activeModal =
     provider && formRegistryEntry
@@ -437,37 +525,90 @@ export function ProviderDetailPage() {
       {!providersQuery.isPending && !providersQuery.isError && provider ? (
         <div className="space-y-6">
           <SectionCard
-            description="Create, edit, and remove redacted provider connections without exposing stored secrets."
+            description={
+              isCustomProvider
+                ? "Custom provider credentials are managed together with the provider."
+                : "Create, edit, and remove redacted provider connections without exposing stored secrets."
+            }
             headerAction={
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  leadingIcon={<Plus className="size-[15px]" />}
-                  onClick={() => {
-                    setFeedback(null);
-                    setModalState({ kind: "create", providerId: provider.id });
-                  }}
-                >
-                  Add connection
-                </Button>
-                <div className="flex items-center gap-2">
-                  <span className="text-fg-secondary text-xs font-semibold">
-                    Provider
-                  </span>
-                  <Switch
-                    aria-label={`Enable ${provider.name} connections`}
-                    checked={enabledConnectionCount(provider) > 0}
-                    disabled={
-                      updateProviderConnectionsEnabledMutation.isPending
-                    }
-                    onCheckedChange={(enabled) =>
-                      updateProviderConnectionsEnabledMutation.mutate({
-                        enabled,
-                        providerID: provider.id,
-                      })
-                    }
-                  />
+              isCustomProvider ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    leadingIcon={<Pencil className="size-[15px]" />}
+                    onClick={openProviderForm}
+                  >
+                    Edit provider
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        disabled={deleteProviderMutation.isPending}
+                        leadingIcon={<Trash2 className="size-[15px]" />}
+                        tone="ghost"
+                      >
+                        {deleteProviderMutation.isPending
+                          ? "Deleting..."
+                          : "Delete"}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete provider?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Delete "{provider.name}" and its managed connection.
+                          This cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancelButton>
+                          Keep provider
+                        </AlertDialogCancelButton>
+                        <AlertDialogActionButton
+                          onClick={() =>
+                            void deleteProviderMutation.mutateAsync(provider.id)
+                          }
+                          tone="primary"
+                        >
+                          Confirm delete
+                        </AlertDialogActionButton>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
-              </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    leadingIcon={<Plus className="size-[15px]" />}
+                    onClick={() => {
+                      setFeedback(null);
+                      setModalState({
+                        kind: "create",
+                        providerId: provider.id,
+                      });
+                    }}
+                  >
+                    Add connection
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-fg-secondary text-xs font-semibold">
+                      Provider
+                    </span>
+                    <Switch
+                      aria-label={`Enable ${provider.name} connections`}
+                      checked={enabledConnectionCount(provider) > 0}
+                      disabled={
+                        updateProviderConnectionsEnabledMutation.isPending
+                      }
+                      onCheckedChange={(enabled) =>
+                        updateProviderConnectionsEnabledMutation.mutate({
+                          enabled,
+                          providerID: provider.id,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              )
             }
             title="Connections"
             tone="solid"
@@ -493,6 +634,16 @@ export function ProviderDetailPage() {
                 </InlineAlert>
               ) : null}
 
+              {providerFeedback ? (
+                <InlineAlert
+                  tone={
+                    providerFeedback.tone === "success" ? "success" : "error"
+                  }
+                >
+                  {providerFeedback.text}
+                </InlineAlert>
+              ) : null}
+
               {provider.connection_count === 0 ? (
                 <EmptyState
                   body="This provider does not have any configured connections yet."
@@ -502,6 +653,7 @@ export function ProviderDetailPage() {
                 <div className="space-y-3">
                   {provider.connections.map((connection) => (
                     <ConnectionCard
+                      locked={isCustomProvider}
                       busy={
                         deleteConnectionMutation.isPending &&
                         deleteConnectionMutation.variables === connection.id
@@ -638,6 +790,117 @@ export function ProviderDetailPage() {
 
       <Modal
         onOpenChange={(open) => {
+          setProviderFormOpen(open);
+          if (!open && providerFeedback?.tone !== "success") {
+            setProviderFeedback(null);
+          }
+        }}
+        open={providerFormOpen}
+      >
+        {provider ? (
+          <ModalContent>
+            <ModalPanel
+              description="Update this custom provider and its managed connection together."
+              title="Edit custom provider"
+            >
+              <form
+                className="space-y-4"
+                onSubmit={(event) => void handleProviderUpdate(event)}
+              >
+                <Field label="Name" required>
+                  <Input
+                    autoFocus
+                    onChange={(event) =>
+                      setProviderForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    value={providerForm.name}
+                  />
+                </Field>
+                <Field label="Base URL" required>
+                  <Input
+                    onChange={(event) =>
+                      setProviderForm((current) => ({
+                        ...current,
+                        baseURL: event.target.value,
+                      }))
+                    }
+                    value={providerForm.baseURL}
+                  />
+                </Field>
+                <Field label="Default model" required>
+                  <Input
+                    onChange={(event) =>
+                      setProviderForm((current) => ({
+                        ...current,
+                        defaultModel: event.target.value,
+                      }))
+                    }
+                    value={providerForm.defaultModel}
+                  />
+                </Field>
+                <Field
+                  help="Leave blank to keep the current key."
+                  label="API key"
+                >
+                  <Input
+                    onChange={(event) =>
+                      setProviderForm((current) => ({
+                        ...current,
+                        apiKey: event.target.value,
+                      }))
+                    }
+                    placeholder="Enter a new API key"
+                    type="password"
+                    value={providerForm.apiKey}
+                  />
+                </Field>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    aria-label={`Enable ${provider.name}`}
+                    checked={providerForm.enabled}
+                    onCheckedChange={(enabled) =>
+                      setProviderForm((current) => ({ ...current, enabled }))
+                    }
+                  />
+                  <span className="text-fg-secondary text-xs font-semibold">
+                    Enabled
+                  </span>
+                </div>
+
+                {providerFeedback?.tone === "error" ? (
+                  <InlineAlert tone="error">
+                    {providerFeedback.text}
+                  </InlineAlert>
+                ) : null}
+
+                <ModalFooter>
+                  <Button
+                    onClick={() => setProviderFormOpen(false)}
+                    tone="secondary"
+                    type="button"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={updateProviderMutation.isPending}
+                    type="submit"
+                  >
+                    {updateProviderMutation.isPending
+                      ? "Saving..."
+                      : "Save provider"}
+                  </Button>
+                </ModalFooter>
+              </form>
+            </ModalPanel>
+          </ModalContent>
+        ) : null}
+      </Modal>
+
+      <Modal
+        onOpenChange={(open) => {
           if (!open) {
             setModelModalState({ kind: "closed" });
           }
@@ -746,6 +1009,7 @@ function ConnectionCard({
   busy,
   connection,
   isEditing,
+  locked,
   onDelete,
   onEdit,
   onToggleEnabled,
@@ -754,6 +1018,7 @@ function ConnectionCard({
   busy: boolean;
   connection: ProviderConnection;
   isEditing: boolean;
+  locked: boolean;
   onDelete: () => void;
   onEdit: () => void;
   onToggleEnabled: (enabled: boolean) => void;
@@ -763,47 +1028,54 @@ function ConnectionCard({
     <CardActionRow
       actions={
         <div className="flex items-center">
-          <Button
-            leadingIcon={<Pencil className="size-[15px]" />}
-            onClick={onEdit}
-            tone={isEditing ? "primary" : "secondary"}
-          >
-            Edit connection
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
+          {locked ? (
+            <StatusBadge tone="info">Managed by provider</StatusBadge>
+          ) : (
+            <>
               <Button
-                disabled={busy}
-                leadingIcon={<Trash2 className="size-[15px]" />}
-                tone="ghost"
+                leadingIcon={<Pencil className="size-[15px]" />}
+                onClick={onEdit}
+                tone={isEditing ? "primary" : "secondary"}
               >
-                {busy ? "Deleting..." : "Delete"}
+                Edit connection
               </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete connection?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Delete connection "{connection.name}" from this provider. This
-                  removes the stored credential reference and cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancelButton>
-                  Keep connection
-                </AlertDialogCancelButton>
-                <AlertDialogActionButton onClick={onDelete} tone="primary">
-                  Confirm delete
-                </AlertDialogActionButton>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-          <Switch
-            aria-label={`Enable ${connection.name}`}
-            checked={connection.enabled ?? true}
-            disabled={toggling}
-            onCheckedChange={onToggleEnabled}
-          />
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    disabled={busy}
+                    leadingIcon={<Trash2 className="size-[15px]" />}
+                    tone="ghost"
+                  >
+                    {busy ? "Deleting..." : "Delete"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete connection?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Delete connection "{connection.name}" from this provider.
+                      This removes the stored credential reference and cannot be
+                      undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancelButton>
+                      Keep connection
+                    </AlertDialogCancelButton>
+                    <AlertDialogActionButton onClick={onDelete} tone="primary">
+                      Confirm delete
+                    </AlertDialogActionButton>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <Switch
+                aria-label={`Enable ${connection.name}`}
+                checked={connection.enabled ?? true}
+                disabled={toggling}
+                onCheckedChange={onToggleEnabled}
+              />
+            </>
+          )}
         </div>
       }
       description={

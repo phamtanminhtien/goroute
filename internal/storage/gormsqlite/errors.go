@@ -18,3 +18,15 @@ func normalizeWriteError(err error, connectionID, action string) error {
 
 	return fmt.Errorf("%s connection %q: %w", action, connectionID, err)
 }
+
+func normalizeProviderWriteError(err error, providerID, action string) error {
+	if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		return fmt.Errorf("provider %q already exists", providerID)
+	}
+
+	if providerID == "" {
+		return fmt.Errorf("%s providers: %w", action, err)
+	}
+
+	return fmt.Errorf("%s provider %q: %w", action, providerID, err)
+}

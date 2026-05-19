@@ -12,6 +12,7 @@ import (
 
 func (r *Repository) Migrate() error {
 	if err := r.db.AutoMigrate(
+		&provider.Record{},
 		&connection.Record{},
 		&provider.ModelRecord{},
 		&modelcombo.Combo{},

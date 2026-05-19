@@ -7,13 +7,49 @@ const (
 	AuthTypeAPIKey AuthType = "api_key"
 )
 
+type AdapterType string
+
+const (
+	AdapterTypeOpenAICompatible AdapterType = "openai_compatible"
+)
+
 type Provider struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	AuthType     AuthType `json:"auth_type"`
-	Category     string   `json:"category"`
-	DefaultModel string   `json:"default_model"`
-	Models       []Model  `json:"models"`
+	ID           string      `json:"id"`
+	Name         string      `json:"name"`
+	AuthType     AuthType    `json:"auth_type"`
+	Category     string      `json:"category"`
+	AdapterType  AdapterType `json:"adapter_type,omitempty"`
+	BaseURL      string      `json:"base_url,omitempty"`
+	DefaultModel string      `json:"default_model"`
+	Models       []Model     `json:"models"`
+}
+
+type Record struct {
+	ID           string      `json:"id" gorm:"column:id;primaryKey"`
+	Name         string      `json:"name" gorm:"column:name;not null"`
+	AuthType     AuthType    `json:"auth_type" gorm:"column:auth_type;not null"`
+	Category     string      `json:"category" gorm:"column:category;not null"`
+	AdapterType  AdapterType `json:"adapter_type" gorm:"column:adapter_type;not null"`
+	BaseURL      string      `json:"base_url" gorm:"column:base_url;not null"`
+	DefaultModel string      `json:"default_model" gorm:"column:default_model;not null"`
+	CreatedAt    int64       `json:"-" gorm:"column:created_at;not null;autoCreateTime"`
+	UpdatedAt    int64       `json:"-" gorm:"column:updated_at;not null;autoUpdateTime"`
+}
+
+func (Record) TableName() string {
+	return "providers"
+}
+
+func (r Record) Provider() Provider {
+	return Provider{
+		ID:           r.ID,
+		Name:         r.Name,
+		AuthType:     r.AuthType,
+		Category:     r.Category,
+		AdapterType:  r.AdapterType,
+		BaseURL:      r.BaseURL,
+		DefaultModel: r.DefaultModel,
+	}
 }
 
 type Model struct {

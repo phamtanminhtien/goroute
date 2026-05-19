@@ -12,6 +12,7 @@ import (
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	connectionsusecase "github.com/phamtanminhtien/goroute/internal/usecase/connections"
+	providersusecase "github.com/phamtanminhtien/goroute/internal/usecase/providers"
 )
 
 type adminProvidersListResponse struct {
@@ -24,6 +25,8 @@ type adminProviderItem struct {
 	Name                   string                    `json:"name"`
 	AuthType               provider.AuthType         `json:"auth_type"`
 	Category               string                    `json:"category"`
+	AdapterType            provider.AdapterType      `json:"adapter_type,omitempty"`
+	BaseURL                string                    `json:"base_url,omitempty"`
 	ConnectionCount        int                       `json:"connection_count"`
 	EnabledConnectionCount int                       `json:"enabled_connection_count"`
 	DefaultModel           string                    `json:"default_model"`
@@ -38,36 +41,134 @@ type providerModelRepository interface {
 	DeleteProviderModel(providerID string, modelID string) error
 }
 
+type providerMutationService interface {
+	Create(providersusecase.MutationInput) (provider.Provider, error)
+	Update(string, providersusecase.MutationInput) (provider.Provider, error)
+	Delete(string) error
+}
+
+type providerMutationInput struct {
+	ID           string               `json:"id"`
+	Name         string               `json:"name"`
+	AdapterType  provider.AdapterType `json:"adapter_type"`
+	BaseURL      string               `json:"base_url"`
+	DefaultModel string               `json:"default_model"`
+	APIKey       string               `json:"api_key"`
+	Enabled      *bool                `json:"enabled"`
+}
+
 type providerConnectionsEnabledRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 
 func providersHandler(
-	catalog provider.Catalog,
+	catalog catalogSource,
 	connectionService *connectionsusecase.Service,
+	providerService providerMutationService,
 	modelRepo providerModelRepository,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
+			resolvedCatalog, err := catalogWithCustomModels(catalog.Catalog(), modelRepo)
+			if err != nil {
+				writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+				return
+			}
+
+			writeJSON(w, http.StatusOK, adminProvidersListResponse{
+				Object: "list",
+				Data:   buildAdminProviderItems(resolvedCatalog, connectionService.List()),
+			})
+		case http.MethodPost:
+			if providerService == nil {
+				writeError(r, w, http.StatusInternalServerError, "internal_error", "provider service is not configured")
+				return
+			}
+			var input providerMutationInput
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+				return
+			}
+			enabled := true
+			if input.Enabled != nil {
+				enabled = *input.Enabled
+			}
+			created, err := providerService.Create(providersusecase.MutationInput{
+				ID:           input.ID,
+				Name:         input.Name,
+				AdapterType:  input.AdapterType,
+				BaseURL:      input.BaseURL,
+				DefaultModel: input.DefaultModel,
+				APIKey:       input.APIKey,
+				Enabled:      enabled,
+			})
+			if err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusCreated, created)
+		default:
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})
+}
+
+func providerByIDHandler(providerService providerMutationService) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerID := strings.TrimSpace(chi.URLParam(r, "id"))
+		if providerID == "" || strings.Contains(providerID, "/") {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
 			return
 		}
 
-		resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
-		if err != nil {
-			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
-			return
+		switch r.Method {
+		case http.MethodPut:
+			if providerService == nil {
+				writeError(r, w, http.StatusInternalServerError, "internal_error", "provider service is not configured")
+				return
+			}
+			var input providerMutationInput
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+				return
+			}
+			enabled := true
+			if input.Enabled != nil {
+				enabled = *input.Enabled
+			}
+			updated, err := providerService.Update(providerID, providersusecase.MutationInput{
+				ID:           providerID,
+				Name:         input.Name,
+				AdapterType:  input.AdapterType,
+				BaseURL:      input.BaseURL,
+				DefaultModel: input.DefaultModel,
+				APIKey:       input.APIKey,
+				Enabled:      enabled,
+			})
+			if err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, updated)
+		case http.MethodDelete:
+			if providerService == nil {
+				writeError(r, w, http.StatusInternalServerError, "internal_error", "provider service is not configured")
+				return
+			}
+			if err := providerService.Delete(providerID); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
-
-		writeJSON(w, http.StatusOK, adminProvidersListResponse{
-			Object: "list",
-			Data:   buildAdminProviderItems(resolvedCatalog, connectionService.List()),
-		})
 	})
 }
 
 func providerConnectionsEnabledHandler(
-	catalog provider.Catalog,
+	catalog catalogSource,
 	connectionService *connectionsusecase.Service,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,8 +182,12 @@ func providerConnectionsEnabledHandler(
 			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
 			return
 		}
-		if _, ok := catalog.FindByID(providerID); !ok {
+		resolvedCatalog := catalog.Catalog()
+		if resolvedProvider, ok := resolvedCatalog.FindByID(providerID); !ok {
 			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		} else if resolvedProvider.Category == "custom" {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", "connections for custom providers are managed with the provider")
 			return
 		}
 
@@ -117,7 +222,7 @@ type providerModelCreateRequest struct {
 	OutputPricePerMillionUSD float64 `json:"output_price_per_million_usd"`
 }
 
-func providerModelsHandler(catalog provider.Catalog, modelRepo providerModelRepository) http.Handler {
+func providerModelsHandler(catalog catalogSource, modelRepo providerModelRepository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -133,7 +238,7 @@ func providerModelsHandler(catalog provider.Catalog, modelRepo providerModelRepo
 			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
 			return
 		}
-		if _, ok := catalog.FindByID(providerID); !ok {
+		if _, ok := catalog.Catalog().FindByID(providerID); !ok {
 			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
 			return
 		}
@@ -158,7 +263,7 @@ func providerModelsHandler(catalog provider.Catalog, modelRepo providerModelRepo
 	})
 }
 
-func providerModelByIDHandler(catalog provider.Catalog, modelRepo providerModelRepository) http.Handler {
+func providerModelByIDHandler(catalog catalogSource, modelRepo providerModelRepository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut && r.Method != http.MethodDelete {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -175,7 +280,7 @@ func providerModelByIDHandler(catalog provider.Catalog, modelRepo providerModelR
 			writeError(r, w, http.StatusNotFound, "not_found", "provider model not found")
 			return
 		}
-		if _, ok := catalog.FindByID(providerID); !ok {
+		if _, ok := catalog.Catalog().FindByID(providerID); !ok {
 			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
 			return
 		}
@@ -268,7 +373,7 @@ type providerModelTestResponse struct {
 }
 
 func providerModelTestHandler(
-	catalog provider.Catalog,
+	catalog catalogSource,
 	tester providerModelTester,
 	modelRepo providerModelRepository,
 ) http.Handler {
@@ -284,7 +389,7 @@ func providerModelTestHandler(
 			return
 		}
 
-		resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
+		resolvedCatalog, err := catalogWithCustomModels(catalog.Catalog(), modelRepo)
 		if err != nil {
 			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
@@ -311,6 +416,15 @@ func providerModelTestHandler(
 			writeError(r, w, http.StatusBadRequest, "invalid_request", "model does not belong to provider")
 			return
 		}
+		target, err := routing.ResolveModel(resolvedCatalog, modelID)
+		if err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if target.ProviderID != providerID {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", "model does not belong to provider")
+			return
+		}
 
 		response, err := tester.ChatCompletions(r.Context(), openaiwire.ChatCompletionsRequest{
 			Model: modelID,
@@ -318,12 +432,7 @@ func providerModelTestHandler(
 				Role:    openaiwire.ChatRoleUser,
 				Content: openaiwire.TextContent("Reply with OK if this test request reaches the model."),
 			}},
-		}, routing.Target{
-			Prefix:         providerID,
-			RequestedModel: modelID,
-			ProviderID:     resolvedProvider.ID,
-			ProviderName:   resolvedProvider.Name,
-		})
+		}, target)
 		if err != nil {
 			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
@@ -436,15 +545,25 @@ func buildAdminProviderItems(
 				enabledConnectionCount++
 			}
 		}
+		models := modelsWithSource(providerItem.Models)
+		if len(models) == 0 && providerItem.DefaultModel != "" {
+			models = []provider.Model{{
+				ID:     providerItem.DefaultModel,
+				Name:   strings.TrimPrefix(providerItem.DefaultModel, providerItem.ID+"/"),
+				Source: "system",
+			}}
+		}
 		items = append(items, adminProviderItem{
 			ID:                     providerItem.ID,
 			Name:                   providerItem.Name,
 			AuthType:               providerItem.AuthType,
 			Category:               providerItem.Category,
+			AdapterType:            providerItem.AdapterType,
+			BaseURL:                providerItem.BaseURL,
 			ConnectionCount:        len(providerConnections),
 			EnabledConnectionCount: enabledConnectionCount,
 			DefaultModel:           providerItem.DefaultModel,
-			Models:                 modelsWithSource(providerItem.Models),
+			Models:                 models,
 			Connections:            providerConnections,
 		})
 	}

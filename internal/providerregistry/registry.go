@@ -101,6 +101,16 @@ func (r Registry) Catalog() provider.Catalog {
 	return provider.Catalog{Providers: providers}
 }
 
+func (r Registry) IsSystemProvider(providerID string) bool {
+	registration, ok := r.byID[providerID]
+	return ok && registration.Descriptor.Category != "custom"
+}
+
+func (r Registry) IsCustomProvider(providerID string) bool {
+	registration, ok := r.byID[providerID]
+	return ok && registration.Descriptor.Category == "custom"
+}
+
 func (r Registry) BuildConnection(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {

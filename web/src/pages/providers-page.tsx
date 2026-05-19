@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   Braces,
@@ -6,19 +6,30 @@ import {
   Code2,
   KeyRound,
   Layers3,
+  Plus,
   Sparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  createProvider,
   listProviders,
   type ProviderItem,
+  type ProviderPayload,
   providersQueryKey,
 } from "@/features/providers/api";
 import { Button } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { Field } from "@/shared/ui/field";
 import { InlineAlert } from "@/shared/ui/inline-alert";
+import { Input } from "@/shared/ui/input";
+import {
+  Modal,
+  ModalContent,
+  ModalFooter,
+  ModalPanel,
+} from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
 import { Skeleton } from "@/shared/ui/skeleton";
@@ -31,14 +42,26 @@ type ProviderSection = {
 };
 
 const categoryTitles: Record<string, string> = {
-  api_key: "API Key Providers",
   custom: "Custom Providers",
-  free_tier: "Free Tier Providers",
   oauth: "OAuth Providers",
+  api_key: "API Key Providers",
+  free_tier: "Free Tier Providers",
 };
+
+const categoryOrder = ["custom", "oauth", "api_key", "free_tier"];
 
 export function ProvidersPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [form, setForm] = useState({
+    apiKey: "",
+    baseURL: "",
+    defaultModel: "",
+    id: "",
+    name: "",
+  });
+  const [formError, setFormError] = useState<string | null>(null);
   const providersQuery = useQuery({
     queryFn: listProviders,
     queryKey: providersQueryKey,
@@ -46,6 +69,49 @@ export function ProvidersPage() {
 
   const providers = providersQuery.data ?? [];
   const sections = buildProviderSections(providers);
+  const createProviderMutation = useMutation({
+    mutationFn: (payload: ProviderPayload) => createProvider(payload),
+    onError: (error) => {
+      setFormError(error instanceof Error ? error.message : "Request failed");
+    },
+    onSuccess: async (provider) => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setCreateOpen(false);
+      setForm({
+        apiKey: "",
+        baseURL: "",
+        defaultModel: "",
+        id: "",
+        name: "",
+      });
+      navigate(`/providers/${provider.id}`);
+    },
+  });
+
+  async function handleCreateProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const id = form.id.trim();
+    const name = form.name.trim();
+    const baseURL = form.baseURL.trim();
+    const defaultModel = form.defaultModel.trim();
+    const apiKey = form.apiKey.trim();
+    if (!id || !name || !baseURL || !defaultModel || !apiKey) {
+      setFormError(
+        "Provider ID, name, base URL, default model, and API key are required.",
+      );
+      return;
+    }
+    setFormError(null);
+    await createProviderMutation.mutateAsync({
+      adapter_type: "openai_compatible",
+      api_key: apiKey,
+      base_url: baseURL,
+      default_model: defaultModel,
+      enabled: true,
+      id,
+      name,
+    });
+  }
 
   return (
     <section className="space-y-6 pb-6">
@@ -54,6 +120,15 @@ export function ProvidersPage() {
         eyebrow="Providers"
         title="Provider registry"
       >
+        <Button
+          leadingIcon={<Plus className="size-[15px]" />}
+          onClick={() => {
+            setFormError(null);
+            setCreateOpen(true);
+          }}
+        >
+          Add provider
+        </Button>
         <StatusBadge tone="info">Live admin data</StatusBadge>
       </PageHeader>
 
@@ -132,6 +207,106 @@ export function ProvidersPage() {
           ))}
         </div>
       ) : null}
+
+      <Modal onOpenChange={setCreateOpen} open={createOpen}>
+        <ModalContent>
+          <ModalPanel
+            description="Create a custom OpenAI-compatible provider and its managed connection."
+            title="Add custom provider"
+          >
+            <form
+              className="space-y-4"
+              onSubmit={(event) => void handleCreateProvider(event)}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Provider ID" required>
+                  <Input
+                    autoFocus
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        id: event.target.value,
+                      }))
+                    }
+                    placeholder="openrouter"
+                    value={form.id}
+                  />
+                </Field>
+                <Field label="Name" required>
+                  <Input
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="OpenRouter"
+                    value={form.name}
+                  />
+                </Field>
+              </div>
+              <Field label="Base URL" required>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      baseURL: event.target.value,
+                    }))
+                  }
+                  placeholder="https://openrouter.ai/api"
+                  value={form.baseURL}
+                />
+              </Field>
+              <Field label="Default model" required>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      defaultModel: event.target.value,
+                    }))
+                  }
+                  placeholder="openrouter/openai/gpt-4.1"
+                  value={form.defaultModel}
+                />
+              </Field>
+              <Field label="API key" required>
+                <Input
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      apiKey: event.target.value,
+                    }))
+                  }
+                  placeholder="Enter API key"
+                  type="password"
+                  value={form.apiKey}
+                />
+              </Field>
+              {formError ? (
+                <InlineAlert tone="error">{formError}</InlineAlert>
+              ) : null}
+              <ModalFooter>
+                <Button
+                  disabled={createProviderMutation.isPending}
+                  onClick={() => setCreateOpen(false)}
+                  tone="secondary"
+                  type="button"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={createProviderMutation.isPending}
+                  type="submit"
+                >
+                  {createProviderMutation.isPending
+                    ? "Creating..."
+                    : "Create provider"}
+                </Button>
+              </ModalFooter>
+            </form>
+          </ModalPanel>
+        </ModalContent>
+      </Modal>
     </section>
   );
 }
@@ -192,7 +367,11 @@ function buildProviderSections(providers: ProviderItem[]) {
   }
 
   const sections: ProviderSection[] = [];
-  for (const [key, items] of groupedSections.entries()) {
+  for (const key of categoryOrder) {
+    if (!groupedSections.has(key)) {
+      continue;
+    }
+    const items = groupedSections.get(key)!;
     sections.push({
       items,
       key,

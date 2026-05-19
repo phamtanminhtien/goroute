@@ -15,6 +15,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type catalogSource interface {
+	Catalog() provider.Catalog
+}
+
 type aiRequestLogRepository interface {
 	CreateAIRequestRun(record *airequestlog.RunRecord) error
 	CreateAIRequestFlow(record airequestlog.FlowRecord) error
@@ -23,13 +27,13 @@ type aiRequestLogRepository interface {
 	analytics.Repository
 }
 
-func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, systemKeyRepo interface {
+func NewServer(catalog catalogSource, connectionRegistry *chatcompletion.ConnectionRegistry, connectionService *connectionsusecase.Service, providerService providerMutationService, requestLogRepo aiRequestLogRepository, modelRepo providerModelRepository, modelComboRepo modelComboRepository, systemKeyRepo interface {
 	systemAPIKeyRepository
 	systemAPIKeyAuthRepository
 }, settingsManager *config.SettingsManager, adminAuthToken string, webUIRoot fs.FS, logger *zerolog.Logger) http.Handler {
 	router := chi.NewRouter()
 	router.Use(requestIDMiddleware, loggingMiddleware(logger))
-	analyticsService := analytics.NewService(requestLogRepo, catalog)
+	analyticsService := analytics.NewService(requestLogRepo, catalog.Catalog())
 
 	router.Handle("/healthz", health.Handler())
 	router.Handle("/v1/models", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, modelsHandler(catalog, modelRepo, modelComboRepo)))
@@ -40,7 +44,8 @@ func NewServer(catalog provider.Catalog, connectionRegistry *chatcompletion.Conn
 		r.Use(func(next http.Handler) http.Handler {
 			return authMiddleware(adminAuthToken, next)
 		})
-		r.Handle("/admin/api/providers", providersHandler(catalog, connectionService, modelRepo))
+		r.Handle("/admin/api/providers", providersHandler(catalog, connectionService, providerService, modelRepo))
+		r.Handle("/admin/api/providers/{id}", providerByIDHandler(providerService))
 		r.Handle("/admin/api/providers/{id}/connections/enabled", providerConnectionsEnabledHandler(catalog, connectionService))
 		r.Handle("/admin/api/providers/{id}/models", providerModelsHandler(catalog, modelRepo))
 		r.Handle("/admin/api/providers/{id}/models/*", providerModelByIDHandler(catalog, modelRepo))

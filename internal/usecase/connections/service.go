@@ -19,6 +19,7 @@ type Runtime interface {
 }
 
 type ProviderRegistry interface {
+	IsCustomProvider(string) bool
 	ValidateConnection(connection.Record) []string
 	GetUsage(context.Context, connection.Record) (providerregistry.UsageInfo, error)
 	GenerateOAuthURL(connection.Record) (string, error)
@@ -130,6 +131,9 @@ func (s *Service) Create(input connection.Record) (Item, error) {
 	defer s.mu.Unlock()
 
 	input = normalizeConnection(input)
+	if s.providers.IsCustomProvider(input.ProviderID) {
+		return Item{}, fmt.Errorf("connections for custom providers are managed with the provider")
+	}
 	existingConnections, err := s.repo.ListConnections()
 	if err != nil {
 		return Item{}, err
@@ -162,6 +166,9 @@ func (s *Service) StartOAuth(providerID string) (OAuthStartResult, error) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" {
 		return OAuthStartResult{}, fmt.Errorf("provider id is required")
+	}
+	if s.providers.IsCustomProvider(providerID) {
+		return OAuthStartResult{}, fmt.Errorf("custom providers do not support oauth")
 	}
 
 	session, err := s.providers.StartOAuth(connection.Record{
@@ -251,6 +258,9 @@ func (s *Service) SetProviderConnectionsEnabled(providerID string, enabled bool)
 	if providerID == "" {
 		return nil, fmt.Errorf("provider id is required")
 	}
+	if s.providers.IsCustomProvider(providerID) {
+		return nil, fmt.Errorf("connections for custom providers are managed with the provider")
+	}
 
 	var records []connection.Record
 	if err := s.persistMutation(func() error {
@@ -287,6 +297,9 @@ func (s *Service) Update(id string, input connection.Record) (Item, error) {
 	}
 	if !ok {
 		return Item{}, ErrNotFound{ConnectionID: id}
+	}
+	if s.providers.IsCustomProvider(existing.ProviderID) || s.providers.IsCustomProvider(input.ProviderID) {
+		return Item{}, fmt.Errorf("connections for custom providers are managed with the provider")
 	}
 	existingConnections, err := s.repo.ListConnections()
 	if err != nil {
@@ -326,6 +339,9 @@ func (s *Service) Delete(id string) error {
 	}
 	if !ok {
 		return ErrNotFound{ConnectionID: id}
+	}
+	if s.providers.IsCustomProvider(deleted.ProviderID) {
+		return fmt.Errorf("connections for custom providers are managed with the provider")
 	}
 
 	if err := s.persistMutation(func() error {

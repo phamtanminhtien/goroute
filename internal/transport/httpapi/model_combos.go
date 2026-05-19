@@ -43,7 +43,7 @@ type modelComboTargetPayload struct {
 	Enabled      *bool  `json:"enabled"`
 }
 
-func modelCombosHandler(catalog provider.Catalog, modelRepo providerModelRepository, comboRepo modelComboRepository, connectionService *connectionsusecase.Service) http.Handler {
+func modelCombosHandler(catalog catalogSource, modelRepo providerModelRepository, comboRepo modelComboRepository, connectionService *connectionsusecase.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if comboRepo == nil {
 			writeError(r, w, http.StatusInternalServerError, "internal_error", "model combo repository is not configured")
@@ -59,7 +59,7 @@ func modelCombosHandler(catalog provider.Catalog, modelRepo providerModelReposit
 			}
 			writeJSON(w, http.StatusOK, modelCombosListResponse{Object: "list", Data: combos})
 		case http.MethodPost:
-			resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
+			resolvedCatalog, err := catalogWithCustomModels(catalog.Catalog(), modelRepo)
 			if err != nil {
 				writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
 				return
@@ -92,7 +92,7 @@ func modelCombosHandler(catalog provider.Catalog, modelRepo providerModelReposit
 	})
 }
 
-func modelComboByAliasHandler(catalog provider.Catalog, modelRepo providerModelRepository, comboRepo modelComboRepository, connectionService *connectionsusecase.Service) http.Handler {
+func modelComboByAliasHandler(catalog catalogSource, modelRepo providerModelRepository, comboRepo modelComboRepository, connectionService *connectionsusecase.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if comboRepo == nil {
 			writeError(r, w, http.StatusInternalServerError, "internal_error", "model combo repository is not configured")
@@ -110,7 +110,7 @@ func modelComboByAliasHandler(catalog provider.Catalog, modelRepo providerModelR
 
 		switch r.Method {
 		case http.MethodPut:
-			resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
+			resolvedCatalog, err := catalogWithCustomModels(catalog.Catalog(), modelRepo)
 			if err != nil {
 				writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
 				return

@@ -1,22 +1,27 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
+	adapteropenaicompatible "github.com/phamtanminhtien/goroute/internal/adapter/openaicompatible"
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
 	provideropenai "github.com/phamtanminhtien/goroute/internal/adapter/provider/openai"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
 	"github.com/phamtanminhtien/goroute/internal/storage/gormsqlite"
 	"github.com/phamtanminhtien/goroute/internal/transport/httpapi"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 	"github.com/phamtanminhtien/goroute/internal/usecase/connections"
+	providersusecase "github.com/phamtanminhtien/goroute/internal/usecase/providers"
 	"github.com/rs/zerolog"
 )
 
@@ -49,12 +54,11 @@ func New(logger zerolog.Logger) (*App, error) {
 		return nil, fmt.Errorf("open sqlite repository: %w", err)
 	}
 
-	providers, err := buildProviderRegistry()
-	if err != nil {
+	providerRuntime := &providerRuntime{repo: repo}
+	if err := providerRuntime.ReloadProviders(); err != nil {
 		repo.Close()
 		return nil, fmt.Errorf("build provider registry: %w", err)
 	}
-	catalog := providers.Catalog()
 
 	appLogger := logger.With().Str("component", "app").Logger()
 	connectionRegistryLogger := logger.With().Str("component", "connection_registry").Logger()
@@ -62,9 +66,9 @@ func New(logger zerolog.Logger) (*App, error) {
 	httpLogger := logger.With().Str("component", "http").Logger()
 
 	connectionRuntime := &connectionRuntime{
-		repo:      repo,
-		providers: providers,
-		logger:    &connectionRegistryLogger,
+		repo:            repo,
+		providerRuntime: providerRuntime,
+		logger:          &connectionRegistryLogger,
 	}
 	connectionRegistry, err := connectionRuntime.BuildRegistry()
 	if err != nil {
@@ -74,7 +78,11 @@ func New(logger zerolog.Logger) (*App, error) {
 
 	connectionRuntime.registry = connectionRegistry
 
-	connectionService := connections.NewService(repo, connectionRuntime, providers, &connectionServiceLogger)
+	connectionService := connections.NewService(repo, connectionRuntime, providerRuntime, &connectionServiceLogger)
+	providerService := providersusecase.NewService(repo, &combinedRuntime{
+		providerRuntime:   providerRuntime,
+		connectionRuntime: connectionRuntime,
+	})
 
 	webUIRoot, webUIDir := resolveWebUIRoot(cfg.Server.WebUIDir)
 	if webUIRoot == nil {
@@ -83,7 +91,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		appLogger.Info().Str("web_ui_dir", webUIDir).Msg("web_ui_enabled")
 	}
 
-	handler := httpapi.NewServer(catalog, connectionRegistry, connectionService, repo, repo, repo, repo, settingsManager, cfg.Server.AuthToken, webUIRoot, &httpLogger)
+	handler := httpapi.NewServer(providerRuntime, connectionRegistry, connectionService, providerService, repo, repo, repo, repo, settingsManager, cfg.Server.AuthToken, webUIRoot, &httpLogger)
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           handler,
@@ -98,6 +106,18 @@ func buildProviderRegistry() (providerregistry.Registry, error) {
 		providercodex.Registration(),
 		provideropenai.Registration(),
 	)
+}
+
+func buildProviderRegistryWithCustom(customProviders []provider.Record) (providerregistry.Registry, error) {
+	registrations := []providerregistry.Registration{
+		providercodex.Registration(),
+		provideropenai.Registration(),
+	}
+	for _, customProvider := range customProviders {
+		registrations = append(registrations, adapteropenaicompatible.Registration(customProvider.Provider()))
+	}
+
+	return providerregistry.New(registrations...)
 }
 
 func buildConnectionRegistryWithLogger(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
@@ -163,9 +183,9 @@ type connectionRuntime struct {
 		RecordConnectionRuntimeError(id string, message string, category string, lastErrorAt int64, retryAfter int64) error
 		ClearConnectionRuntimeError(id string) error
 	}
-	providers providerregistry.Registry
-	registry  *chatcompletion.ConnectionRegistry
-	logger    *zerolog.Logger
+	providerRuntime *providerRuntime
+	registry        *chatcompletion.ConnectionRegistry
+	logger          *zerolog.Logger
 }
 
 func (r *connectionRuntime) BuildRegistry() (*chatcompletion.ConnectionRegistry, error) {
@@ -174,7 +194,7 @@ func (r *connectionRuntime) BuildRegistry() (*chatcompletion.ConnectionRegistry,
 		return nil, fmt.Errorf("load runtime connections: %w", err)
 	}
 
-	entries, err := buildConnectionEntries(connectionConfigs, r.providers, r.logger)
+	entries, err := buildConnectionEntries(connectionConfigs, r.providerRuntime.Registry(), r.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -189,13 +209,102 @@ func (r *connectionRuntime) ReloadConnections() error {
 		return fmt.Errorf("load runtime connections: %w", err)
 	}
 
-	entries, err := buildConnectionEntries(connectionConfigs, r.providers, r.logger)
+	entries, err := buildConnectionEntries(connectionConfigs, r.providerRuntime.Registry(), r.logger)
 	if err != nil {
 		return err
 	}
 
 	r.registry.ReplaceConnections(entries)
 	return nil
+}
+
+type providerRepository interface {
+	ListProviders() ([]provider.Record, error)
+}
+
+type providerRuntime struct {
+	mu       sync.RWMutex
+	repo     providerRepository
+	registry providerregistry.Registry
+	catalog  provider.Catalog
+}
+
+func (r *providerRuntime) ReloadProviders() error {
+	customProviders, err := r.repo.ListProviders()
+	if err != nil {
+		return fmt.Errorf("load custom providers: %w", err)
+	}
+	registry, err := buildProviderRegistryWithCustom(customProviders)
+	if err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.registry = registry
+	r.catalog = registry.Catalog()
+	return nil
+}
+
+func (r *providerRuntime) Catalog() provider.Catalog {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.catalog
+}
+
+func (r *providerRuntime) Registry() providerregistry.Registry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.registry
+}
+
+func (r *providerRuntime) IsSystemProvider(providerID string) bool {
+	return r.Registry().IsSystemProvider(providerID)
+}
+
+func (r *providerRuntime) IsCustomProvider(providerID string) bool {
+	return r.Registry().IsCustomProvider(providerID)
+}
+
+func (r *providerRuntime) ValidateConnection(connection connection.Record) []string {
+	return r.Registry().ValidateConnection(connection)
+}
+
+func (r *providerRuntime) GetUsage(ctx context.Context, connection connection.Record) (providerregistry.UsageInfo, error) {
+	return r.Registry().GetUsage(ctx, connection)
+}
+
+func (r *providerRuntime) GenerateOAuthURL(connection connection.Record) (string, error) {
+	return r.Registry().GenerateOAuthURL(connection)
+}
+
+func (r *providerRuntime) StartOAuth(connection connection.Record) (providerregistry.OAuthSession, error) {
+	return r.Registry().StartOAuth(connection)
+}
+
+func (r *providerRuntime) CompleteOAuth(connection connection.Record, pending map[string]string, callbackURL string) (providerregistry.OAuthResult, error) {
+	return r.Registry().CompleteOAuth(connection, pending, callbackURL)
+}
+
+type combinedRuntime struct {
+	providerRuntime   *providerRuntime
+	connectionRuntime *connectionRuntime
+}
+
+func (r *combinedRuntime) ReloadProviders() error {
+	return r.providerRuntime.ReloadProviders()
+}
+
+func (r *combinedRuntime) ReloadConnections() error {
+	return r.connectionRuntime.ReloadConnections()
+}
+
+func (r *combinedRuntime) IsSystemProvider(providerID string) bool {
+	return r.providerRuntime.IsSystemProvider(providerID)
+}
+
+func (r *combinedRuntime) IsCustomProvider(providerID string) bool {
+	return r.providerRuntime.IsCustomProvider(providerID)
 }
 
 func resolveWebUIRoot(webUIDir string) (fs.FS, string) {

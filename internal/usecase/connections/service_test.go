@@ -111,6 +111,10 @@ func (r *stubRuntime) ReloadConnections() error {
 
 type stubProviders struct{}
 
+func (stubProviders) IsCustomProvider(string) bool {
+	return false
+}
+
 func (stubProviders) ValidateConnection(connection.Record) []string {
 	return nil
 }
@@ -129,6 +133,14 @@ func (stubProviders) StartOAuth(connection.Record) (providerregistry.OAuthSessio
 
 func (stubProviders) CompleteOAuth(connection.Record, map[string]string, string) (providerregistry.OAuthResult, error) {
 	return providerregistry.OAuthResult{}, nil
+}
+
+type customStubProviders struct {
+	stubProviders
+}
+
+func (customStubProviders) IsCustomProvider(providerID string) bool {
+	return providerID == "openrouter"
 }
 
 func TestServiceKeepsRepositoryStateWhenRuntimeReloadFails(t *testing.T) {
@@ -186,6 +198,33 @@ func TestServiceBulkUpdatesProviderConnectionEnabledState(t *testing.T) {
 	}
 	if runtime.reloads != 1 {
 		t.Fatalf("expected one runtime reload, got %d", runtime.reloads)
+	}
+}
+
+func TestServiceRejectsDirectCustomProviderConnectionMutations(t *testing.T) {
+	repo := &stubRepository{items: []connection.Record{{
+		ID:         "openrouter",
+		ProviderID: "openrouter",
+		Name:       "OpenRouter",
+		APIKey:     "token",
+		Enabled:    true,
+	}}}
+	service := NewService(repo, &stubRuntime{}, customStubProviders{}, nil)
+
+	if _, err := service.Create(connection.Record{ID: "openrouter-2", ProviderID: "openrouter", Name: "second"}); err == nil {
+		t.Fatal("expected create to reject custom provider connection")
+	}
+	if _, err := service.Update("openrouter", connection.Record{ID: "openrouter", ProviderID: "openrouter", Name: "Renamed"}); err == nil {
+		t.Fatal("expected update to reject custom provider connection")
+	}
+	if _, err := service.SetProviderConnectionsEnabled("openrouter", false); err == nil {
+		t.Fatal("expected bulk enable update to reject custom provider")
+	}
+	if err := service.Delete("openrouter"); err == nil {
+		t.Fatal("expected delete to reject custom provider connection")
+	}
+	if len(repo.items) != 1 || repo.items[0].Enabled != true || repo.items[0].Name != "OpenRouter" {
+		t.Fatalf("expected custom managed connection to remain unchanged, got %#v", repo.items)
 	}
 }
 

@@ -4,6 +4,10 @@ type Catalog struct {
 	Providers []Provider `json:"providers"`
 }
 
+func (c Catalog) Catalog() Catalog {
+	return c
+}
+
 func (c Catalog) FindByID(id string) (Provider, bool) {
 	for _, provider := range c.Providers {
 		if provider.ID == id {
@@ -57,6 +61,15 @@ func (c Catalog) WithModelRecords(records []ModelRecord) Catalog {
 			}
 			break
 		}
+	}
+
+	return Catalog{Providers: providers}
+}
+
+func (c Catalog) WithProviders(records []Record) Catalog {
+	providers := append([]Provider(nil), c.Providers...)
+	for _, record := range records {
+		providers = append(providers, record.Provider())
 	}
 
 	return Catalog{Providers: providers}

@@ -32,7 +32,9 @@ export type ProviderConnection = {
 };
 
 export type ProviderItem = {
+  adapter_type?: string;
   auth_type: string;
+  base_url?: string;
   category: string;
   connection_count: number;
   connections: ProviderConnection[];
@@ -89,6 +91,16 @@ export type ProviderModelPayload = {
   input_price_per_million_usd?: number;
   name?: string;
   output_price_per_million_usd?: number;
+};
+
+export type ProviderPayload = {
+  adapter_type?: string;
+  api_key?: string;
+  base_url: string;
+  default_model: string;
+  enabled?: boolean;
+  id: string;
+  name: string;
 };
 
 export type ModelComboPayload = {
@@ -151,6 +163,23 @@ export async function listProviders() {
   const response =
     await apiClient.get<ListResponse<RawProviderItem>>("/providers");
   return response.data.data.map(normalizeProvider);
+}
+
+export async function createProvider(payload: ProviderPayload) {
+  const response = await apiClient.post<ProviderItem>("/providers", payload);
+  return normalizeProvider(response.data);
+}
+
+export async function updateProvider(id: string, payload: ProviderPayload) {
+  const response = await apiClient.put<ProviderItem>(
+    `/providers/${id}`,
+    payload,
+  );
+  return normalizeProvider(response.data);
+}
+
+export async function deleteProvider(id: string) {
+  await apiClient.delete(`/providers/${id}`);
 }
 
 export async function listModelCombos() {

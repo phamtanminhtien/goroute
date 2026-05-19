@@ -3,19 +3,18 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/usecase/listmodels"
 )
 
-func modelsHandler(catalog provider.Catalog, modelRepo providerModelRepository, modelComboRepo modelComboRepository) http.Handler {
+func modelsHandler(catalog catalogSource, modelRepo providerModelRepository, modelComboRepo modelComboRepository) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
 
-		resolvedCatalog, err := catalogWithCustomModels(catalog, modelRepo)
+		resolvedCatalog, err := catalogWithCustomModels(catalog.Catalog(), modelRepo)
 		if err != nil {
 			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
 			return

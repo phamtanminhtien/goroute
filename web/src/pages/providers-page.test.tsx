@@ -10,9 +10,11 @@ import {
   connectionUsageQueryKey,
   createConnection,
   createModelCombo,
+  createProvider,
   createProviderModel,
   deleteConnection,
   deleteModelCombo,
+  deleteProvider,
   deleteProviderModel,
   generateProviderOAuthURL,
   getConnectionUsage,
@@ -21,6 +23,7 @@ import {
   testProviderModel,
   updateConnection,
   updateModelCombo,
+  updateProvider,
   updateProviderConnectionsEnabled,
   updateProviderModel,
 } from "@/features/providers/api";
@@ -35,8 +38,10 @@ vi.mock("@/features/providers/api", () => ({
   completeOAuthConnection: vi.fn(),
   createConnection: vi.fn(),
   createModelCombo: vi.fn(),
+  createProvider: vi.fn(),
   createProviderModel: vi.fn(),
   deleteConnection: vi.fn(),
+  deleteProvider: vi.fn(),
   deleteProviderModel: vi.fn(),
   deleteModelCombo: vi.fn(),
   generateProviderOAuthURL: vi.fn(),
@@ -46,6 +51,7 @@ vi.mock("@/features/providers/api", () => ({
   providersQueryKey: ["providers"],
   testProviderModel: vi.fn(),
   updateConnection: vi.fn(),
+  updateProvider: vi.fn(),
   updateProviderConnectionsEnabled: vi.fn(),
   updateProviderModel: vi.fn(),
   updateModelCombo: vi.fn(),
@@ -55,8 +61,10 @@ const connectionUsageQueryKeyMock = vi.mocked(connectionUsageQueryKey);
 const completeOAuthConnectionMock = vi.mocked(completeOAuthConnection);
 const createConnectionMock = vi.mocked(createConnection);
 const createModelComboMock = vi.mocked(createModelCombo);
+const createProviderMock = vi.mocked(createProvider);
 const createProviderModelMock = vi.mocked(createProviderModel);
 const deleteConnectionMock = vi.mocked(deleteConnection);
+const deleteProviderMock = vi.mocked(deleteProvider);
 const deleteProviderModelMock = vi.mocked(deleteProviderModel);
 const deleteModelComboMock = vi.mocked(deleteModelCombo);
 const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
@@ -66,6 +74,7 @@ const listProvidersMock = vi.mocked(listProviders);
 const testProviderModelMock = vi.mocked(testProviderModel);
 const updateConnectionMock = vi.mocked(updateConnection);
 const updateModelComboMock = vi.mocked(updateModelCombo);
+const updateProviderMock = vi.mocked(updateProvider);
 const updateProviderConnectionsEnabledMock = vi.mocked(
   updateProviderConnectionsEnabled,
 );
@@ -150,6 +159,19 @@ describe("providers pages", () => {
       "usage",
     ]);
     createConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
+    createProviderMock.mockResolvedValue({
+      adapter_type: "openai_compatible",
+      auth_type: "api_key",
+      base_url: "https://openrouter.ai/api",
+      category: "custom",
+      connection_count: 1,
+      connections: [],
+      default_model: "openrouter/openai/gpt-4.1",
+      enabled_connection_count: 1,
+      id: "openrouter",
+      models: [],
+      name: "OpenRouter",
+    });
     createProviderModelMock.mockResolvedValue({
       description: "",
       id: "cx/gpt-5.5",
@@ -163,6 +185,7 @@ describe("providers pages", () => {
       source: "custom",
     });
     updateConnectionMock.mockResolvedValue(baseProviders[0].connections[0]);
+    updateProviderMock.mockResolvedValue(baseProviders[0]);
     updateModelComboMock.mockResolvedValue({
       alias: "combo/fast",
       description: "",
@@ -175,6 +198,7 @@ describe("providers pages", () => {
     );
     deleteProviderModelMock.mockResolvedValue(undefined);
     deleteConnectionMock.mockResolvedValue(undefined);
+    deleteProviderMock.mockResolvedValue(undefined);
     getConnectionUsageMock.mockResolvedValue({
       limitReached: false,
       plan: "plus",

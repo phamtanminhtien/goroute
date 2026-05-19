@@ -212,6 +212,31 @@ func TestClientRequiresCredential(t *testing.T) {
 	}
 }
 
+func TestClientUsesCustomBaseURL(t *testing.T) {
+	var requestURL string
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requestURL = r.URL.String()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"id":"chatcmpl-1","object":"chat.completion","created":123,"model":"gpt-4.1","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`,
+			)),
+		}, nil
+	})}
+	client := NewClientWithBaseURL(httpClient, connection.Record{ProviderID: "openrouter", Name: "OpenRouter", APIKey: "token"}, "https://openrouter.ai/api/")
+
+	_, err := client.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{
+		Model:    "openrouter/openai/gpt-4.1",
+		Messages: []openaiwire.ChatMessage{{Role: "user", Content: openaiwire.TextContent("hello")}},
+	}, routing.Target{ProviderID: "openrouter", ProviderName: "OpenRouter", RequestedModel: "openai/gpt-4.1"})
+	if err != nil {
+		t.Fatalf("chat completions: %v", err)
+	}
+	if requestURL != "https://openrouter.ai/api/v1/chat/completions" {
+		t.Fatalf("expected custom base URL, got %q", requestURL)
+	}
+}
+
 func TestClientResponsesPassesThroughRawBody(t *testing.T) {
 	var upstreamBody map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

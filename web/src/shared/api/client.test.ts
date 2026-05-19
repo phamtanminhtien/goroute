@@ -62,4 +62,44 @@ describe("api client auth behavior", () => {
 
     window.removeEventListener(authRedirectEvent, redirectSpy);
   });
+
+  it("rejects response errors as Error instances with server messages", async () => {
+    const rejected = apiClient.interceptors.response.handlers?.[0];
+    if (!rejected?.rejected) {
+      throw new Error("Response interceptor is not registered.");
+    }
+
+    await expect(
+      rejected.rejected({
+        message: "Request failed with status code 400",
+        response: {
+          status: 400,
+          data: {
+            error: {
+              message:
+                'default_model must start with provider prefix "openrouter/"',
+            },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      message: 'default_model must start with provider prefix "openrouter/"',
+      status: 400,
+    });
+
+    await rejected
+      .rejected({
+        response: {
+          status: 400,
+          data: {
+            error: {
+              message: "base_url must be an absolute URL",
+            },
+          },
+        },
+      })
+      .catch((error: unknown) => {
+        expect(error).toBeInstanceOf(Error);
+      });
+  });
 });

@@ -372,8 +372,67 @@ func TestProviderModelTestHandlerReturnsSuccessAndUsesChatCompletions(t *testing
 	if connectionClient.lastReq.Model != "cx/gpt-5.4" {
 		t.Fatalf("expected test model request, got %#v", connectionClient.lastReq)
 	}
+	if connectionClient.lastTarget.RequestedModel != "gpt-5.4" {
+		t.Fatalf("expected upstream target model to be stripped, got %#v", connectionClient.lastTarget)
+	}
 	if len(connectionClient.lastReq.Messages) != 1 {
 		t.Fatalf("expected one test message, got %#v", connectionClient.lastReq.Messages)
+	}
+}
+
+func TestProviderModelTestHandlerStripsOnlyRoutePrefixForNestedModel(t *testing.T) {
+	connectionClient := &testProvider{
+		response: openaiwire.ChatCompletionsResponse{
+			Choices: []openaiwire.ChatCompletionChoice{{
+				Message: openaiwire.Message{
+					Role:    openaiwire.ChatRoleAssistant,
+					Content: "OK",
+				},
+			}},
+		},
+	}
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{
+		initialConnections: []connection.Record{{
+			ID:          "codex-1",
+			ProviderID:  "cx",
+			Name:        "codex-user",
+			AccessToken: "secret-token",
+		}},
+		registryEntries: map[string][]chatcompletion.ConnectionEntry{
+			"cx": {{
+				ID:         "codex-1",
+				Name:       "codex-user",
+				ProviderID: "cx",
+				ProtocolConnections: chatcompletion.ProtocolConnections{
+					ChatCompletions: connectionClient,
+					Responses:       connectionClient,
+				},
+			}},
+		},
+	})
+
+	createRec := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/models", strings.NewReader(`{"id":"cx/cx/gpt-5.5","name":"GPT-5.5 via CX"}`))
+	createReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("expected model create, got %d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers/cx/test", strings.NewReader(`{"model":"cx/cx/gpt-5.5"}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if connectionClient.lastReq.Model != "cx/cx/gpt-5.5" {
+		t.Fatalf("expected client-facing request model to remain unchanged, got %#v", connectionClient.lastReq)
+	}
+	if connectionClient.lastTarget.RequestedModel != "cx/gpt-5.5" {
+		t.Fatalf("expected upstream target model to strip only route prefix, got %#v", connectionClient.lastTarget)
 	}
 }
 
@@ -526,5 +585,5 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 		&logger,
 	)
 
-	return NewServer(testCatalog(), &registry, service, repo, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
+	return NewServer(testCatalog(), &registry, service, nil, repo, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
 }
