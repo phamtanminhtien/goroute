@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/phamtanminhtien/goroute/compare/v1.4.0...v1.4.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* chat completion flow ([#45](https://github.com/phamtanminhtien/goroute/issues/45)) ([f318836](https://github.com/phamtanminhtien/goroute/commit/f318836132df757918b0673ecd1bea376e4f73f2))
+
 ## [1.4.0](https://github.com/phamtanminhtien/goroute/compare/v1.3.0...v1.4.0) (2026-05-19)
 
 
