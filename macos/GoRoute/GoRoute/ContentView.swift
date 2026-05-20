@@ -268,6 +268,7 @@ struct ContentView: View {
             } label: {
                 Label("Safari", systemImage: "safari")
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.bordered)
 
             Button {
