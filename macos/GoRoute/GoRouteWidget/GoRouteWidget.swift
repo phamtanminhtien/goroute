@@ -87,7 +87,8 @@ struct GoRouteWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(widgetPadding)
+        .padding(.vertical, widgetVerticalPadding)
+        .padding(.horizontal, widgetHorizontalPadding)
     }
 
     private var header: some View {
@@ -332,8 +333,12 @@ struct GoRouteWidgetView: View {
         return .green
     }
 
-    private var widgetPadding: CGFloat {
+    private var widgetVerticalPadding: CGFloat {
         family == .systemSmall ? 12 : 14
+    }
+
+    private var widgetHorizontalPadding: CGFloat {
+        family == .systemSmall ? 8 : 10
     }
 
     private func formatInteger(_ value: Double) -> String {
