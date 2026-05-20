@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/phamtanminhtien/goroute/compare/v1.6.0...v1.6.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* ignore client stream cancellations ([cff61ce](https://github.com/phamtanminhtien/goroute/commit/cff61ce138400c418cfe80febbad9fe0bee63864))
+
 ## [1.6.0](https://github.com/phamtanminhtien/goroute/compare/v1.5.0...v1.6.0) (2026-05-20)
 
 
