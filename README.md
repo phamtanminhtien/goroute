@@ -16,11 +16,12 @@ The repository currently supports:
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - model prefix resolution from built-in provider packages
-- configured connection registry for Codex (`cx`) and OpenAI (`openai`)
+- configured connection registry for Codex (`cx`), OpenAI (`openai`), and Anthropic (`anthropic`)
 - OpenAI upstream execution for sync and streaming chat completions
 - OpenAI upstream execution for sync and streaming responses
 - Codex upstream execution for sync and streaming chat completions
 - Codex responses passthrough for streaming and sync reconstruction for `/v1/responses`
+- Anthropic upstream execution for sync and streaming Messages, Responses, and Chat Completions
 - admin APIs and UI for provider/connection management
 - admin settings for LLM logging and RTK
 - usage analytics APIs and UI
@@ -58,6 +59,7 @@ Currently implemented endpoints:
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/messages`
 - `GET /v1/models`
 - `GET /healthz`
 - `GET /admin/api/providers` (admin-only)
@@ -142,6 +144,21 @@ Data URLs are supported too, for example `"url": "data:image/png;base64,..."`.
 
 This phase does not add multipart upload or server-side image storage; clients must send a remote URL or data URL inside the JSON payload.
 
+`/v1/messages` accepts Anthropic Messages-compatible requests with prefixed models, including sync and streaming responses:
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4-5",
+  "max_tokens": 1024,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello from an Anthropic client"
+    }
+  ]
+}
+```
+
 ## Configuration Direction
 
 The user config file is loaded from `~/.goroute/config.json`.
@@ -173,6 +190,7 @@ When `llmLogging` is omitted, both `flow` and `thirdParty` default to enabled. `
 Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API and UI.
 
 Connections with `provider_id: "openai"` currently target the standard OpenAI upstream only; custom OpenAI-compatible base URLs are not yet configurable.
+Connections with `provider_id: "anthropic"` currently target the standard Anthropic upstream only and use `api_key` credentials.
 
 ## Admin UI
 
@@ -234,7 +252,7 @@ Override the image tag explicitly when needed:
 GOROUTE_IMAGE=ghcr.io/phamtanminhtien/goroute:latest docker compose up
 ```
 
-The Compose setup exposes `localhost:2232` and persists `~/.goroute` container data in the named Docker volume `goroute-data`, including `config.json` and `goroute.db`.
+The Compose setup exposes the container on `localhost:12232` and persists `~/.goroute` container data in the local `./.data` directory, including `config.json` and `goroute.db`.
 
 ## Logging
 

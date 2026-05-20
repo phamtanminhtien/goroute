@@ -1,4 +1,3 @@
-import { Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { generateProviderOAuthURL } from "@/features/providers/api";
@@ -14,7 +13,7 @@ import type {
   ProviderConnectionFormRegistryEntry,
 } from "@/features/providers/registry/types";
 import { emptyConnectionFormValues } from "@/features/providers/registry/types";
-import { Button } from "@/shared/ui/button";
+import { CopyButton } from "@/shared/ui/button";
 import { Field } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
@@ -32,7 +31,6 @@ function CodexCreateConnectionForm({
   );
   const [authorizationLoading, setAuthorizationLoading] = useState(true);
   const [callbackURL, setCallbackURL] = useState("");
-  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,25 +71,6 @@ function CodexCreateConnectionForm({
       cancelled = true;
     };
   }, []);
-
-  async function handleCopyAuthorizationURL() {
-    try {
-      if (!authorizationURL) {
-        setCopyFeedback("Authorization URL is not ready yet.");
-        return;
-      }
-
-      if (!navigator?.clipboard?.writeText) {
-        setCopyFeedback("Copy is not available in this browser.");
-        return;
-      }
-
-      await navigator.clipboard.writeText(authorizationURL);
-      setCopyFeedback("Authorization URL copied.");
-    } catch {
-      setCopyFeedback("Copy failed. Please copy the URL manually.");
-    }
-  }
 
   return (
     <form
@@ -160,26 +139,17 @@ function CodexCreateConnectionForm({
             disabled
           />
 
-          <Button
-            leadingIcon={<Copy className="size-5" />}
-            onClick={handleCopyAuthorizationURL}
+          <CopyButton
+            copyValue={authorizationURL}
             tone="secondary"
             type="button"
             disabled={authorizationLoading || !authorizationURL}
-          >
-            Copy
-          </Button>
+          />
         </div>
 
         {authorizationError ? (
           <p className="text-danger-600 text-sm leading-6" role="alert">
             {authorizationError}
-          </p>
-        ) : null}
-
-        {copyFeedback ? (
-          <p className="text-fg-muted text-sm leading-6" role="status">
-            {copyFeedback}
           </p>
         ) : null}
       </div>

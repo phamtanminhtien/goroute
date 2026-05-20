@@ -429,6 +429,8 @@ function ConnectionStatusPill({
 
 function ProviderLogoFallback({ provider }: { provider: ProviderItem }) {
   switch (provider.id) {
+    case "anthropic":
+      return <Bot className="size-5" />;
     case "openai":
       return <KeyRound className="size-5" />;
     case "cx":

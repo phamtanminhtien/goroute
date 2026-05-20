@@ -39,6 +39,7 @@ func NewServer(catalog catalogSource, connectionRegistry *chatcompletion.Connect
 	router.Handle("/v1/models", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, modelsHandler(catalog, modelRepo, modelComboRepo)))
 	router.Handle("/v1/chat/completions", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
 	router.Handle("/v1/responses", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, responsesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
+	router.Handle("/v1/messages", anthropicCompatibleAuthMiddleware(settingsManager, systemKeyRepo, anthropicMessagesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
 
 	router.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {

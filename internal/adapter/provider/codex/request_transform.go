@@ -19,6 +19,7 @@ var codexUnsupportedPayloadParams = map[string]struct{}{
 	"logit_bias":            {},
 	"logprobs":              {},
 	"max_completion_tokens": {},
+	"max_output_tokens":     {},
 	"max_tokens":            {},
 	"metadata":              {},
 	"n":                     {},

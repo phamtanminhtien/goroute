@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/anthropicwire"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
@@ -134,9 +135,64 @@ func (r *ConnectionRegistry) ResponsesStreamTargets(ctx context.Context, req ope
 	)
 }
 
+func (r *ConnectionRegistry) AnthropicMessages(ctx context.Context, req anthropicwire.MessagesRequest, target routing.Target) (anthropicwire.MessagesResponse, error) {
+	return r.AnthropicMessagesTargets(ctx, req, []routing.Target{target})
+}
+
+func (r *ConnectionRegistry) AnthropicMessagesTargets(ctx context.Context, req anthropicwire.MessagesRequest, targets []routing.Target) (anthropicwire.MessagesResponse, error) {
+	return executeProtocol(
+		r,
+		ctx,
+		req.Model,
+		targets,
+		func(entry ConnectionEntry) bool {
+			return entry.Anthropic != nil || entry.Responses != nil || entry.ChatCompletions != nil
+		},
+		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (anthropicwire.MessagesResponse, error) {
+			return invokeAnthropicMessages(ctx, entry, req, target)
+		},
+		"anthropic_unsupported",
+	)
+}
+
+func (r *ConnectionRegistry) AnthropicMessagesStream(ctx context.Context, req anthropicwire.MessagesRequest, target routing.Target) (io.ReadCloser, error) {
+	return r.AnthropicMessagesStreamTargets(ctx, req, []routing.Target{target})
+}
+
+func (r *ConnectionRegistry) AnthropicMessagesStreamTargets(ctx context.Context, req anthropicwire.MessagesRequest, targets []routing.Target) (io.ReadCloser, error) {
+	return executeProtocol(
+		r,
+		ctx,
+		req.Model,
+		targets,
+		func(entry ConnectionEntry) bool {
+			return entry.Anthropic != nil || entry.Responses != nil || entry.ChatCompletions != nil
+		},
+		func(ctx context.Context, entry ConnectionEntry, target routing.Target) (io.ReadCloser, error) {
+			return invokeAnthropicMessagesStream(ctx, entry, req, target)
+		},
+		"anthropic_unsupported",
+	)
+}
+
 func invokeChatCompletions(ctx context.Context, entry ConnectionEntry, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
 	if entry.ChatCompletions != nil {
 		return entry.ChatCompletions.ChatCompletions(ctx, req, target)
+	}
+	if entry.Responses == nil && entry.Anthropic != nil {
+		translated, err := protocoltranslator.ChatCompletionsToResponses(req)
+		if err != nil {
+			return openaiwire.ChatCompletionsResponse{}, err
+		}
+		anthropicReq, err := protocoltranslator.ResponsesToAnthropicRequest(translated)
+		if err != nil {
+			return openaiwire.ChatCompletionsResponse{}, err
+		}
+		response, err := entry.Anthropic.AnthropicMessages(ctx, anthropicReq, target)
+		if err != nil {
+			return openaiwire.ChatCompletionsResponse{}, err
+		}
+		return protocoltranslator.AnthropicToChatCompletionsResponse(response), nil
 	}
 
 	translated, err := protocoltranslator.ChatCompletionsToResponses(req)
@@ -154,6 +210,17 @@ func invokeResponses(ctx context.Context, entry ConnectionEntry, req openaiwire.
 	if entry.Responses != nil {
 		return entry.Responses.Responses(ctx, req, target)
 	}
+	if entry.ChatCompletions == nil && entry.Anthropic != nil {
+		translated, err := protocoltranslator.ResponsesToAnthropicRequest(req)
+		if err != nil {
+			return openaiwire.ResponsesResponse{}, err
+		}
+		response, err := entry.Anthropic.AnthropicMessages(ctx, translated, target)
+		if err != nil {
+			return openaiwire.ResponsesResponse{}, err
+		}
+		return protocoltranslator.AnthropicToResponsesResponse(response), nil
+	}
 
 	translated, err := protocoltranslator.ResponsesToChatCompletions(req)
 	if err != nil {
@@ -169,6 +236,23 @@ func invokeResponses(ctx context.Context, entry ConnectionEntry, req openaiwire.
 func invokeChatCompletionsStream(ctx context.Context, entry ConnectionEntry, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
 	if entry.ChatCompletions != nil {
 		return entry.ChatCompletions.ChatCompletionsStream(ctx, req, target)
+	}
+	if entry.Responses == nil && entry.Anthropic != nil {
+		translatedResponses, err := protocoltranslator.ChatCompletionsToResponses(req)
+		if err != nil {
+			return nil, err
+		}
+		translatedResponses.Stream = true
+		translated, err := protocoltranslator.ResponsesToAnthropicRequest(translatedResponses)
+		if err != nil {
+			return nil, err
+		}
+		translated.Stream = true
+		body, err := entry.Anthropic.AnthropicMessagesStream(ctx, translated, target)
+		if err != nil {
+			return nil, err
+		}
+		return protocoltranslator.AnthropicStreamToChatCompletions(body), nil
 	}
 
 	translated, err := protocoltranslator.ChatCompletionsToResponses(req)
@@ -197,6 +281,18 @@ func invokeResponsesStream(ctx context.Context, entry ConnectionEntry, req opena
 		translated.Stream = true
 		return entry.Responses.ResponsesStream(ctx, translated, target)
 	}
+	if entry.ChatCompletions == nil && entry.Anthropic != nil {
+		translated, err := protocoltranslator.ResponsesToAnthropicRequest(req)
+		if err != nil {
+			return nil, err
+		}
+		translated.Stream = true
+		body, err := entry.Anthropic.AnthropicMessagesStream(ctx, translated, target)
+		if err != nil {
+			return nil, err
+		}
+		return protocoltranslator.AnthropicStreamToResponses(body), nil
+	}
 
 	translated, err := protocoltranslator.ResponsesToChatCompletions(req)
 	if err != nil {
@@ -216,6 +312,62 @@ func invokeResponsesStream(ctx context.Context, entry ConnectionEntry, req opena
 		}
 	})
 	return protocoltranslator.ChatCompletionsStreamToResponses(upstreamBody), nil
+}
+
+func invokeAnthropicMessages(ctx context.Context, entry ConnectionEntry, req anthropicwire.MessagesRequest, target routing.Target) (anthropicwire.MessagesResponse, error) {
+	if entry.Anthropic != nil {
+		return entry.Anthropic.AnthropicMessages(ctx, req, target)
+	}
+	if entry.Responses != nil {
+		translated, err := protocoltranslator.AnthropicToResponses(req)
+		if err != nil {
+			return anthropicwire.MessagesResponse{}, err
+		}
+		response, err := entry.Responses.Responses(ctx, translated, target)
+		if err != nil {
+			return anthropicwire.MessagesResponse{}, err
+		}
+		return protocoltranslator.ResponsesToAnthropic(response), nil
+	}
+	translated, err := protocoltranslator.AnthropicToChatCompletions(req)
+	if err != nil {
+		return anthropicwire.MessagesResponse{}, err
+	}
+	response, err := entry.ChatCompletions.ChatCompletions(ctx, translated, target)
+	if err != nil {
+		return anthropicwire.MessagesResponse{}, err
+	}
+	return protocoltranslator.ChatCompletionsToAnthropic(response), nil
+}
+
+func invokeAnthropicMessagesStream(ctx context.Context, entry ConnectionEntry, req anthropicwire.MessagesRequest, target routing.Target) (io.ReadCloser, error) {
+	if entry.Anthropic != nil {
+		translated := req
+		translated.Stream = true
+		return entry.Anthropic.AnthropicMessagesStream(ctx, translated, target)
+	}
+	if entry.Responses != nil {
+		translated, err := protocoltranslator.AnthropicToResponses(req)
+		if err != nil {
+			return nil, err
+		}
+		translated.Stream = true
+		body, err := entry.Responses.ResponsesStream(ctx, translated, target)
+		if err != nil {
+			return nil, err
+		}
+		return protocoltranslator.ResponsesStreamToAnthropic(body), nil
+	}
+	translated, err := protocoltranslator.AnthropicToChatCompletions(req)
+	if err != nil {
+		return nil, err
+	}
+	translated.Stream = true
+	body, err := entry.ChatCompletions.ChatCompletionsStream(ctx, translated, target)
+	if err != nil {
+		return nil, err
+	}
+	return protocoltranslator.ChatCompletionsStreamToAnthropic(body), nil
 }
 
 func readTranslatedChatStream(streamBody []byte) []byte {

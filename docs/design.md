@@ -54,6 +54,7 @@ Built-in providers are:
 
 - `cx` for Codex
 - `openai` for the standard OpenAI upstream
+- `anthropic` for the standard Anthropic upstream
 
 ## High-level Architecture
 
@@ -98,6 +99,10 @@ Current OpenAI-compatible endpoints:
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `GET /v1/models`
+
+Current Anthropic-compatible endpoints:
+
+- `POST /v1/messages`
 
 Possible later endpoints:
 
@@ -219,7 +224,7 @@ A useful internal error model will likely need to distinguish:
 
 ## Streaming Behavior
 
-Streaming is implemented for the current chat-completions and responses paths across the OpenAI and Codex providers.
+Streaming is implemented for the current chat-completions and responses paths across the OpenAI, Codex, and Anthropic providers, and for the Anthropic-compatible Messages path.
 
 Important concerns:
 

@@ -44,6 +44,7 @@ Provider support:
 
 - `cx` for Codex, with OAuth-oriented connection support and usage lookup
 - `openai` for the standard OpenAI upstream, with API-key-oriented connection support
+- `anthropic` for the standard Anthropic upstream, with API-key-oriented connection support
 - sync and streaming execution for chat completions and responses
 - deterministic fallback across configured connections for the resolved provider
 
@@ -90,7 +91,7 @@ Unit tests should continue to cover:
 - config defaulting, validation, and settings updates
 - provider registration and connection validation
 - fallback eligibility and attempt ordering
-- OpenAI/Codex request and response mapping
+- OpenAI/Codex/Anthropic request and response mapping
 - RTK compression selection and diagnostics
 
 Integration tests should cover:

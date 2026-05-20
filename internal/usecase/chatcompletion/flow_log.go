@@ -819,7 +819,7 @@ func defaultString(value string, fallback string) string {
 
 func isSensitiveKey(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
-	case "authorization", "cookie", "set-cookie", "api_key", "apikey", "access_token", "refreshtoken", "refresh_token":
+	case "authorization", "cookie", "set-cookie", "api_key", "apikey", "x-api-key", "access_token", "refreshtoken", "refresh_token":
 		return true
 	default:
 		return false
