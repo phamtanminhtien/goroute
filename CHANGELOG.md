@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/phamtanminhtien/goroute/compare/v1.5.0...v1.6.0) (2026-05-20)
+
+
+### Features
+
+* support Anthropic-compatible HTTP surface ([#48](https://github.com/phamtanminhtien/goroute/issues/48)) ([5b62087](https://github.com/phamtanminhtien/goroute/commit/5b62087862264714e68f4a5ec0c9bc10a31c98f6))
+
 ## [1.5.0](https://github.com/phamtanminhtien/goroute/compare/v1.4.1...v1.5.0) (2026-05-19)
 
 
