@@ -124,3 +124,38 @@ func TestResponsesStreamToAnthropicAcceptsTextDeltaField(t *testing.T) {
 		t.Fatalf("unexpected anthropic stream %q", stream)
 	}
 }
+
+func TestResponsesStreamToAnthropicStreamsToolUse(t *testing.T) {
+	body := ResponsesStreamToAnthropic(io.NopCloser(strings.NewReader(
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"created_at\":456,\"status\":\"in_progress\",\"model\":\"cx/gpt-5.4\",\"output\":[]}}\n\n" +
+			"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"create_transaction\",\"arguments\":\"\"}}\n\n" +
+			"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"transactions\\\":[\"}\n\n" +
+			"data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"amount\\\":10000}]}\"}\n\n" +
+			"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"create_transaction\",\"arguments\":\"{\\\"transactions\\\":[{\\\"amount\\\":10000}]}\"}}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"created_at\":456,\"status\":\"completed\",\"model\":\"cx/gpt-5.4\"}}\n\n" +
+			"data: [DONE]\n\n",
+	)))
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	stream := string(data)
+	for _, expected := range []string{
+		`"type":"tool_use"`,
+		`"id":"call_1"`,
+		`"name":"create_transaction"`,
+		`"type":"input_json_delta"`,
+		`"partial_json":"{\"transactions\":["`,
+		`"partial_json":"{\"amount\":10000}]}"`,
+		`"stop_reason":"tool_use"`,
+	} {
+		if !strings.Contains(stream, expected) {
+			t.Fatalf("expected %s in %q", expected, stream)
+		}
+	}
+	if strings.Contains(stream, `"type":"text","text":""`) {
+		t.Fatalf("tool-only stream should not open a text block: %q", stream)
+	}
+}

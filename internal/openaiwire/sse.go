@@ -32,6 +32,9 @@ type ResponsesStreamEvent struct {
 	ID          string                   `json:"id,omitempty"`
 	Text        string                   `json:"text,omitempty"`
 	Delta       string                   `json:"delta,omitempty"`
+	Arguments   string                   `json:"arguments,omitempty"`
+	CallID      string                   `json:"call_id,omitempty"`
+	ItemID      string                   `json:"item_id,omitempty"`
 	OutputIndex int                      `json:"output_index,omitempty"`
 	Content     []OutputContent          `json:"content,omitempty"`
 	Output      []OutputItem             `json:"output,omitempty"`
