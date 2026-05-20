@@ -559,11 +559,23 @@ func anthropicMessageID(id string) string {
 
 func translateResponsesStreamToAnthropic(r io.Reader, w io.Writer) error {
 	state := responsesParseState{CreatedAt: time.Now().Unix(), Status: openaiwire.ResponsesStatusInProgress, Usage: &openaiwire.ResponseUsage{}, ItemsByIdx: make(map[int]openaiwire.OutputItem)}
-	if err := writeAnthropicEvent(w, "message_start", anthropicwire.StreamEvent{Type: "message_start", Message: &anthropicwire.MessagesResponse{ID: "msg_stream", Type: "message", Role: "assistant", Content: []anthropicwire.ContentBlock{}, StopReason: anthropicwire.StopReasonEndTurn}}); err != nil {
-		return err
-	}
-	if err := writeAnthropicEvent(w, "content_block_start", anthropicwire.StreamEvent{Type: "content_block_start", Index: 0, ContentBlock: &anthropicwire.ContentBlock{Type: anthropicwire.ContentTypeText, Text: ""}}); err != nil {
-		return err
+	started := false
+	startAnthropicMessage := func() error {
+		if started {
+			return nil
+		}
+		started = true
+		if err := writeAnthropicEvent(w, "message_start", anthropicMessageStartPayload(state)); err != nil {
+			return err
+		}
+		if err := writeAnthropicEvent(w, "ping", map[string]any{"type": "ping"}); err != nil {
+			return err
+		}
+		return writeAnthropicEvent(w, "content_block_start", map[string]any{
+			"type":          "content_block_start",
+			"index":         0,
+			"content_block": map[string]any{"type": anthropicwire.ContentTypeText, "text": ""},
+		})
 	}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 1024), 1024*1024)
@@ -581,8 +593,24 @@ func translateResponsesStreamToAnthropic(r io.Reader, w io.Writer) error {
 			return err
 		}
 		processResponsesEvent(event, &state)
-		if event.Type == openaiwire.ResponsesStreamEventTypeOutputTextDelta && event.Delta != "" {
-			if err := writeAnthropicEvent(w, "content_block_delta", anthropicwire.StreamEvent{Type: "content_block_delta", Index: 0, Delta: &anthropicwire.StreamDelta{Type: "text_delta", Text: event.Delta}}); err != nil {
+		if event.Type == openaiwire.ResponsesStreamEventTypeCreated {
+			if err := startAnthropicMessage(); err != nil {
+				return err
+			}
+		}
+		if event.Type == openaiwire.ResponsesStreamEventTypeOutputTextDelta {
+			delta := event.TextValue()
+			if delta == "" {
+				continue
+			}
+			if err := startAnthropicMessage(); err != nil {
+				return err
+			}
+			if err := writeAnthropicEvent(w, "content_block_delta", map[string]any{
+				"type":  "content_block_delta",
+				"index": 0,
+				"delta": map[string]any{"type": "text_delta", "text": delta},
+			}); err != nil {
 				return err
 			}
 		}
@@ -590,14 +618,61 @@ func translateResponsesStreamToAnthropic(r io.Reader, w io.Writer) error {
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	response := ResponsesToAnthropic(finalizeResponses(state))
-	if err := writeAnthropicEvent(w, "content_block_stop", anthropicwire.StreamEvent{Type: "content_block_stop", Index: 0}); err != nil {
+	if err := startAnthropicMessage(); err != nil {
 		return err
 	}
-	if err := writeAnthropicEvent(w, "message_delta", anthropicwire.StreamEvent{Type: "message_delta", Delta: &anthropicwire.StreamDelta{Type: "message_delta", StopReason: response.StopReason}, Usage: response.Usage}); err != nil {
+	response := ResponsesToAnthropic(finalizeResponses(state))
+	if err := writeAnthropicEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0}); err != nil {
+		return err
+	}
+	if err := writeAnthropicEvent(w, "message_delta", anthropicMessageDeltaPayload(response)); err != nil {
 		return err
 	}
 	return writeAnthropicEvent(w, "message_stop", anthropicwire.StreamEvent{Type: "message_stop"})
+}
+
+func anthropicMessageStartPayload(state responsesParseState) map[string]any {
+	id := anthropicMessageID(state.ID)
+	if id == "" {
+		id = "msg_stream"
+	}
+	return map[string]any{
+		"type": "message_start",
+		"message": map[string]any{
+			"id":            id,
+			"type":          anthropicwire.MessageTypeMessage,
+			"role":          anthropicwire.RoleAssistant,
+			"content":       []any{},
+			"model":         state.Model,
+			"stop_reason":   nil,
+			"stop_sequence": nil,
+			"usage":         anthropicUsageFromResponses(state.Usage),
+		},
+	}
+}
+
+func anthropicMessageDeltaPayload(response anthropicwire.MessagesResponse) map[string]any {
+	return map[string]any{
+		"type": "message_delta",
+		"delta": map[string]any{
+			"stop_reason":   response.StopReason,
+			"stop_sequence": nil,
+		},
+		"usage": response.Usage,
+	}
+}
+
+func anthropicUsageFromResponses(usage *openaiwire.ResponseUsage) map[string]int {
+	out := map[string]int{"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}
+	if usage == nil {
+		return out
+	}
+	out["input_tokens"] = usage.InputTokens
+	out["output_tokens"] = usage.OutputTokens
+	if usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens > 0 {
+		out["cache_read_input_tokens"] = usage.InputTokensDetails.CachedTokens
+	}
+	return out
 }
 
 func translateAnthropicStreamToResponses(r io.Reader, w io.Writer) error {
@@ -660,12 +735,12 @@ func translateAnthropicStreamToResponses(r io.Reader, w io.Writer) error {
 	return err
 }
 
-func writeAnthropicEvent(w io.Writer, event string, payload anthropicwire.StreamEvent) error {
+func writeAnthropicEvent(w io.Writer, event string, payload any) error {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, encoded)
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n\n", event, encoded)
 	return err
 }
 

@@ -88,4 +88,39 @@ func TestResponsesStreamToAnthropicTranslatesTextDeltas(t *testing.T) {
 	if !strings.Contains(stream, "event: message_start") || !strings.Contains(stream, `"text":"hello"`) || !strings.Contains(stream, "event: message_stop") {
 		t.Fatalf("unexpected anthropic stream %q", stream)
 	}
+	messageStartIndex := strings.Index(stream, "event: message_start")
+	pingIndex := strings.Index(stream, "event: ping")
+	contentBlockStartIndex := strings.Index(stream, "event: content_block_start")
+	if pingIndex == -1 || !(messageStartIndex < pingIndex && pingIndex < contentBlockStartIndex) {
+		t.Fatalf("expected ping between message_start and content_block_start, got %q", stream)
+	}
+	if !strings.Contains(stream, "\n\n\nevent: ping") || !strings.Contains(stream, "\n\n\nevent: content_block_start") {
+		t.Fatalf("expected triple-newline Anthropic SSE frame separators, got %q", stream)
+	}
+	if !strings.Contains(stream, `"id":"msg_2"`) || !strings.Contains(stream, `"stop_reason":null`) || strings.Contains(stream, `"type":"message_delta","stop_reason"`) {
+		t.Fatalf("unexpected anthropic lifecycle payload %q", stream)
+	}
+	if !strings.Contains(stream, `"content_block":{"text":"","type":"text"}`) {
+		t.Fatalf("expected explicit empty text content block, got %q", stream)
+	}
+	if !strings.Contains(stream, `"index":0`) || !strings.Contains(stream, `"index":0,"type":"content_block_stop"`) {
+		t.Fatalf("expected content block events to include index zero, got %q", stream)
+	}
+}
+
+func TestResponsesStreamToAnthropicAcceptsTextDeltaField(t *testing.T) {
+	body := ResponsesStreamToAnthropic(io.NopCloser(strings.NewReader(
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_3\",\"object\":\"response\",\"created_at\":456,\"status\":\"in_progress\",\"model\":\"cx/gpt-5.4\",\"output\":[]}}\n\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"text\":\"hello\"}\n\n" +
+			"data: [DONE]\n\n",
+	)))
+	defer body.Close()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read stream: %v", err)
+	}
+	if stream := string(data); !strings.Contains(stream, `"text":"hello"`) {
+		t.Fatalf("unexpected anthropic stream %q", stream)
+	}
 }
