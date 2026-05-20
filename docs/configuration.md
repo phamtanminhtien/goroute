@@ -70,6 +70,7 @@ Current connection credential behavior:
 
 - `codex` uses `access_token`, falling back to `api_key` if present.
 - `openai` uses `api_key`, falling back to `access_token` if present.
+- `anthropic` uses `api_key`.
 - `refresh_token` is stored with the connection record and is used by the Codex provider to refresh access tokens when needed.
 - `token_type` and `expires_in` are persisted with OAuth connections when returned by the provider.
 
@@ -245,7 +246,7 @@ If the upstream usage API responds with a non-2xx status, the admin route still 
 
 This lets the UI keep the connection visible even when quota lookup is temporarily unavailable.
 
-## Custom OpenAI-Compatible Base URL Direction
+## Custom Upstream Base URL Direction
 
 The current implementation uses the built-in OpenAI base URL (`https://api.openai.com`) for connections with `provider_id: "openai"`.
 There is no config field yet for overriding this per connection.
@@ -260,6 +261,7 @@ The likely future direction is a per-connection optional field such as `base_url
 That would preserve the existing connection-centric config shape and allow multiple OpenAI-compatible accounts or vendors side by side.
 
 Until that lands, `provider_id: "openai"` should be read as “the standard OpenAI upstream” rather than “any OpenAI-compatible endpoint.”
+Likewise, `provider_id: "anthropic"` should be read as “the standard Anthropic upstream” rather than a configurable Anthropic-compatible endpoint.
 
 ## System Providers
 
@@ -269,6 +271,7 @@ Current built-in providers:
 
 - `cx`
 - `openai`
+- `anthropic`
 
 Model IDs are prefixed with the provider ID. Examples:
 
@@ -276,6 +279,9 @@ Model IDs are prefixed with the provider ID. Examples:
 - `cx/gpt-5.3-codex`
 - `openai/gpt-4.1`
 - `openai/o4-mini`
+- `anthropic/claude-sonnet-4-5`
+- `anthropic/claude-opus-4-1`
+- `anthropic/claude-haiku-4-5`
 
 ## Data Model
 

@@ -10,6 +10,7 @@ Implemented now:
   - `GET /v1/models`
   - `POST /v1/chat/completions`
   - `POST /v1/responses`
+- Anthropic-compatible HTTP surface for `POST /v1/messages`
 - `GET /healthz`
 - bearer-token auth for admin APIs
 - request ID and structured logging middleware
@@ -24,6 +25,7 @@ Implemented now:
 - deterministic fallback across multiple configured connections for the same provider
 - OpenAI upstream adapter for sync and streaming chat completions
 - OpenAI upstream adapter for sync and streaming responses
+- Anthropic upstream adapter for sync and streaming Messages, Responses, and Chat Completions
 - Codex adapter for sync and streaming chat completions
 - Codex adapter for streaming responses and sync response reconstruction
 - normalized upstream error wrapper mapped to gateway responses by the HTTP layer
