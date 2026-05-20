@@ -27,7 +27,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/shared/ui/alert-dialog";
-import { Button } from "@/shared/ui/button";
+import { Button, CopyButton } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Combobox } from "@/shared/ui/combobox";
 import {
@@ -67,9 +67,23 @@ import {
 } from "@/shared/ui/tooltip";
 import { renderWithQueryClient } from "@/test/test-utils";
 
+function installClipboardMock(
+  writeText = vi.fn().mockResolvedValue(undefined),
+) {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText,
+    },
+  });
+
+  return writeText;
+}
+
 describe("shared ui primitives", () => {
   beforeEach(() => {
     motionState.reducedMotion = false;
+    installClipboardMock();
   });
 
   it("renders field, page header, and section card in different contexts", () => {
@@ -149,6 +163,78 @@ describe("shared ui primitives", () => {
     expect(
       screen.getByRole("button", { name: /large icon action/i }),
     ).toHaveClass("px-0", "py-0");
+  });
+
+  it("renders copy buttons with the default label and icon", () => {
+    const { container } = renderWithQueryClient(
+      <CopyButton copyValue="api-key" />,
+    );
+
+    expect(screen.getByRole("button", { name: /^copy$/i })).toBeInTheDocument();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
+
+  it("copies the configured value and calls the success callback", async () => {
+    const user = userEvent.setup();
+    const writeText = installClipboardMock();
+    const onCopied = vi.fn();
+
+    const { container } = renderWithQueryClient(
+      <CopyButton copyValue="api-key" onCopied={onCopied} />,
+    );
+
+    expect(container.querySelector(".lucide-clipboard")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^copy$/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("api-key");
+      expect(onCopied).toHaveBeenCalledTimes(1);
+      expect(container.querySelector(".lucide-check")).not.toBeNull();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    await waitFor(() => {
+      expect(container.querySelector(".lucide-clipboard")).not.toBeNull();
+    });
+  });
+
+  it("calls the copy error callback when clipboard writing fails", async () => {
+    const user = userEvent.setup();
+    const copyError = new Error("Copy failed");
+    const onCopyError = vi.fn();
+    const writeText = installClipboardMock(
+      vi.fn().mockRejectedValueOnce(copyError),
+    );
+
+    renderWithQueryClient(
+      <CopyButton copyValue="api-key" onCopyError={onCopyError} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /^copy$/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("api-key");
+      expect(onCopyError).toHaveBeenCalledWith(copyError);
+    });
+  });
+
+  it("does not copy when the copy button is disabled", async () => {
+    const user = userEvent.setup();
+    const writeText = installClipboardMock();
+
+    renderWithQueryClient(<CopyButton copyValue="api-key" disabled />);
+
+    await user.click(screen.getByRole("button", { name: /^copy$/i }));
+
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("disables copy buttons without a copy value", () => {
+    renderWithQueryClient(<CopyButton copyValue="" />);
+
+    expect(screen.getByRole("button", { name: /^copy$/i })).toBeDisabled();
   });
 
   it("creates a ripple on pointer down when enabled", () => {

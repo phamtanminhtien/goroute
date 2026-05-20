@@ -11,6 +11,7 @@ import (
 	"time"
 
 	adapteropenaicompatible "github.com/phamtanminhtien/goroute/internal/adapter/openaicompatible"
+	provideranthropic "github.com/phamtanminhtien/goroute/internal/adapter/provider/anthropic"
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
 	provideropenai "github.com/phamtanminhtien/goroute/internal/adapter/provider/openai"
 	"github.com/phamtanminhtien/goroute/internal/config"
@@ -105,6 +106,7 @@ func buildProviderRegistry() (providerregistry.Registry, error) {
 	return providerregistry.New(
 		providercodex.Registration(),
 		provideropenai.Registration(),
+		provideranthropic.Registration(),
 	)
 }
 
@@ -112,6 +114,7 @@ func buildProviderRegistryWithCustom(customProviders []provider.Record) (provide
 	registrations := []providerregistry.Registration{
 		providercodex.Registration(),
 		provideropenai.Registration(),
+		provideranthropic.Registration(),
 	}
 	for _, customProvider := range customProviders {
 		registrations = append(registrations, adapteropenaicompatible.Registration(customProvider.Provider()))

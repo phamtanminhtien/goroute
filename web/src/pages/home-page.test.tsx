@@ -87,13 +87,20 @@ describe("home page", () => {
     });
   });
 
-  it("renders OpenAI-compatible connection details from the runtime listen port", async () => {
+  it("renders OpenAI-compatible and Anthropic-compatible connection details from the runtime listen port", async () => {
     renderHome();
 
     expect(await screen.findByText("AI connection hub")).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/OpenAI-compatible and Anthropic-compatible/i).length,
+    ).toBeGreaterThan(0);
     expect(await screen.findByText("GET /v1/models")).toBeInTheDocument();
     expect(screen.getByText("POST /v1/chat/completions")).toBeInTheDocument();
     expect(screen.getByText("POST /v1/responses")).toBeInTheDocument();
+    expect(screen.getByText("POST /v1/messages")).toBeInTheDocument();
+    expect(
+      screen.getByText(/anthropic\/claude-sonnet-4-5/),
+    ).toBeInTheDocument();
     expect(screen.getByText("System API keys")).toBeInTheDocument();
   });
 
@@ -102,7 +109,7 @@ describe("home page", () => {
     renderHome();
 
     const authSwitch = await screen.findByRole("switch", {
-      name: /require system api key for openai-compatible clients/i,
+      name: /require system api key for api-compatible clients/i,
     });
     await user.click(authSwitch);
 

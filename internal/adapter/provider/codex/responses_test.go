@@ -375,6 +375,7 @@ func TestClientResponsesTransformsCodexPayloadReasoningAndUnsupportedParams(t *t
 			"top_p":0.9,
 			"max_tokens":100,
 			"max_completion_tokens":200,
+			"max_output_tokens":300,
 			"metadata":{"trace":"abc"},
 			"stream_options":{"include_usage":true},
 			"include":["reasoning.encrypted_content"]
@@ -386,7 +387,7 @@ func TestClientResponsesTransformsCodexPayloadReasoningAndUnsupportedParams(t *t
 	if upstreamBody["model"] != "gpt-5.4" {
 		t.Fatalf("expected stripped upstream model, got %#v", upstreamBody["model"])
 	}
-	for _, key := range []string{"temperature", "top_p", "max_tokens", "max_completion_tokens", "metadata", "stream_options"} {
+	for _, key := range []string{"temperature", "top_p", "max_tokens", "max_completion_tokens", "max_output_tokens", "metadata", "stream_options"} {
 		if _, ok := upstreamBody[key]; ok {
 			t.Fatalf("expected unsupported param %q to be removed from %#v", key, upstreamBody)
 		}

@@ -1,3 +1,4 @@
+import { anthropicProviderConnectionFormEntry } from "@/features/providers/registry/anthropic";
 import { codexProviderConnectionFormEntry } from "@/features/providers/registry/cx";
 import { defaultProviderConnectionFormEntry } from "@/features/providers/registry/default";
 import { openAIProviderConnectionFormEntry } from "@/features/providers/registry/openai";
@@ -7,6 +8,7 @@ const providerConnectionFormRegistry: Record<
   string,
   ProviderConnectionFormRegistryEntry
 > = {
+  anthropic: anthropicProviderConnectionFormEntry,
   cx: codexProviderConnectionFormEntry,
   openai: openAIProviderConnectionFormEntry,
 };

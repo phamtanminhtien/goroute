@@ -1,21 +1,38 @@
+import { Check, Clipboard } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   type ButtonHTMLAttributes,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
+  useEffect,
+  useRef,
   useState,
 } from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { createVariant } from "@/shared/lib/create-variant";
 
-type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
+export type ButtonProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "children"
+> & {
   children?: ReactNode;
   iconOnly?: boolean;
   leadingIcon?: ReactNode;
   ripple?: boolean;
   size?: "sm" | "md" | "lg";
   tone?: "primary" | "secondary" | "ghost";
+};
+
+export type CopyButtonProps = Omit<ButtonProps, "children"> & {
+  copiedIcon?: ReactNode;
+  copiedLabel?: ReactNode;
+  copyIcon?: ReactNode;
+  copyLabel?: ReactNode;
+  copyValue: string;
+  onCopied?: () => void;
+  onCopyError?: (error: unknown) => void;
 };
 
 type RippleState = {
@@ -144,9 +161,99 @@ export function Button({
             : "gap-2",
         )}
       >
-        {leadingIcon ? <span className="shrink-0">{leadingIcon}</span> : null}
+        {leadingIcon ? (
+          <span className="inline-flex shrink-0 items-center justify-center leading-none">
+            {leadingIcon}
+          </span>
+        ) : null}
         {children}
       </span>
     </button>
+  );
+}
+
+export function CopyButton({
+  copiedIcon = <Check className="size-4" />,
+  copiedLabel,
+  copyIcon = <Clipboard className="size-4" />,
+  copyLabel = "Copy",
+  copyValue,
+  disabled,
+  iconOnly = false,
+  leadingIcon,
+  onClick,
+  onCopied,
+  onCopyError,
+  type = "button",
+  ...props
+}: CopyButtonProps) {
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDisabled = disabled || !copyValue;
+  const copied = copiedValue === copyValue;
+  const displayedIcon = copied ? copiedIcon : (leadingIcon ?? copyIcon);
+  const animatedIcon = (
+    <AnimatePresence initial={false} mode="wait">
+      <motion.span
+        animate={{ opacity: 1, rotate: 0, scale: 1 }}
+        className="inline-flex items-center justify-center leading-none"
+        exit={{ opacity: 0, rotate: copied ? -12 : 12, scale: 0.75 }}
+        initial={{ opacity: 0, rotate: copied ? 12 : -12, scale: 0.75 }}
+        key={copied ? "copied" : "copy"}
+        transition={{ duration: 0.16, ease: "easeOut" }}
+      >
+        {displayedIcon}
+      </motion.span>
+    </AnimatePresence>
+  );
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  async function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    onClick?.(event);
+
+    if (event.defaultPrevented || isDisabled) {
+      return;
+    }
+
+    try {
+      if (!navigator?.clipboard?.writeText) {
+        throw new Error("Clipboard is not available.");
+      }
+
+      await navigator.clipboard.writeText(copyValue);
+      onCopied?.();
+      setCopiedValue(copyValue);
+
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+
+      copiedTimeoutRef.current = setTimeout(() => {
+        setCopiedValue(null);
+        copiedTimeoutRef.current = null;
+      }, 1500);
+    } catch (error) {
+      onCopyError?.(error);
+    }
+  }
+
+  return (
+    <Button
+      disabled={isDisabled}
+      iconOnly={iconOnly}
+      leadingIcon={animatedIcon}
+      onClick={handleClick}
+      type={type}
+      {...props}
+    >
+      {iconOnly ? null : copied && copiedLabel ? copiedLabel : copyLabel}
+    </Button>
   );
 }

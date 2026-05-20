@@ -1,13 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Clipboard,
-  KeyRound,
-  Link2,
-  Plus,
-  ServerCog,
-  Workflow,
-} from "lucide-react";
-import type { FormEvent, ReactNode } from "react";
+import { Link2, Plus } from "lucide-react";
+import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 
 import {
@@ -22,7 +15,7 @@ import {
   systemAPIKeysQueryKey,
   updateSystemAPIKey,
 } from "@/features/system-api-keys/api";
-import { Button } from "@/shared/ui/button";
+import { Button, CopyButton } from "@/shared/ui/button";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { Field } from "@/shared/ui/field";
 import { InlineAlert } from "@/shared/ui/inline-alert";
@@ -44,10 +37,14 @@ import { StatusBadge } from "@/shared/ui/status-badge";
 import { SurfaceCard } from "@/shared/ui/surface-card";
 import { Switch } from "@/shared/ui/switch";
 
-const endpoints = [
+const openAIEndpoints = [
   { label: "Models", value: "GET /v1/models" },
   { label: "Chat Completions", value: "POST /v1/chat/completions" },
   { label: "Responses", value: "POST /v1/responses" },
+];
+
+const anthropicEndpoints = [
+  { label: "Anthropic Messages", value: "POST /v1/messages" },
 ];
 
 export function HomePage() {
@@ -63,7 +60,6 @@ export function HomePage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [formError, setFormError] = useState("");
-  const [copyFeedback, setCopyFeedback] = useState("");
 
   const baseURL = useMemo(
     () => resolveOpenAIBaseURL(settingsQuery.data?.server.listen),
@@ -135,89 +131,37 @@ export function HomePage() {
     await createKeyMutation.mutateAsync({ name });
   }
 
-  async function copyText(value: string, message: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopyFeedback(message);
-    } catch {
-      setCopyFeedback("Clipboard is not available in this browser.");
-    }
-  }
-
   return (
     <section className="space-y-6 pb-6">
       <PageHeader
-        description="Connect OpenAI-compatible clients to GoRoute, manage system API keys, and keep routing policy inside the proxy."
+        description="Connect OpenAI-compatible and Anthropic-compatible clients to GoRoute, manage system API keys, and keep routing policy inside the proxy."
         eyebrow="Home"
         title="AI connection hub"
       >
-        <StatusBadge tone="info">OpenAI-compatible</StatusBadge>
+        <StatusBadge tone="info">Multi-protocol</StatusBadge>
       </PageHeader>
 
-      {copyFeedback ? <InlineAlert>{copyFeedback}</InlineAlert> : null}
-
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-6">
-          <SectionCard
-            description="Use this base URL in OpenAI-compatible SDKs and tools. The port is resolved from the current runtime settings."
-            title="Connection details"
-            tone="solid"
-          >
-            {settingsQuery.isPending ? (
-              <div className="space-y-3">
-                <Skeleton className="min-h-[76px]" />
-                <Skeleton className="min-h-[120px]" />
-              </div>
-            ) : settingsQuery.isError || !baseURL ? (
-              <InlineAlert tone="error">
-                Cannot resolve server port from runtime settings.
-              </InlineAlert>
-            ) : (
-              <div className="space-y-4">
-                <CopyPanel
-                  label="Base URL"
-                  value={baseURL}
-                  onCopy={() => copyText(baseURL, "Base URL copied.")}
-                />
-                <div className="grid gap-3 md:grid-cols-3">
-                  {endpoints.map((endpoint) => (
-                    <EndpointCard
-                      key={endpoint.value}
-                      label={endpoint.label}
-                      value={endpoint.value}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard
-            description="A minimal request shape for clients that already speak the OpenAI API."
-            title="Client example"
-          >
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <InfoTile
-                  icon={<ServerCog className="size-4" />}
-                  label="Base URL"
-                  value={baseURL ?? "Unavailable"}
-                />
-                <InfoTile
-                  icon={<KeyRound className="size-4" />}
-                  label="API key"
-                  value="Use a system API key"
-                />
-                <InfoTile
-                  icon={<Workflow className="size-4" />}
-                  label="Model"
-                  value="cx/gpt-5.4"
-                />
-              </div>
-              <div className="bg-bg-tertiary/60 border-border/70 overflow-x-auto rounded-[16px] border p-4">
-                <pre className="text-fg-secondary text-xs leading-6">
-                  {`const client = new OpenAI({
-  baseURL: "${baseURL ?? "<runtime-base-url>"}",
+      <SectionCard
+        description="Choose the protocol your client already speaks. Both use the same GoRoute runtime URL and system API keys."
+        title="Client connections"
+        tone="solid"
+      >
+        {settingsQuery.isPending ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Skeleton className="min-h-[420px]" />
+            <Skeleton className="min-h-[420px]" />
+          </div>
+        ) : settingsQuery.isError || !baseURL ? (
+          <InlineAlert tone="error">
+            Cannot resolve server port from runtime settings.
+          </InlineAlert>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ProtocolPanel
+              description="Use Chat Completions or Responses from OpenAI-compatible SDKs and tools."
+              endpoints={openAIEndpoints}
+              example={`const client = new OpenAI({
+  baseURL: "${baseURL}",
   apiKey: "<system-api-key>",
 });
 
@@ -225,12 +169,29 @@ await client.chat.completions.create({
   model: "cx/gpt-5.4",
   messages: [{ role: "user", content: "Hello from GoRoute" }],
 });`}
-                </pre>
-              </div>
-            </div>
-          </SectionCard>
-        </div>
+              title="OpenAI-compatible"
+              value={baseURL}
+            />
+            <ProtocolPanel
+              description="Use Anthropic Messages clients with GoRoute routing and provider fallback."
+              endpoints={anthropicEndpoints}
+              example={`const client = new Anthropic({
+  baseURL: "${baseURL}",
+  apiKey: "<system-api-key>",
+});
 
+await client.messages.create({
+  model: "anthropic/claude-sonnet-4-5",
+  messages: [{ role: "user", content: "Hello from GoRoute" }],
+});`}
+              title="Anthropic-compatible"
+              value={baseURL}
+            />
+          </div>
+        )}
+      </SectionCard>
+
+      <div>
         <SectionCard
           description="Create client-facing keys for applications that call GoRoute. Protection applies when at least one key exists and the toggle is on."
           headerAction={
@@ -295,9 +256,6 @@ await client.chat.completions.create({
                 <APIKeyRow
                   apiKey={apiKey}
                   key={apiKey.id}
-                  onCopy={() =>
-                    copyText(apiKey.key, `${apiKey.name} key copied.`)
-                  }
                   onToggle={(enabled) =>
                     updateKeyMutation.mutate({
                       enabled,
@@ -368,7 +326,7 @@ function SettingToggle({
         <div className="space-y-2 pr-4">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-fg-primary text-sm font-semibold">
-              Require system API key for OpenAI-compatible clients
+              Require system API key for API-compatible clients
             </p>
             <StatusBadge size="sm" tone={checked ? "success" : "warning"}>
               {checked ? "On" : "Off"}
@@ -380,7 +338,7 @@ function SettingToggle({
           </p>
         </div>
         <Switch
-          aria-label="Require system API key for OpenAI-compatible clients"
+          aria-label="Require system API key for API-compatible clients"
           checked={checked}
           disabled={disabled}
           onCheckedChange={onCheckedChange}
@@ -422,15 +380,7 @@ export function resolveOpenAIBaseURL(listen?: string) {
   }
 }
 
-function CopyPanel({
-  label,
-  onCopy,
-  value,
-}: {
-  label: string;
-  onCopy: () => void;
-  value: string;
-}) {
+function CopyPanel({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-border/80 bg-bg-tertiary/60 flex flex-col gap-3 rounded-[18px] border p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1">
@@ -441,61 +391,86 @@ function CopyPanel({
           {value}
         </p>
       </div>
-      <Button
-        leadingIcon={<Clipboard className="size-4" />}
-        onClick={onCopy}
-        tone="secondary"
-        type="button"
-      >
-        Copy
-      </Button>
+      <CopyButton copyValue={value} tone="secondary" type="button" />
     </div>
   );
 }
 
-function EndpointCard({ label, value }: { label: string; value: string }) {
+function ProtocolPanel({
+  description,
+  endpoints,
+  example,
+  title,
+  value,
+}: {
+  description: string;
+  endpoints: Array<{ label: string; value: string }>;
+  example: string;
+  title: string;
+  value: string;
+}) {
   return (
-    <SurfaceCard className="p-4" tone="glass">
+    <SurfaceCard className="flex min-h-[420px] flex-col gap-4 p-4" tone="glass">
       <div className="space-y-2">
-        <div className="dashboard-icon-surface flex size-9 items-center justify-center rounded-[12px] border">
-          <Link2 className="size-4" />
-        </div>
-        <p className="text-fg-primary text-sm font-semibold">{label}</p>
-        <p className="text-fg-secondary font-mono text-xs break-all">{value}</p>
+        <p className="text-fg-primary text-base font-semibold">{title}</p>
+        <p className="text-fg-secondary text-sm leading-6">{description}</p>
+      </div>
+
+      <CopyPanel label="Base URL" value={value} />
+
+      <div className="grid min-h-[118px] content-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {endpoints.map((endpoint) => (
+          <EndpointCard
+            key={endpoint.value}
+            label={endpoint.label}
+            value={endpoint.value}
+            wide={endpoints.length === 1}
+          />
+        ))}
+      </div>
+
+      <div className="bg-bg-tertiary/60 border-border/70 mt-auto overflow-x-auto rounded-[16px] border p-4">
+        <p className="text-fg-muted mb-3 text-[11px] font-semibold tracking-[0.18em] uppercase">
+          Example
+        </p>
+        <pre className="text-fg-secondary text-xs leading-6">{example}</pre>
       </div>
     </SurfaceCard>
   );
 }
 
-function InfoTile({
-  icon,
+function EndpointCard({
   label,
   value,
+  wide = false,
 }: {
-  icon: ReactNode;
   label: string;
   value: string;
+  wide?: boolean;
 }) {
   return (
-    <div className="border-border/70 bg-bg-tertiary/45 rounded-[16px] border p-4">
-      <div className="text-primary mb-3">{icon}</div>
-      <p className="text-fg-muted text-[11px] font-semibold tracking-[0.18em] uppercase">
-        {label}
-      </p>
-      <p className="text-fg-primary mt-1 text-sm font-semibold break-words">
-        {value}
-      </p>
-    </div>
+    <SurfaceCard
+      className={wide ? "p-4 sm:col-span-2 xl:col-span-3" : "p-4"}
+      tone="glass"
+    >
+      <div className="space-y-2">
+        <div className="dashboard-icon-surface flex size-9 items-center justify-center rounded-[12px] border">
+          <Link2 className="size-4" />
+        </div>
+        <p className="text-fg-primary text-sm font-semibold">{label}</p>
+        <p className="text-fg-secondary overflow-hidden font-mono text-[11px] leading-5 text-ellipsis whitespace-nowrap">
+          {value}
+        </p>
+      </div>
+    </SurfaceCard>
   );
 }
 
 function APIKeyRow({
   apiKey,
-  onCopy,
   onToggle,
 }: {
   apiKey: SystemAPIKey;
-  onCopy: () => void;
   onToggle: (enabled: boolean) => void;
 }) {
   return (
@@ -522,11 +497,10 @@ function APIKeyRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button
+          <CopyButton
             aria-label={`Copy ${apiKey.name} API key`}
+            copyValue={apiKey.key}
             iconOnly
-            leadingIcon={<Clipboard className="size-4" />}
-            onClick={onCopy}
             tone="secondary"
             type="button"
           />

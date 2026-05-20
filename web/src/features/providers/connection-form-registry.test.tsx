@@ -23,4 +23,11 @@ describe("provider connection form registry", () => {
 
     expect(entry.renderCreate).not.toBe(entry.renderEdit);
   });
+
+  it("returns the Anthropic API-key form entry", () => {
+    const entry = getProviderConnectionFormEntry("anthropic");
+
+    expect(entry).not.toBe(defaultProviderConnectionFormEntry);
+    expect(entry.renderCreate).not.toBe(entry.renderEdit);
+  });
 });

@@ -109,6 +109,48 @@ func openAICompatibleAuthMiddleware(settingsManager *config.SettingsManager, rep
 	})
 }
 
+func anthropicCompatibleAuthMiddleware(settingsManager *config.SettingsManager, repo systemAPIKeyAuthRepository, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if settingsManager == nil || !settingsManager.OpenAICompatibleAuth().Enabled || repo == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		hasKeys, err := repo.HasSystemAPIKeys()
+		if err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+		if !hasKeys {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		key := strings.TrimSpace(r.Header.Get("x-api-key"))
+		if key == "" {
+			authHeader := r.Header.Get("Authorization")
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				writeError(r, w, http.StatusUnauthorized, "unauthorized", "missing bearer token or x-api-key")
+				return
+			}
+			key = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		}
+		if key == "" {
+			writeError(r, w, http.StatusUnauthorized, "unauthorized", "missing bearer token or x-api-key")
+			return
+		}
+		if _, ok, err := repo.AuthenticateSystemAPIKey(key); err != nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		} else if !ok {
+			writeError(r, w, http.StatusUnauthorized, "unauthorized", "invalid API key")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	statusCode   int
