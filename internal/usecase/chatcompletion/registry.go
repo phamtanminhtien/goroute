@@ -3,6 +3,7 @@ package chatcompletion
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -512,7 +513,7 @@ func (r *ConnectionRegistry) connectionsForTarget(target routing.Target) []Conne
 
 func (r *ConnectionRegistry) recordConnectionRuntimeError(connection ConnectionEntry, err error, policy FailurePolicy, occurredAt time.Time) {
 	retryAfter := int64(0)
-	if policy.Class == FailureClassRetryable {
+	if shouldCooldownConnection(err, policy) {
 		retryAfter = occurredAt.Add(RetryableConnectionCooldown).Unix()
 	}
 
@@ -526,6 +527,19 @@ func (r *ConnectionRegistry) recordConnectionRuntimeError(connection ConnectionE
 		}
 	}
 	r.updateConnectionRuntimeState(connection.ID, message, policy.Category, occurredAt.Unix(), retryAfter)
+}
+
+func shouldCooldownConnection(err error, policy FailurePolicy) bool {
+	if policy.Class != FailureClassRetryable {
+		return false
+	}
+
+	var upstreamErr UpstreamError
+	if errors.As(err, &upstreamErr) && upstreamErr.StatusCode >= 400 && upstreamErr.StatusCode < 500 {
+		return false
+	}
+
+	return true
 }
 
 func (r *ConnectionRegistry) clearConnectionRuntimeError(connection ConnectionEntry) {

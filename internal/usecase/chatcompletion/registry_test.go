@@ -398,6 +398,35 @@ func TestConnectionRegistryRecordsRetryableErrorCooldown(t *testing.T) {
 	}
 }
 
+func TestConnectionRegistryDoesNotCooldownUpstream4xx(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	store := &recordingRuntimeStateStore{}
+	registry := newTestRegistryWithStateStore(map[string][]ConnectionEntry{
+		"cx": {
+			newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 429, Message: "slow down"}}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}}, nil),
+		},
+	}, store)
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if response.ID != "ok" {
+		t.Fatalf("expected fallback response, got %q", response.ID)
+	}
+	if store.recordedID != "cx-1" || store.recordedCategory != "upstream_retryable_error" {
+		t.Fatalf("expected 4xx retryable error to be recorded, got %#v", store)
+	}
+	if store.recordedRetryAfter != 0 {
+		t.Fatalf("expected upstream 4xx without cooldown, got retryAfter=%d", store.recordedRetryAfter)
+	}
+}
+
 func TestConnectionRegistrySkipsActiveCooldownConnection(t *testing.T) {
 	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
 	previousTimeNow := registryTimeNow
