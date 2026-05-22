@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/phamtanminhtien/goroute/compare/v1.7.0...v1.7.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* **responses:** accept image output parts ([1d13983](https://github.com/phamtanminhtien/goroute/commit/1d13983789e3d6746f4069489c2fcc69bb018b09))
+
 ## [1.7.0](https://github.com/phamtanminhtien/goroute/compare/v1.6.1...v1.7.0) (2026-05-22)
 
 
