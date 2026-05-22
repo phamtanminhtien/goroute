@@ -498,13 +498,26 @@ func responseInputItemToChatMessages(item openaiwire.ResponseInputItem) ([]opena
 		return []openaiwire.ChatMessage{{
 			Role:       openaiwire.ChatRoleTool,
 			ToolCallID: item.CallID,
-			Content:    openaiwire.TextContent(item.Output),
+			Content:    openaiwire.TextContent(responseInputOutputText(item)),
 		}}, nil
 	case "reasoning":
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("type %q is not supported by chat completions translation", item.Type)
 	}
+}
+
+func responseInputOutputText(item openaiwire.ResponseInputItem) string {
+	if item.Output != "" {
+		return item.Output
+	}
+	var b strings.Builder
+	for _, part := range item.OutputParts {
+		if part.Text != "" {
+			b.WriteString(part.Text)
+		}
+	}
+	return b.String()
 }
 
 func responseInputContentToChat(role openaiwire.ChatRole, parts []openaiwire.ResponseInputContentPart) (openaiwire.ChatMessageContent, error) {

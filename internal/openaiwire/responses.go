@@ -1,8 +1,9 @@
 package openaiwire
 
 import (
+	"bytes"
 	"encoding/json"
-	"reflect"
+	"errors"
 )
 
 type ResponsesStatus string
@@ -67,26 +68,28 @@ func (r *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	r.Input = nil
 	r.InputText = ""
 
-	if len(decoded.Input) == 0 || string(decoded.Input) == "null" {
+	trimmedInput := bytes.TrimSpace(decoded.Input)
+	if len(trimmedInput) == 0 || string(trimmedInput) == "null" {
 		return nil
 	}
 
-	var inputText string
-	if err := json.Unmarshal(decoded.Input, &inputText); err == nil {
+	switch trimmedInput[0] {
+	case '"':
+		var inputText string
+		if err := json.Unmarshal(decoded.Input, &inputText); err != nil {
+			return err
+		}
 		r.InputText = inputText
 		return nil
-	}
-
-	var inputItems []ResponseInputItem
-	if err := json.Unmarshal(decoded.Input, &inputItems); err == nil {
+	case '[':
+		var inputItems []ResponseInputItem
+		if err := json.Unmarshal(decoded.Input, &inputItems); err != nil {
+			return err
+		}
 		r.Input = inputItems
 		return nil
-	}
-
-	return &json.UnmarshalTypeError{
-		Value: "input",
-		Type:  reflect.TypeOf([]ResponseInputItem{}),
-		Field: "input",
+	default:
+		return errors.New("input must be a string or an array of response input items")
 	}
 }
 
@@ -98,12 +101,22 @@ type ResponseInputItem struct {
 	Name        string                     `json:"name,omitempty"`
 	Arguments   string                     `json:"arguments,omitempty"`
 	Output      string                     `json:"output,omitempty"`
+	OutputParts []ResponseInputContentPart `json:"-"`
 	Summary     []ResponseSummaryPart      `json:"summary,omitempty"`
 	extraFields map[string]json.RawMessage
 }
 
 func (i *ResponseInputItem) UnmarshalJSON(data []byte) error {
-	type itemAlias ResponseInputItem
+	type itemAlias struct {
+		Type      string                     `json:"type"`
+		Role      string                     `json:"role,omitempty"`
+		Content   []ResponseInputContentPart `json:"content,omitempty"`
+		CallID    string                     `json:"call_id,omitempty"`
+		Name      string                     `json:"name,omitempty"`
+		Arguments string                     `json:"arguments,omitempty"`
+		Output    json.RawMessage            `json:"output,omitempty"`
+		Summary   []ResponseSummaryPart      `json:"summary,omitempty"`
+	}
 
 	var decoded itemAlias
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -115,7 +128,28 @@ func (i *ResponseInputItem) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*i = ResponseInputItem(decoded)
+	*i = ResponseInputItem{
+		Type:        decoded.Type,
+		Role:        decoded.Role,
+		Content:     decoded.Content,
+		CallID:      decoded.CallID,
+		Name:        decoded.Name,
+		Arguments:   decoded.Arguments,
+		Summary:     decoded.Summary,
+		extraFields: extras,
+	}
+	if len(decoded.Output) > 0 && string(decoded.Output) != "null" {
+		trimmedOutput := bytes.TrimSpace(decoded.Output)
+		if len(trimmedOutput) > 0 && trimmedOutput[0] == '"' {
+			if err := json.Unmarshal(decoded.Output, &i.Output); err != nil {
+				return err
+			}
+		} else if len(trimmedOutput) > 0 && trimmedOutput[0] == '[' {
+			if err := json.Unmarshal(decoded.Output, &i.OutputParts); err != nil {
+				return err
+			}
+		}
+	}
 	i.extraFields = extras
 	return nil
 }
@@ -136,6 +170,13 @@ func (i ResponseInputItem) MarshalJSON() ([]byte, error) {
 	}
 	if err := json.Unmarshal(encodedKnown, &merged); err != nil {
 		return nil, err
+	}
+	if len(i.OutputParts) > 0 {
+		encodedOutputParts, err := json.Marshal(i.OutputParts)
+		if err != nil {
+			return nil, err
+		}
+		merged["output"] = encodedOutputParts
 	}
 
 	return json.Marshal(merged)
