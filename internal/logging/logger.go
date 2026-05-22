@@ -22,6 +22,7 @@ type StreamBroadcaster struct {
 	mu      sync.RWMutex
 	nextID  uint64
 	buffer  int
+	history []string
 	streams map[uint64]chan string
 }
 
@@ -60,6 +61,9 @@ func (b *StreamBroadcaster) Subscribe() (<-chan string, func()) {
 	b.nextID++
 
 	ch := make(chan string, b.buffer)
+	for _, line := range b.history {
+		ch <- line
+	}
 	b.streams[id] = ch
 
 	return ch, func() {
@@ -78,8 +82,13 @@ func (b *StreamBroadcaster) Publish(line string) {
 		return
 	}
 
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.history = append(b.history, line)
+	if len(b.history) > b.buffer {
+		b.history = b.history[len(b.history)-b.buffer:]
+	}
 
 	for _, ch := range b.streams {
 		select {

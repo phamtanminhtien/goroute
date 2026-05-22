@@ -72,7 +72,7 @@ export function ConsoleLogPage() {
   return (
     <section className="space-y-4 pb-6">
       <PageHeader
-        description="Live backend application logs from the admin SSE stream."
+        description="Recent and live backend application logs from the admin SSE stream."
         eyebrow="Observability"
         title="Console Log"
       >
@@ -95,10 +95,10 @@ export function ConsoleLogPage() {
       <SurfaceCard className="overflow-hidden" tone="glass">
         <div className="border-border/70 flex items-center justify-between gap-3 border-b px-4 py-3">
           <div className="text-fg-secondary text-sm">
-            {entries.length} buffered
+            {entries.length} recent lines buffered
           </div>
           <div className="text-fg-muted text-xs">
-            JSON lines are formatted when possible
+            New lines append as they are streamed
           </div>
         </div>
 
@@ -116,7 +116,7 @@ export function ConsoleLogPage() {
         >
           {entries.length === 0 ? (
             <div className="text-fg-muted px-4 py-6 text-sm">
-              Waiting for backend logs.
+              Waiting for backend logs. Recent lines appear here when available.
             </div>
           ) : (
             <div>

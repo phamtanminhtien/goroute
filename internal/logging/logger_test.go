@@ -117,3 +117,25 @@ func TestStreamBroadcasterDropsLinesForSlowSubscribers(t *testing.T) {
 		t.Fatal("expected at least one buffered line for subscriber")
 	}
 }
+
+func TestStreamBroadcasterReplaysRecentLinesToNewSubscribers(t *testing.T) {
+	broadcaster := NewStreamBroadcaster(2)
+
+	broadcaster.Publish("first line")
+	broadcaster.Publish("second line")
+	broadcaster.Publish("third line")
+
+	stream, unsubscribe := broadcaster.Subscribe()
+	defer unsubscribe()
+
+	for _, expected := range []string{"second line", "third line"} {
+		select {
+		case line := <-stream:
+			if line != expected {
+				t.Fatalf("expected replayed line %q, got %q", expected, line)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for replayed line %q", expected)
+		}
+	}
+}
