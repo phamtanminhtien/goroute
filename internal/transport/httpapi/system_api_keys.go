@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -26,11 +27,17 @@ type systemAPIKeyRepository interface {
 type systemAPIKeyAuthRepository interface {
 	HasSystemAPIKeys() (bool, error)
 	AuthenticateSystemAPIKey(string) (systemapikey.Record, bool, error)
+	CountSystemAPIKeyRequestsSince(string, time.Time) (int, error)
+	CreateSystemAPIKeyRequestEvent(systemapikey.RequestEvent) error
+	SystemAPIKeyTokenUsage(string, time.Time, time.Time) (int, error)
 }
 
 type systemAPIKeyRequest struct {
-	Name    *string `json:"name"`
-	Enabled *bool   `json:"enabled"`
+	Name                   *string     `json:"name"`
+	Enabled                *bool       `json:"enabled"`
+	RequestsPerMinuteLimit optionalInt `json:"requests_per_minute_limit"`
+	DailyTokenLimit        optionalInt `json:"daily_token_limit"`
+	MonthlyTokenLimit      optionalInt `json:"monthly_token_limit"`
 }
 
 type systemAPIKeyListResponse struct {
@@ -75,6 +82,10 @@ func systemAPIKeysHandler(repo systemAPIKeyRepository) http.Handler {
 			record, err := newSystemAPIKeyRecord(name)
 			if err != nil {
 				writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+				return
+			}
+			if err := applySystemAPIKeyQuotaInput(&record, input); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
 				return
 			}
 			if err := repo.CreateSystemAPIKey(record); err != nil {
@@ -130,6 +141,10 @@ func systemAPIKeyByIDHandler(repo systemAPIKeyRepository) http.Handler {
 			if input.Enabled != nil {
 				existing.Enabled = *input.Enabled
 			}
+			if err := applySystemAPIKeyQuotaInput(&existing, input); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+				return
+			}
 
 			if err := repo.UpdateSystemAPIKey(existing); err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -178,6 +193,63 @@ func newSystemAPIKeyRecord(name string) (systemapikey.Record, error) {
 		Key:     "sk-goroute-" + token,
 		Enabled: true,
 	}, nil
+}
+
+type optionalInt struct {
+	Set   bool
+	Value *int
+}
+
+func (v *optionalInt) UnmarshalJSON(data []byte) error {
+	v.Set = true
+	if string(data) == "null" {
+		v.Value = nil
+		return nil
+	}
+
+	var value int
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	v.Value = &value
+	return nil
+}
+
+func applySystemAPIKeyQuotaInput(record *systemapikey.Record, input systemAPIKeyRequest) error {
+	if input.RequestsPerMinuteLimit.Set {
+		value, err := validatedOptionalPositiveInt(input.RequestsPerMinuteLimit, "requests_per_minute_limit")
+		if err != nil {
+			return err
+		}
+		record.RequestsPerMinuteLimit = value
+	}
+	if input.DailyTokenLimit.Set {
+		value, err := validatedOptionalPositiveInt(input.DailyTokenLimit, "daily_token_limit")
+		if err != nil {
+			return err
+		}
+		record.DailyTokenLimit = value
+	}
+	if input.MonthlyTokenLimit.Set {
+		value, err := validatedOptionalPositiveInt(input.MonthlyTokenLimit, "monthly_token_limit")
+		if err != nil {
+			return err
+		}
+		record.MonthlyTokenLimit = value
+	}
+
+	return nil
+}
+
+func validatedOptionalPositiveInt(input optionalInt, name string) (*int, error) {
+	if input.Value == nil {
+		return nil, nil
+	}
+	if *input.Value <= 0 {
+		return nil, fmt.Errorf("%s must be a positive integer", name)
+	}
+
+	return input.Value, nil
 }
 
 func randomBase64URLString(length int) (string, error) {

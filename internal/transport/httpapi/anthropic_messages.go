@@ -24,6 +24,9 @@ func anthropicMessagesHandler(catalog catalogSource, connectionRegistry *chatcom
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now().UTC()
 		recorder := chatcompletion.NewFlowRecorder(chatcompletion.RequestID(r.Context()), startedAt)
+		if key, ok := systemAPIKeyFromContext(r.Context()); ok {
+			recorder.SetSystemAPIKey(key.ID, key.Name)
+		}
 		ctx := chatcompletion.WithFlowRecorder(r.Context(), recorder)
 		ctx = config.WithSettingsManager(ctx, settingsManager)
 		r = r.WithContext(ctx)

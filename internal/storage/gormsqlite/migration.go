@@ -18,6 +18,7 @@ func (r *Repository) Migrate() error {
 		&modelcombo.Combo{},
 		&modelcombo.Target{},
 		&systemapikey.Record{},
+		&systemapikey.RequestEvent{},
 		&airequestlog.RunRecord{},
 		&airequestlog.FlowRecord{},
 		&airequestlog.ThirdPartyRequestLogRecord{},

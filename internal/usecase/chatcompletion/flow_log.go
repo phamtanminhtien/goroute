@@ -97,6 +97,8 @@ type FlowRecorder struct {
 
 	finalConnectionID   string
 	finalConnectionName string
+	systemAPIKeyID      string
+	systemAPIKeyName    string
 	finalErrorCategory  string
 	attemptTrace        []AttemptTrace
 
@@ -223,6 +225,17 @@ func (r *FlowRecorder) SetResolvedTarget(target routing.Target) {
 	r.resolvedModel = resolvedModel(target)
 	r.providerID = target.ProviderID
 	r.providerName = target.ProviderName
+}
+
+func (r *FlowRecorder) SetSystemAPIKey(id string, name string) {
+	if r == nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.systemAPIKeyID = id
+	r.systemAPIKeyName = name
 }
 
 func (r *FlowRecorder) RecordAttempt(target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
@@ -474,6 +487,8 @@ func (r *FlowRecorder) SnapshotRun(completedAt time.Time) airequestlog.RunRecord
 		ProviderName:        r.providerName,
 		FinalConnectionID:   r.finalConnectionID,
 		FinalConnectionName: r.finalConnectionName,
+		SystemAPIKeyID:      r.systemAPIKeyID,
+		SystemAPIKeyName:    r.systemAPIKeyName,
 		AttemptCount:        len(r.attemptTrace),
 		StatusCode:          r.responseStatusCode,
 		PromptTokens:        r.promptTokens,

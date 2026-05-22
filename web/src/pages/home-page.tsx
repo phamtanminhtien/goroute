@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Plus } from "lucide-react";
+import { Link2, Plus, Save, SlidersHorizontal, X } from "lucide-react";
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 
@@ -84,14 +84,27 @@ export function HomePage() {
 
   const updateKeyMutation = useMutation({
     mutationFn: ({
+      daily_token_limit,
       enabled,
       id,
+      monthly_token_limit,
       name,
+      requests_per_minute_limit,
     }: {
+      daily_token_limit?: number | null;
       enabled?: boolean;
       id: string;
+      monthly_token_limit?: number | null;
       name?: string;
-    }) => updateSystemAPIKey(id, { enabled, name }),
+      requests_per_minute_limit?: number | null;
+    }) =>
+      updateSystemAPIKey(id, {
+        daily_token_limit,
+        enabled,
+        monthly_token_limit,
+        name,
+        requests_per_minute_limit,
+      }),
     onSuccess: (updated) => {
       queryClient.setQueryData<SystemAPIKey[]>(
         systemAPIKeysQueryKey,
@@ -256,6 +269,12 @@ await client.messages.create({
                 <APIKeyRow
                   apiKey={apiKey}
                   key={apiKey.id}
+                  onSaveQuotas={(quotas) =>
+                    updateKeyMutation.mutate({
+                      ...quotas,
+                      id: apiKey.id,
+                    })
+                  }
                   onToggle={(enabled) =>
                     updateKeyMutation.mutate({
                       enabled,
@@ -468,52 +487,236 @@ function EndpointCard({
 
 function APIKeyRow({
   apiKey,
+  onSaveQuotas,
   onToggle,
 }: {
   apiKey: SystemAPIKey;
+  onSaveQuotas: (quotas: {
+    daily_token_limit: number | null;
+    monthly_token_limit: number | null;
+    requests_per_minute_limit: number | null;
+  }) => void;
   onToggle: (enabled: boolean) => void;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [rpmLimit, setRPMLimit] = useState(
+    limitToInputValue(apiKey.requests_per_minute_limit),
+  );
+  const [dailyLimit, setDailyLimit] = useState(
+    limitToInputValue(apiKey.daily_token_limit),
+  );
+  const [monthlyLimit, setMonthlyLimit] = useState(
+    limitToInputValue(apiKey.monthly_token_limit),
+  );
+
+  function resetDraft() {
+    setRPMLimit(limitToInputValue(apiKey.requests_per_minute_limit));
+    setDailyLimit(limitToInputValue(apiKey.daily_token_limit));
+    setMonthlyLimit(limitToInputValue(apiKey.monthly_token_limit));
+  }
+
+  function handleSaveQuotas() {
+    onSaveQuotas({
+      daily_token_limit: inputValueToLimit(dailyLimit),
+      monthly_token_limit: inputValueToLimit(monthlyLimit),
+      requests_per_minute_limit: inputValueToLimit(rpmLimit),
+    });
+    setIsEditing(false);
+  }
+
   return (
     <SurfaceCard className="p-4" tone="glass">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-fg-primary text-sm font-semibold">
-              {apiKey.name}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-fg-primary text-sm font-semibold">
+                {apiKey.name}
+              </p>
+              <StatusBadge
+                size="sm"
+                tone={apiKey.enabled ? "success" : "warning"}
+              >
+                {apiKey.enabled ? "Enabled" : "Disabled"}
+              </StatusBadge>
+              {apiKey.usage?.rate_limit_reached ||
+              apiKey.usage?.daily_limit_reached ||
+              apiKey.usage?.monthly_limit_reached ? (
+                <StatusBadge size="sm" tone="warning">
+                  Limited
+                </StatusBadge>
+              ) : null}
+            </div>
+            <p className="text-fg-secondary font-mono text-xs break-all">
+              {maskAPIKey(apiKey.key)}
             </p>
-            <StatusBadge
-              size="sm"
-              tone={apiKey.enabled ? "success" : "warning"}
-            >
-              {apiKey.enabled ? "Enabled" : "Disabled"}
-            </StatusBadge>
+            <p className="text-fg-muted text-xs">
+              Created {formatTimestamp(apiKey.created_at)} · Last used{" "}
+              {formatTimestamp(apiKey.last_used_at)}
+            </p>
           </div>
-          <p className="text-fg-secondary font-mono text-xs break-all">
-            {maskAPIKey(apiKey.key)}
-          </p>
-          <p className="text-fg-muted text-xs">
-            Created {formatTimestamp(apiKey.created_at)} · Last used{" "}
-            {formatTimestamp(apiKey.last_used_at)}
-          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <CopyButton
+              aria-label={`Copy ${apiKey.name} API key`}
+              copyValue={apiKey.key}
+              iconOnly
+              tone="secondary"
+              type="button"
+            />
+            <Button
+              aria-label={`Edit ${apiKey.name} quotas`}
+              leadingIcon={<SlidersHorizontal className="size-4" />}
+              onClick={() => {
+                resetDraft();
+                setIsEditing((current) => !current);
+              }}
+              tone="secondary"
+              type="button"
+            >
+              Quotas
+            </Button>
+            <Switch
+              aria-label={`${apiKey.name} API key enabled`}
+              checked={apiKey.enabled}
+              onCheckedChange={onToggle}
+              size="sm"
+            />
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <CopyButton
-            aria-label={`Copy ${apiKey.name} API key`}
-            copyValue={apiKey.key}
-            iconOnly
-            tone="secondary"
-            type="button"
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <QuotaMetric
+            label="Requests/min"
+            limit={apiKey.requests_per_minute_limit}
+            tone={apiKey.usage?.rate_limit_reached ? "warning" : "default"}
+            used={apiKey.usage?.current_minute_requests ?? 0}
           />
-          <Switch
-            aria-label={`${apiKey.name} API key enabled`}
-            checked={apiKey.enabled}
-            onCheckedChange={onToggle}
-            size="sm"
+          <QuotaMetric
+            label="Daily tokens"
+            limit={apiKey.daily_token_limit}
+            remaining={apiKey.usage?.daily_tokens.remaining ?? null}
+            tone={apiKey.usage?.daily_limit_reached ? "warning" : "default"}
+            used={apiKey.usage?.daily_tokens.used ?? 0}
+          />
+          <QuotaMetric
+            label="Monthly tokens"
+            limit={apiKey.monthly_token_limit}
+            remaining={apiKey.usage?.monthly_tokens.remaining ?? null}
+            tone={apiKey.usage?.monthly_limit_reached ? "warning" : "default"}
+            used={apiKey.usage?.monthly_tokens.used ?? 0}
           />
         </div>
+
+        {isEditing ? (
+          <div className="border-border/70 bg-bg-tertiary/40 grid gap-3 rounded-[12px] border p-3 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+            <Field label="Requests/minute">
+              <Input
+                inputMode="numeric"
+                min={1}
+                onChange={(event) => setRPMLimit(event.target.value)}
+                placeholder="Unlimited"
+                type="number"
+                value={rpmLimit}
+              />
+            </Field>
+            <Field label="Daily tokens">
+              <Input
+                inputMode="numeric"
+                min={1}
+                onChange={(event) => setDailyLimit(event.target.value)}
+                placeholder="Unlimited"
+                type="number"
+                value={dailyLimit}
+              />
+            </Field>
+            <Field label="Monthly tokens">
+              <Input
+                inputMode="numeric"
+                min={1}
+                onChange={(event) => setMonthlyLimit(event.target.value)}
+                placeholder="Unlimited"
+                type="number"
+                value={monthlyLimit}
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Button
+                leadingIcon={<Save className="size-4" />}
+                onClick={handleSaveQuotas}
+                type="button"
+              >
+                Save
+              </Button>
+              <Button
+                aria-label={`Cancel ${apiKey.name} quota edits`}
+                leadingIcon={<X className="size-4" />}
+                onClick={() => {
+                  resetDraft();
+                  setIsEditing(false);
+                }}
+                tone="secondary"
+                type="button"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </SurfaceCard>
   );
+}
+
+function QuotaMetric({
+  label,
+  limit,
+  remaining,
+  tone,
+  used,
+}: {
+  label: string;
+  limit: number | null;
+  remaining?: number | null;
+  tone: "default" | "warning";
+  used: number;
+}) {
+  const limitLabel = limit == null ? "Unlimited" : formatNumber(limit);
+  return (
+    <div className="border-border/70 bg-bg-primary/60 rounded-[12px] border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-fg-muted text-[11px] font-semibold tracking-[0.14em] uppercase">
+          {label}
+        </p>
+        <StatusBadge size="sm" tone={tone === "warning" ? "warning" : "info"}>
+          {limitLabel}
+        </StatusBadge>
+      </div>
+      <p className="text-fg-primary mt-2 text-lg font-semibold">
+        {formatNumber(used)}
+      </p>
+      <p className="text-fg-muted text-xs">
+        {remaining == null ? "No quota cap" : `${formatNumber(remaining)} left`}
+      </p>
+    </div>
+  );
+}
+
+function limitToInputValue(value: number | null) {
+  return value == null ? "" : String(value);
+}
+
+function inputValueToLimit(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat().format(value);
 }
 
 function maskAPIKey(value: string) {

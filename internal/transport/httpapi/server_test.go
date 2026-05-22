@@ -370,7 +370,7 @@ func TestSettingsHandlerUpdatesConfigAndAppliesImmediately(t *testing.T) {
 func TestSystemAPIKeysCRUD(t *testing.T) {
 	handler := testServer(t, &testProvider{})
 
-	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/system-api-keys", strings.NewReader(`{"name":"Production app"}`))
+	createReq := httptest.NewRequest(http.MethodPost, "/admin/api/system-api-keys", strings.NewReader(`{"name":"Production app","requests_per_minute_limit":2,"daily_token_limit":100,"monthly_token_limit":1000}`))
 	createReq.Header.Set("Authorization", "Bearer "+testAdminToken)
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
@@ -386,8 +386,10 @@ func TestSystemAPIKeysCRUD(t *testing.T) {
 	if !strings.HasPrefix(created.ID, "sak_") || !strings.HasPrefix(created.Key, "sk-goroute-") || !created.Enabled {
 		t.Fatalf("unexpected created system api key %#v", created)
 	}
-
-	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/system-api-keys/"+created.ID, strings.NewReader(`{"name":"Production app v2","enabled":false}`))
+	if created.RequestsPerMinuteLimit == nil || *created.RequestsPerMinuteLimit != 2 || created.DailyTokenLimit == nil || *created.DailyTokenLimit != 100 || created.MonthlyTokenLimit == nil || *created.MonthlyTokenLimit != 1000 {
+		t.Fatalf("unexpected created quota fields %#v", created)
+	}
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/system-api-keys/"+created.ID, strings.NewReader(`{"name":"Production app v2","enabled":false,"requests_per_minute_limit":null,"daily_token_limit":50,"monthly_token_limit":null}`))
 	updateReq.Header.Set("Authorization", "Bearer "+testAdminToken)
 	updateRec := httptest.NewRecorder()
 	handler.ServeHTTP(updateRec, updateReq)
@@ -402,6 +404,9 @@ func TestSystemAPIKeysCRUD(t *testing.T) {
 	if updated.Name != "Production app v2" || updated.Enabled {
 		t.Fatalf("unexpected updated system api key %#v", updated)
 	}
+	if updated.RequestsPerMinuteLimit != nil || updated.DailyTokenLimit == nil || *updated.DailyTokenLimit != 50 || updated.MonthlyTokenLimit != nil {
+		t.Fatalf("unexpected updated quota fields %#v", updated)
+	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/system-api-keys", nil)
 	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
@@ -413,6 +418,9 @@ func TestSystemAPIKeysCRUD(t *testing.T) {
 	if !strings.Contains(listRec.Body.String(), created.Key) {
 		t.Fatalf("expected raw key in list response, got body=%s", listRec.Body.String())
 	}
+	if !strings.Contains(listRec.Body.String(), `"usage"`) {
+		t.Fatalf("expected usage summary in list response, got body=%s", listRec.Body.String())
+	}
 
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/api/system-api-keys/"+created.ID, nil)
 	deleteReq.Header.Set("Authorization", "Bearer "+testAdminToken)
@@ -420,6 +428,19 @@ func TestSystemAPIKeysCRUD(t *testing.T) {
 	handler.ServeHTTP(deleteRec, deleteReq)
 	if deleteRec.Code != http.StatusNoContent {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusNoContent, deleteRec.Code, deleteRec.Body.String())
+	}
+}
+
+func TestSystemAPIKeyQuotaValidation(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/system-api-keys", strings.NewReader(`{"name":"Production app","requests_per_minute_limit":0}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusBadRequest, rec.Code, rec.Body.String())
 	}
 }
 
@@ -503,6 +524,88 @@ func TestOpenAICompatibleAuthRequiresEnabledSystemKeyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestSystemAPIKeyRequestPerMinuteLimit(t *testing.T) {
+	cfg := testSettingsConfig()
+	cfg.OpenAICompatibleAuth.Enabled = true
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, &testProvider{}, nil, filepath.Join(t.TempDir(), "goroute.db"), cfg)
+	apiKey := createSystemAPIKeyForTest(t, handler)
+	updateSystemAPIKeyForTest(t, handler, apiKey.ID, `{"requests_per_minute_limit":1}`)
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	firstReq.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	firstRec := httptest.NewRecorder()
+	handler.ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected first request to pass, got %d body=%s", firstRec.Code, firstRec.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	secondReq.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	secondRec := httptest.NewRecorder()
+	handler.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request to be rate limited, got %d body=%s", secondRec.Code, secondRec.Body.String())
+	}
+	if secondRec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("expected Retry-After 60, got %q", secondRec.Header().Get("Retry-After"))
+	}
+	if !strings.Contains(secondRec.Body.String(), `"code":"rate_limit_exceeded"`) {
+		t.Fatalf("expected OpenAI-style rate limit error, got body=%s", secondRec.Body.String())
+	}
+}
+
+func TestSystemAPIKeyTokenQuotaBlocksFollowingGenerationRequest(t *testing.T) {
+	cfg := testSettingsConfig()
+	cfg.OpenAICompatibleAuth.Enabled = true
+	databasePath := filepath.Join(t.TempDir(), "goroute.db")
+	provider := &testProvider{
+		response: openaiwire.ChatCompletionsResponse{
+			ID:      "chatcmpl-1",
+			Object:  "chat.completion",
+			Created: 1712345678,
+			Model:   "cx/gpt-5.4",
+			Choices: []openaiwire.ChatChoice{{
+				Index: 0,
+				Message: openaiwire.Message{
+					Role:    openaiwire.ChatRoleAssistant,
+					Content: "ok",
+				},
+				FinishReason: "stop",
+			}},
+			Usage: &openaiwire.Usage{PromptTokens: 8, CompletionTokens: 7, TotalTokens: 15},
+		},
+	}
+	handler := testServerWithUsageAndConnectionAndWebUIAtPath(t, nil, provider, nil, databasePath, cfg)
+	apiKey := createSystemAPIKeyForTest(t, handler)
+	updateSystemAPIKeyForTest(t, handler, apiKey.ID, `{"daily_token_limit":10,"monthly_token_limit":100}`)
+
+	firstRec := performChatCompletionForKey(t, handler, apiKey.Key)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected first request to pass, got %d body=%s", firstRec.Code, firstRec.Body.String())
+	}
+
+	secondRec := performChatCompletionForKey(t, handler, apiKey.Key)
+	if secondRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request to exceed quota, got %d body=%s", secondRec.Code, secondRec.Body.String())
+	}
+	if !strings.Contains(secondRec.Body.String(), `"code":"quota_exceeded"`) {
+		t.Fatalf("expected quota exceeded error, got body=%s", secondRec.Body.String())
+	}
+
+	repo, err := gormsqlite.Open(databasePath)
+	if err != nil {
+		t.Fatalf("open sqlite repository: %v", err)
+	}
+	defer repo.Close()
+	runs, err := repo.ListAIRequestRuns()
+	if err != nil {
+		t.Fatalf("list ai request runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].SystemAPIKeyID != apiKey.ID || runs[0].SystemAPIKeyName != apiKey.Name {
+		t.Fatalf("expected request run to be attributed to system api key, got %#v", runs)
+	}
+}
+
 func createSystemAPIKeyForTest(t *testing.T, handler http.Handler) systemapikey.Record {
 	t.Helper()
 
@@ -520,6 +623,35 @@ func createSystemAPIKeyForTest(t *testing.T, handler http.Handler) systemapikey.
 	}
 
 	return record
+}
+
+func updateSystemAPIKeyForTest(t *testing.T, handler http.Handler, id string, body string) systemapikey.Record {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/system-api-keys/"+id, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var record systemapikey.Record
+	if err := json.Unmarshal(rec.Body.Bytes(), &record); err != nil {
+		t.Fatalf("unmarshal updated system api key: %v", err)
+	}
+
+	return record
+}
+
+func performChatCompletionForKey(t *testing.T, handler http.Handler, key string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"cx/gpt-5.4","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
 }
 
 func listSystemAPIKeysForTest(t *testing.T, handler http.Handler) []systemapikey.Record {

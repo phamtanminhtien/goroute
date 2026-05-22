@@ -36,10 +36,10 @@ func NewServer(catalog catalogSource, connectionRegistry *chatcompletion.Connect
 	analyticsService := analytics.NewServiceWithPricingSource(requestLogRepo, catalog, modelRepo)
 
 	router.Handle("/healthz", health.Handler())
-	router.Handle("/v1/models", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, modelsHandler(catalog, modelRepo, modelComboRepo)))
-	router.Handle("/v1/chat/completions", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
-	router.Handle("/v1/responses", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, responsesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
-	router.Handle("/v1/messages", anthropicCompatibleAuthMiddleware(settingsManager, systemKeyRepo, anthropicMessagesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
+	router.Handle("/v1/models", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, false, modelsHandler(catalog, modelRepo, modelComboRepo)))
+	router.Handle("/v1/chat/completions", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, true, chatCompletionsHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
+	router.Handle("/v1/responses", openAICompatibleAuthMiddleware(settingsManager, systemKeyRepo, true, responsesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
+	router.Handle("/v1/messages", anthropicCompatibleAuthMiddleware(settingsManager, systemKeyRepo, true, anthropicMessagesHandler(catalog, connectionRegistry, requestLogRepo, modelRepo, modelComboRepo, settingsManager, logger)))
 
 	router.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {

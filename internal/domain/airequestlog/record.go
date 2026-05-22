@@ -14,6 +14,8 @@ type RunRecord struct {
 	ProviderName        string `json:"provider_name" gorm:"column:provider_name;not null;default:''"`
 	FinalConnectionID   string `json:"final_connection_id" gorm:"column:final_connection_id;not null;default:''"`
 	FinalConnectionName string `json:"final_connection_name" gorm:"column:final_connection_name;not null;default:''"`
+	SystemAPIKeyID      string `json:"system_api_key_id" gorm:"column:system_api_key_id;not null;default:'';index:idx_ai_request_runs_system_api_key_created_at,priority:1"`
+	SystemAPIKeyName    string `json:"system_api_key_name" gorm:"column:system_api_key_name;not null;default:''"`
 	AttemptCount        int    `json:"attempt_count" gorm:"column:attempt_count;not null;default:0"`
 	StatusCode          int    `json:"status_code" gorm:"column:status_code;not null;default:0"`
 	PromptTokens        int    `json:"prompt_tokens" gorm:"column:prompt_tokens;not null;default:0"`
@@ -25,7 +27,7 @@ type RunRecord struct {
 	StartedAt           int64  `json:"started_at" gorm:"column:started_at;not null;default:0"`
 	CompletedAt         int64  `json:"completed_at" gorm:"column:completed_at;not null;default:0"`
 	DurationMs          int64  `json:"duration_ms" gorm:"column:duration_ms;not null;default:0"`
-	CreatedAt           int64  `json:"created_at" gorm:"column:created_at;not null;autoCreateTime:milli;index:idx_ai_request_runs_created_at;index:idx_ai_request_runs_type_mode_created_at,priority:3;index:idx_ai_request_runs_provider_created_at,priority:2;index:idx_ai_request_runs_requested_model_created_at,priority:2"`
+	CreatedAt           int64  `json:"created_at" gorm:"column:created_at;not null;autoCreateTime:milli;index:idx_ai_request_runs_created_at;index:idx_ai_request_runs_type_mode_created_at,priority:3;index:idx_ai_request_runs_provider_created_at,priority:2;index:idx_ai_request_runs_requested_model_created_at,priority:2;index:idx_ai_request_runs_system_api_key_created_at,priority:2"`
 	UpdatedAt           int64  `json:"updated_at" gorm:"column:updated_at;not null;autoUpdateTime:milli"`
 }
 

@@ -4,21 +4,46 @@ export const systemAPIKeysQueryKey = ["system-api-keys"] as const;
 
 export type SystemAPIKey = {
   created_at: number;
+  daily_token_limit: number | null;
   enabled: boolean;
   id: string;
   key: string;
   last_used_at: number;
+  monthly_token_limit: number | null;
   name: string;
+  requests_per_minute_limit: number | null;
   updated_at: number;
+  usage?: SystemAPIKeyUsage;
+};
+
+export type SystemAPIKeyUsage = {
+  current_minute_requests: number;
+  daily_limit_reached: boolean;
+  daily_tokens: SystemAPIKeyTokenUsage;
+  monthly_limit_reached: boolean;
+  monthly_tokens: SystemAPIKeyTokenUsage;
+  rate_limit_reached: boolean;
+};
+
+export type SystemAPIKeyTokenUsage = {
+  limit: number | null;
+  remaining: number | null;
+  used: number;
 };
 
 export type CreateSystemAPIKeyPayload = {
+  daily_token_limit?: number | null;
+  monthly_token_limit?: number | null;
   name: string;
+  requests_per_minute_limit?: number | null;
 };
 
 export type UpdateSystemAPIKeyPayload = {
+  daily_token_limit?: number | null;
   enabled?: boolean;
+  monthly_token_limit?: number | null;
   name?: string;
+  requests_per_minute_limit?: number | null;
 };
 
 type ListResponse<T> = {

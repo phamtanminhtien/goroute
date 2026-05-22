@@ -25,6 +25,9 @@ func responsesHandler(catalog catalogSource, connectionRegistry *chatcompletion.
 		startedAt := time.Now().UTC()
 		recorder := chatcompletion.NewFlowRecorder(chatcompletion.RequestID(r.Context()), startedAt)
 		recorder.SetRequestType(chatcompletion.RequestTypeResponses)
+		if key, ok := systemAPIKeyFromContext(r.Context()); ok {
+			recorder.SetSystemAPIKey(key.ID, key.Name)
+		}
 		ctx := chatcompletion.WithFlowRecorder(r.Context(), recorder)
 		ctx = config.WithSettingsManager(ctx, settingsManager)
 		r = r.WithContext(ctx)

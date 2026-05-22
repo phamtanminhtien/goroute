@@ -69,20 +69,26 @@ describe("home page", () => {
     listSystemAPIKeysMock.mockResolvedValue([]);
     createSystemAPIKeyMock.mockResolvedValue({
       created_at: 1760000000,
+      daily_token_limit: null,
       enabled: true,
       id: "sak_test",
       key: "sk-goroute-testkey123456",
       last_used_at: 0,
+      monthly_token_limit: null,
       name: "Production app",
+      requests_per_minute_limit: null,
       updated_at: 1760000000,
     });
     updateSystemAPIKeyMock.mockResolvedValue({
       created_at: 1760000000,
+      daily_token_limit: null,
       enabled: false,
       id: "sak_test",
       key: "sk-goroute-testkey123456",
       last_used_at: 0,
+      monthly_token_limit: null,
       name: "Production app",
+      requests_per_minute_limit: null,
       updated_at: 1760000001,
     });
   });
@@ -159,6 +165,80 @@ describe("home page", () => {
       expect(
         within(rowContainer as HTMLElement).getByText("Disabled"),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("renders per-key usage and saves quota edits", async () => {
+    const user = userEvent.setup();
+    listSystemAPIKeysMock.mockResolvedValue([
+      {
+        created_at: 1760000000,
+        daily_token_limit: 1000,
+        enabled: true,
+        id: "sak_test",
+        key: "sk-goroute-testkey123456",
+        last_used_at: 1760000200,
+        monthly_token_limit: null,
+        name: "Production app",
+        requests_per_minute_limit: 5,
+        updated_at: 1760000000,
+        usage: {
+          current_minute_requests: 2,
+          daily_limit_reached: false,
+          daily_tokens: { limit: 1000, remaining: 600, used: 400 },
+          monthly_limit_reached: false,
+          monthly_tokens: { limit: null, remaining: null, used: 1200 },
+          rate_limit_reached: false,
+        },
+      },
+    ]);
+    updateSystemAPIKeyMock.mockResolvedValue({
+      created_at: 1760000000,
+      daily_token_limit: 2000,
+      enabled: true,
+      id: "sak_test",
+      key: "sk-goroute-testkey123456",
+      last_used_at: 1760000200,
+      monthly_token_limit: null,
+      name: "Production app",
+      requests_per_minute_limit: 10,
+      updated_at: 1760000300,
+      usage: {
+        current_minute_requests: 2,
+        daily_limit_reached: false,
+        daily_tokens: { limit: 2000, remaining: 1600, used: 400 },
+        monthly_limit_reached: false,
+        monthly_tokens: { limit: null, remaining: null, used: 1200 },
+        rate_limit_reached: false,
+      },
+    });
+
+    renderHome();
+
+    expect(await screen.findByText("Production app")).toBeInTheDocument();
+    expect(screen.getByText("Requests/min")).toBeInTheDocument();
+    expect(screen.getByText("Daily tokens")).toBeInTheDocument();
+    expect(screen.getByText("600 left")).toBeInTheDocument();
+    expect(screen.getAllByText("No quota cap").length).toBeGreaterThan(0);
+
+    await user.click(
+      screen.getByRole("button", { name: /edit production app quotas/i }),
+    );
+    await user.clear(screen.getByLabelText("Requests/minute"));
+    await user.type(screen.getByLabelText("Requests/minute"), "10");
+    await user.clear(screen.getByLabelText("Daily tokens"));
+    await user.type(screen.getByLabelText("Daily tokens"), "2000");
+    await user.clear(screen.getByLabelText("Monthly tokens"));
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(updateSystemAPIKeyMock).toHaveBeenCalledWith("sak_test", {
+        daily_token_limit: 2000,
+        enabled: undefined,
+        monthly_token_limit: null,
+        name: undefined,
+        requests_per_minute_limit: 10,
+      });
     });
   });
 });
