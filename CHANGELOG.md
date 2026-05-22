@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/phamtanminhtien/goroute/compare/v1.6.1...v1.7.0) (2026-05-22)
+
+
+### Features
+
+* implement log history replay for new subscribers and update Docker volume/port configuration ([1d7f67e](https://github.com/phamtanminhtien/goroute/commit/1d7f67eb037543271320dc9b09715c9fdba1b116))
+* implement rate limiting and token usage quotas for system API keys ([40312ec](https://github.com/phamtanminhtien/goroute/commit/40312ece719eba531453a39e1f6c4909fc287d0f))
+
+
+### Bug Fixes
+
+* **chatcompletion:** avoid cooldown for upstream 4xx ([a647464](https://github.com/phamtanminhtien/goroute/commit/a64746498b01a7b3ccaa630cb18bff801a3c4e0b))
+
 ## [1.6.1](https://github.com/phamtanminhtien/goroute/compare/v1.6.0...v1.6.1) (2026-05-20)
 
 
