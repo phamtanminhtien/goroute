@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.0](https://github.com/phamtanminhtien/goroute/compare/v1.7.1...v1.8.0) (2026-05-25)
+
+
+### Features
+
+* add configurable provider-level runtime settings and HTTP streaming client infrastructure ([700cd01](https://github.com/phamtanminhtien/goroute/commit/700cd01c592a5f70731729e967efca87618a0d58))
+* add macOS Home Screen widget to monitor proxy status, usage, and Codex quotas ([7f31151](https://github.com/phamtanminhtien/goroute/commit/7f31151b5f8a92088a69095801d0ae58a2f6966a))
+* implement GoRoute macOS menu bar UI with real-time proxy status and quota monitoring ([0059cd2](https://github.com/phamtanminhtien/goroute/commit/0059cd2838e14b0c3a8d7e93dc00ca408f70cf3d))
+* initialize macOS Xcode project and configure .gitignore for build artifacts ([0cc8078](https://github.com/phamtanminhtien/goroute/commit/0cc8078ee2f2dbf9f18fc9e9cf0d656ccc17cb6a))
+
 ## [1.7.1](https://github.com/phamtanminhtien/goroute/compare/v1.7.0...v1.7.1) (2026-05-22)
 
 
