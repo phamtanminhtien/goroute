@@ -11,6 +11,7 @@ type Config struct {
 	LLMLogging           LLMLoggingConfig           `json:"llmLogging"`
 	RTK                  RTKConfig                  `json:"rtk"`
 	OpenAICompatibleAuth OpenAICompatibleAuthConfig `json:"openAICompatibleAuth"`
+	ProviderRuntime      ProviderRuntimeConfig      `json:"providerRuntimeSettings,omitempty"`
 }
 
 type ServerConfig struct {
@@ -29,6 +30,16 @@ type OpenAICompatibleAuthConfig struct {
 	Enabled bool `json:"enabled"`
 }
 
+type ProviderRuntimeConfig map[string]ProviderRuntimeSettings
+
+type ProviderRuntimeSettings struct {
+	DialTimeoutMs           int `json:"dialTimeoutMs"`
+	TLSHandshakeTimeoutMs   int `json:"tlsHandshakeTimeoutMs"`
+	ResponseHeaderTimeoutMs int `json:"responseHeaderTimeoutMs"`
+	TimeoutRetryCount       int `json:"timeoutRetryCount"`
+	RetryableCooldownMs     int `json:"retryableCooldownMs"`
+}
+
 type llmLoggingJSON struct {
 	Flow       bool `json:"flow,omitempty"`
 	ThirdParty bool `json:"thirdParty,omitempty"`
@@ -40,6 +51,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		LLMLogging           LLMLoggingConfig           `json:"llmLogging"`
 		RTK                  RTKConfig                  `json:"rtk"`
 		OpenAICompatibleAuth OpenAICompatibleAuthConfig `json:"openAICompatibleAuth"`
+		ProviderRuntime      ProviderRuntimeConfig      `json:"providerRuntimeSettings,omitempty"`
 	}
 
 	return json.Marshal(rawConfig{
@@ -47,6 +59,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		LLMLogging:           c.LLMLogging,
 		RTK:                  c.RTK,
 		OpenAICompatibleAuth: c.OpenAICompatibleAuth,
+		ProviderRuntime:      c.ProviderRuntime,
 	})
 }
 
@@ -54,6 +67,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	type rawConfig struct {
 		Server               ServerConfig               `json:"server"`
 		OpenAICompatibleAuth OpenAICompatibleAuthConfig `json:"openAICompatibleAuth"`
+		ProviderRuntime      ProviderRuntimeConfig      `json:"providerRuntimeSettings,omitempty"`
 	}
 
 	var decoded rawConfig
@@ -64,6 +78,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	*c = Config{
 		Server:               decoded.Server,
 		OpenAICompatibleAuth: decoded.OpenAICompatibleAuth,
+		ProviderRuntime:      decoded.ProviderRuntime,
 	}
 
 	var raw map[string]json.RawMessage

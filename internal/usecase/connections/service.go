@@ -97,6 +97,13 @@ func (s *Service) List() []Item {
 	return items
 }
 
+func (s *Service) ReloadRuntime() error {
+	if s == nil || s.runtime == nil {
+		return nil
+	}
+	return s.runtime.ReloadConnections()
+}
+
 func (s *Service) Get(id string) (Item, bool) {
 	record, ok, err := s.repo.GetConnection(id)
 	if err != nil {

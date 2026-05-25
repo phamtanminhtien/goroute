@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -11,7 +12,7 @@ import (
 
 type Registration struct {
 	Descriptor         provider.Provider
-	BuildConnection    func(connection.Record) (chatcompletion.ProtocolConnections, error)
+	BuildConnection    func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error)
 	ValidateConnection func(connection.Record) []string
 	GetAccessToken     func(connection.Record) (string, error)
 	GetUsage           func(context.Context, connection.Record) (UsageInfo, error)
@@ -111,13 +112,13 @@ func (r Registry) IsCustomProvider(providerID string) bool {
 	return ok && registration.Descriptor.Category == "custom"
 }
 
-func (r Registry) BuildConnection(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
+func (r Registry) BuildConnection(connectionConfig connection.Record, runtimeSettings config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 	registration, ok := r.byID[connectionConfig.ProviderID]
 	if !ok {
 		return chatcompletion.ProtocolConnections{}, fmt.Errorf("unsupported provider %q", connectionConfig.ProviderID)
 	}
 
-	return registration.BuildConnection(connectionConfig)
+	return registration.BuildConnection(connectionConfig, runtimeSettings)
 }
 
 func (r Registry) ValidateConnection(connectionConfig connection.Record) []string {

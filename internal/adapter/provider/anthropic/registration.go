@@ -3,6 +3,7 @@ package anthropic
 import (
 	"strings"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
@@ -23,8 +24,8 @@ func Registration() providerregistry.Registration {
 				{ID: "anthropic/claude-haiku-4-5", Name: "Claude Haiku 4.5", Description: ""},
 			},
 		},
-		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
-			client := NewClient(nil, connectionConfig)
+		BuildConnection: func(connectionConfig connection.Record, runtimeSettings config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
+			client := NewClientWithRuntimeSettings(connectionConfig, runtimeSettings)
 			return chatcompletion.ProtocolConnections{
 				ChatCompletions: client,
 				Responses:       client,

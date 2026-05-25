@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	adapterhttpclient "github.com/phamtanminhtien/goroute/internal/adapter/httpclient"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -19,6 +20,27 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func TestNewClientUsesStreamingTimeoutsWhenHTTPClientNil(t *testing.T) {
+	client := NewClientWithHTTPClient(nil, connection.Record{ProviderID: "cx", Name: "codex-user", APIKey: "token"})
+
+	if client.httpClient == nil {
+		t.Fatal("expected default streaming http client")
+	}
+	if client.httpClient.Timeout != 0 {
+		t.Fatalf("expected no whole-request timeout for streams, got %s", client.httpClient.Timeout)
+	}
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected http transport, got %T", client.httpClient.Transport)
+	}
+	if transport.TLSHandshakeTimeout != adapterhttpclient.DefaultTLSHandshakeTimeout {
+		t.Fatalf("unexpected TLS handshake timeout %s", transport.TLSHandshakeTimeout)
+	}
+	if transport.ResponseHeaderTimeout != adapterhttpclient.DefaultResponseHeaderTimeout {
+		t.Fatalf("unexpected response header timeout %s", transport.ResponseHeaderTimeout)
+	}
 }
 
 func TestClientResponsesForcesStreamingAndReconstructsSSE(t *testing.T) {

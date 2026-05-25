@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	adapterhttpclient "github.com/phamtanminhtien/goroute/internal/adapter/httpclient"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
@@ -20,6 +22,48 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func TestNewClientUsesStreamingTimeoutsWhenHTTPClientNil(t *testing.T) {
+	client := NewClient(nil, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+
+	if client.httpClient == nil {
+		t.Fatal("expected default streaming http client")
+	}
+	if client.httpClient.Timeout != 0 {
+		t.Fatalf("expected no whole-request timeout for streams, got %s", client.httpClient.Timeout)
+	}
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected http transport, got %T", client.httpClient.Transport)
+	}
+	if transport.TLSHandshakeTimeout != adapterhttpclient.DefaultTLSHandshakeTimeout {
+		t.Fatalf("unexpected TLS handshake timeout %s", transport.TLSHandshakeTimeout)
+	}
+	if transport.ResponseHeaderTimeout != adapterhttpclient.DefaultResponseHeaderTimeout {
+		t.Fatalf("unexpected response header timeout %s", transport.ResponseHeaderTimeout)
+	}
+}
+
+func TestNewClientUsesRuntimeStreamingTimeouts(t *testing.T) {
+	client := NewClientWithBaseURLAndRuntimeSettings(connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"}, "", config.ProviderRuntimeSettings{
+		DialTimeoutMs:           11000,
+		TLSHandshakeTimeoutMs:   12000,
+		ResponseHeaderTimeoutMs: 33000,
+		TimeoutRetryCount:       4,
+		RetryableCooldownMs:     70000,
+	})
+
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected http transport, got %T", client.httpClient.Transport)
+	}
+	if transport.TLSHandshakeTimeout != 12*time.Second {
+		t.Fatalf("unexpected TLS handshake timeout %s", transport.TLSHandshakeTimeout)
+	}
+	if transport.ResponseHeaderTimeout != 33*time.Second {
+		t.Fatalf("unexpected response header timeout %s", transport.ResponseHeaderTimeout)
+	}
 }
 
 func TestClientChatCompletionsPassesCommonOpenAIFields(t *testing.T) {

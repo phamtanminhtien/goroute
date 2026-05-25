@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
@@ -17,13 +18,13 @@ func TestCatalogPreservesRegistrationOrder(t *testing.T) {
 	registry, err := New(
 		Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+			BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 				return emptyConnections(), nil
 			},
 		},
 		Registration{
 			Descriptor: provider.Provider{ID: "openai", Name: "OpenAI"},
-			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+			BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 				return emptyConnections(), nil
 			},
 		},
@@ -44,7 +45,7 @@ func TestCatalogPreservesRegistrationOrder(t *testing.T) {
 func TestBuildConnectionRejectsUnknownProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 	})
@@ -52,7 +53,7 @@ func TestBuildConnectionRejectsUnknownProvider(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = registry.BuildConnection(connection.Record{ProviderID: "openai"})
+	_, err = registry.BuildConnection(connection.Record{ProviderID: "openai"}, config.DefaultProviderRuntimeSettings())
 	if err == nil || !strings.Contains(err.Error(), `unsupported provider "openai"`) {
 		t.Fatalf("expected unsupported provider error, got %v", err)
 	}
@@ -61,7 +62,7 @@ func TestBuildConnectionRejectsUnknownProvider(t *testing.T) {
 func TestValidateConnectionUsesProviderValidator(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 		ValidateConnection: func(connection.Record) []string {
@@ -81,7 +82,7 @@ func TestValidateConnectionUsesProviderValidator(t *testing.T) {
 func TestGenerateOAuthURLUsesProviderGenerator(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 		GenerateOAuthURL: func(connection.Record) (string, error) {
@@ -104,7 +105,7 @@ func TestGenerateOAuthURLUsesProviderGenerator(t *testing.T) {
 func TestGetAccessTokenUsesProviderResolver(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 		GetAccessToken: func(record connection.Record) (string, error) {
@@ -127,7 +128,7 @@ func TestGetAccessTokenUsesProviderResolver(t *testing.T) {
 func TestGetAccessTokenRejectsUnsupportedProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 	})
@@ -144,7 +145,7 @@ func TestGetAccessTokenRejectsUnsupportedProvider(t *testing.T) {
 func TestGetAccessTokenRejectsProviderWithoutResolver(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 	})
@@ -161,7 +162,7 @@ func TestGetAccessTokenRejectsProviderWithoutResolver(t *testing.T) {
 func TestGenerateOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "openai", Name: "OpenAI"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 	})
@@ -178,7 +179,7 @@ func TestGenerateOAuthURLRejectsUnsupportedProvider(t *testing.T) {
 func TestStartOAuthUsesProviderStarter(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 		StartOAuth: func(connection.Record) (OAuthSession, error) {
@@ -207,7 +208,7 @@ func TestStartOAuthUsesProviderStarter(t *testing.T) {
 func TestCompleteOAuthUsesProviderCompleter(t *testing.T) {
 	registry, err := New(Registration{
 		Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-		BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+		BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 			return emptyConnections(), nil
 		},
 		CompleteOAuth: func(connection.Record, map[string]string, string) (OAuthResult, error) {

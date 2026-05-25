@@ -49,7 +49,7 @@ func TestBuildConnectionEntriesSkipsDisabledConnections(t *testing.T) {
 		Name:       "disabled",
 		APIKey:     "token",
 		Enabled:    false,
-	}}, providers, nil)
+	}}, providers, nil, nil)
 	if err != nil {
 		t.Fatalf("buildConnectionEntries returned error: %v", err)
 	}

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	adapterhttpclient "github.com/phamtanminhtien/goroute/internal/adapter/httpclient"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 )
 
@@ -24,7 +26,7 @@ func NewClient(connection connection.Record) *Client {
 
 func NewClientWithHTTPClient(httpClient *http.Client, connection connection.Record) *Client {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = adapterhttpclient.NewStreamingClient()
 	}
 
 	return &Client{
@@ -32,6 +34,10 @@ func NewClientWithHTTPClient(httpClient *http.Client, connection connection.Reco
 		connection: connection,
 		baseURL:    defaultBaseURL,
 	}
+}
+
+func NewClientWithRuntimeSettings(connection connection.Record, settings config.ProviderRuntimeSettings) *Client {
+	return NewClientWithHTTPClient(adapterhttpclient.NewStreamingClientWithSettings(settings), connection)
 }
 
 func (c *Client) resolveAccessToken(forceRefresh bool) (string, error) {

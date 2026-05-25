@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
 	"github.com/phamtanminhtien/goroute/internal/anthropicwire"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
 	"github.com/phamtanminhtien/goroute/internal/protocoltranslator"
@@ -17,13 +19,16 @@ import (
 )
 
 type ConnectionEntry struct {
-	ID                string
-	Name              string
-	ProviderID        string
-	LastErrorMessage  string
-	LastErrorCategory string
-	LastErrorAt       int64
-	RetryAfter        int64
+	ID                        string
+	Name                      string
+	ProviderID                string
+	LastErrorMessage          string
+	LastErrorCategory         string
+	LastErrorAt               int64
+	RetryAfter                int64
+	RuntimeSettingsConfigured bool
+	TimeoutRetryCount         int
+	RetryableCooldownMs       int
 	ProtocolConnections
 }
 
@@ -416,7 +421,7 @@ func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requeste
 					Category:      "connection_cooldown",
 					AllowFallback: true,
 				}
-				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, 0, string(lastPolicy.Class), lastPolicy.Category, true, false)
 				continue
 			}
 			if !supported(connection) {
@@ -426,28 +431,37 @@ func executeProtocol[T any](r *ConnectionRegistry, ctx context.Context, requeste
 					Category:      unsupportedCategory,
 					AllowFallback: true,
 				}
-				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, 0, string(lastPolicy.Class), lastPolicy.Category, true)
+				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, 0, string(lastPolicy.Class), lastPolicy.Category, true, false)
 				continue
 			}
 
-			started := registryTimeNow()
-			response, err := invoke(WithAttemptIndex(ctx, currentAttempt), connection, target)
-			completedAt := registryTimeNow()
-			latency := completedAt.Sub(started)
-			if err == nil {
-				r.clearConnectionRuntimeError(connection)
-				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, latency, "success", "none", false)
-				return response, nil
-			}
+			for retry := 0; ; retry++ {
+				started := registryTimeNow()
+				response, err := invoke(WithAttemptIndex(ctx, currentAttempt), connection, target)
+				completedAt := registryTimeNow()
+				latency := completedAt.Sub(started)
+				if err == nil {
+					r.clearConnectionRuntimeError(connection)
+					r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, latency, "success", "none", false, false)
+					return response, nil
+				}
 
-			policy := ClassifyError(err)
-			r.recordConnectionRuntimeError(connection, err, policy, completedAt)
-			r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, latency, string(policy.Class), policy.Category, policy.AllowFallback)
-			lastErr = err
-			lastPolicy = policy
-			if !policy.AllowFallback {
-				r.logFinalFailure(ctx, requestID, requestedModel, target, policy.Category)
-				return zeroValue[T](), err
+				policy := ClassifyError(err)
+				willRetry := shouldRetryTimeout(ctx, err, retry, connection)
+				r.recordConnectionRuntimeError(connection, err, policy, completedAt)
+				r.logAttempt(ctx, requestID, requestedModel, target, connection, currentAttempt, latency, string(policy.Class), policy.Category, policy.AllowFallback, willRetry)
+				lastErr = err
+				lastPolicy = policy
+				if !policy.AllowFallback {
+					r.logFinalFailure(ctx, requestID, requestedModel, target, policy.Category)
+					return zeroValue[T](), err
+				}
+				if !willRetry {
+					break
+				}
+
+				currentAttempt = attemptIndex
+				attemptIndex++
 			}
 		}
 	}
@@ -514,7 +528,7 @@ func (r *ConnectionRegistry) connectionsForTarget(target routing.Target) []Conne
 func (r *ConnectionRegistry) recordConnectionRuntimeError(connection ConnectionEntry, err error, policy FailurePolicy, occurredAt time.Time) {
 	retryAfter := int64(0)
 	if shouldCooldownConnection(err, policy) {
-		retryAfter = occurredAt.Add(RetryableConnectionCooldown).Unix()
+		retryAfter = occurredAt.Add(connectionRetryableCooldown(connection)).Unix()
 	}
 
 	message := err.Error()
@@ -534,12 +548,50 @@ func shouldCooldownConnection(err error, policy FailurePolicy) bool {
 		return false
 	}
 
+	if isTimeoutError(err) {
+		return false
+	}
+
 	var upstreamErr UpstreamError
 	if errors.As(err, &upstreamErr) && upstreamErr.StatusCode >= 400 && upstreamErr.StatusCode < 500 {
 		return false
 	}
 
 	return true
+}
+
+func shouldRetryTimeout(ctx context.Context, err error, retry int, connection ConnectionEntry) bool {
+	if retry >= connectionTimeoutRetryCount(connection) {
+		return false
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+
+	return isTimeoutError(err)
+}
+
+func connectionTimeoutRetryCount(connection ConnectionEntry) int {
+	if !connection.RuntimeSettingsConfigured {
+		return config.DefaultTimeoutRetryCount
+	}
+	return connection.TimeoutRetryCount
+}
+
+func connectionRetryableCooldown(connection ConnectionEntry) time.Duration {
+	if connection.RetryableCooldownMs <= 0 {
+		return RetryableConnectionCooldown
+	}
+	return time.Duration(connection.RetryableCooldownMs) * time.Millisecond
+}
+
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func (r *ConnectionRegistry) clearConnectionRuntimeError(connection ConnectionEntry) {
@@ -577,11 +629,15 @@ func (r *ConnectionRegistry) updateConnectionRuntimeState(connectionID string, m
 	}
 }
 
-func (r *ConnectionRegistry) logAttempt(ctx context.Context, requestID string, requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool) {
+func (r *ConnectionRegistry) logAttempt(ctx context.Context, requestID string, requestedModel string, target routing.Target, connection ConnectionEntry, attempt int, latency time.Duration, outcome string, errorCategory string, willFallback bool, willRetry bool) {
 	if recorder := FlowRecorderFromContext(ctx); recorder != nil {
 		recorder.RecordAttempt(target, connection, attempt, latency, outcome, errorCategory, willFallback)
 	}
-	r.logger.Info().
+	event := r.logger.Info()
+	if willRetry && errorCategory == "timeout" {
+		event = r.logger.Error()
+	}
+	event.
 		Str("request_id", requestID).
 		Str("requested_model", requestedModel).
 		Str("resolved_target", target.Prefix+"/"+target.RequestedModel).
@@ -594,6 +650,7 @@ func (r *ConnectionRegistry) logAttempt(ctx context.Context, requestID string, r
 		Int64("latency_ms", latency.Milliseconds()).
 		Str("error_category", errorCategory).
 		Bool("will_fallback", willFallback).
+		Bool("will_retry", willRetry).
 		Msg("provider_request_attempt")
 }
 

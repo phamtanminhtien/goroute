@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	upstreamopenai "github.com/phamtanminhtien/goroute/internal/adapter/upstream/openai"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
@@ -14,8 +15,8 @@ func Registration(descriptor provider.Provider) providerregistry.Registration {
 	descriptor.AdapterType = provider.AdapterTypeOpenAICompatible
 	return providerregistry.Registration{
 		Descriptor: descriptor,
-		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
-			client := upstreamopenai.NewClientWithBaseURL(nil, connectionConfig, descriptor.BaseURL)
+		BuildConnection: func(connectionConfig connection.Record, runtimeSettings config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
+			client := upstreamopenai.NewClientWithBaseURLAndRuntimeSettings(connectionConfig, descriptor.BaseURL, runtimeSettings)
 			return chatcompletion.ProtocolConnections{
 				ChatCompletions: client,
 				Responses:       client,

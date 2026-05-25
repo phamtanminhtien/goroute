@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	adapterhttpclient "github.com/phamtanminhtien/goroute/internal/adapter/httpclient"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
@@ -34,7 +35,7 @@ func NewClient(httpClient *http.Client, connection connection.Record) *Client {
 
 func NewClientWithBaseURL(httpClient *http.Client, connection connection.Record, baseURL string) *Client {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = adapterhttpclient.NewStreamingClient()
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -42,6 +43,10 @@ func NewClientWithBaseURL(httpClient *http.Client, connection connection.Record,
 	}
 
 	return &Client{httpClient: httpClient, connection: connection, baseURL: baseURL}
+}
+
+func NewClientWithBaseURLAndRuntimeSettings(connection connection.Record, baseURL string, settings config.ProviderRuntimeSettings) *Client {
+	return NewClientWithBaseURL(adapterhttpclient.NewStreamingClientWithSettings(settings), connection, baseURL)
 }
 
 func (c *Client) ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {

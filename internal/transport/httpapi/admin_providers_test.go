@@ -562,13 +562,13 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 	providers, err := providerregistry.New(
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+			BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 				return chatcompletion.ProtocolConnections{}, nil
 			},
 		},
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "opena", Name: "OpenAI"},
-			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+			BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 				return chatcompletion.ProtocolConnections{}, nil
 			},
 		},
@@ -580,7 +580,7 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 	registry := chatcompletion.NewConnectionRegistryWithEntries(input.registryEntries, &logger)
 	service := connectionsusecase.NewService(
 		repo,
-		testRuntime{repo: repo, providers: providers, registry: &registry},
+		testRuntime{repo: repo, providers: providers, registry: &registry, settingsManager: settingsManager},
 		providers,
 		&logger,
 	)

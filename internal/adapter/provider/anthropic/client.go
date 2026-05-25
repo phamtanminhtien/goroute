@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	adapterhttpclient "github.com/phamtanminhtien/goroute/internal/adapter/httpclient"
 	"github.com/phamtanminhtien/goroute/internal/anthropicwire"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -36,13 +38,17 @@ func NewClient(httpClient *http.Client, connection connection.Record) *Client {
 
 func NewClientWithBaseURL(httpClient *http.Client, connection connection.Record, baseURL string) *Client {
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = adapterhttpclient.NewStreamingClient()
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 	return &Client{httpClient: httpClient, connection: connection, baseURL: baseURL}
+}
+
+func NewClientWithRuntimeSettings(connection connection.Record, settings config.ProviderRuntimeSettings) *Client {
+	return NewClientWithBaseURL(adapterhttpclient.NewStreamingClientWithSettings(settings), connection, "")
 }
 
 func (c *Client) AnthropicMessages(ctx context.Context, req anthropicwire.MessagesRequest, target routing.Target) (anthropicwire.MessagesResponse, error) {

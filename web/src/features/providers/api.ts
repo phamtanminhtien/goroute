@@ -31,6 +31,14 @@ export type ProviderConnection = {
   token_type?: string;
 };
 
+export type ProviderRuntimeSettings = {
+  dial_timeout_ms: number;
+  retryable_cooldown_ms: number;
+  response_header_timeout_ms: number;
+  timeout_retry_count: number;
+  tls_handshake_timeout_ms: number;
+};
+
 export type ProviderItem = {
   adapter_type?: string;
   auth_type: string;
@@ -43,6 +51,7 @@ export type ProviderItem = {
   id: string;
   models: ProviderModel[];
   name: string;
+  runtime_settings?: ProviderRuntimeSettings;
 };
 
 export type ModelComboTarget = {
@@ -102,6 +111,8 @@ export type ProviderPayload = {
   id: string;
   name: string;
 };
+
+export type ProviderRuntimeSettingsPayload = ProviderRuntimeSettings;
 
 export type ModelComboPayload = {
   alias: string;
@@ -235,6 +246,24 @@ export async function updateProviderConnectionsEnabled(
   return response.data.data;
 }
 
+export async function updateProviderRuntimeSettings(
+  providerID: string,
+  payload: ProviderRuntimeSettingsPayload,
+) {
+  const response = await apiClient.put<ProviderRuntimeSettings>(
+    `/providers/${providerID}/runtime-settings`,
+    payload,
+  );
+  return response.data;
+}
+
+export async function resetProviderRuntimeSettings(providerID: string) {
+  const response = await apiClient.delete<ProviderRuntimeSettings>(
+    `/providers/${providerID}/runtime-settings`,
+  );
+  return response.data;
+}
+
 export async function deleteConnection(id: string) {
   await apiClient.delete(`/connections/${id}`);
 }
@@ -325,6 +354,18 @@ function normalizeProvider(provider: RawProviderItem): ProviderItem {
       ...model,
       source: model.source ?? "system",
     })),
+    runtime_settings:
+      provider.runtime_settings ?? defaultProviderRuntimeSettings(),
+  };
+}
+
+export function defaultProviderRuntimeSettings(): ProviderRuntimeSettings {
+  return {
+    dial_timeout_ms: 10000,
+    retryable_cooldown_ms: 60000,
+    response_header_timeout_ms: 30000,
+    timeout_retry_count: 3,
+    tls_handshake_timeout_ms: 10000,
   };
 }
 

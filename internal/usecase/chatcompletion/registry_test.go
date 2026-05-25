@@ -398,6 +398,33 @@ func TestConnectionRegistryRecordsRetryableErrorCooldown(t *testing.T) {
 	}
 }
 
+func TestConnectionRegistryUsesConnectionRetryableCooldown(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	store := &recordingRuntimeStateStore{}
+	firstConnection := newConnectionEntry("cx", 1, recordingConnection{err: UpstreamError{StatusCode: 503, Message: "first failed"}}, nil)
+	firstConnection.RuntimeSettingsConfigured = true
+	firstConnection.RetryableCooldownMs = 120000
+	registry := newTestRegistryWithStateStore(map[string][]ConnectionEntry{
+		"cx": {
+			firstConnection,
+			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}}, nil),
+		},
+	}, store)
+
+	_, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	wantRetryAfter := now.Add(2 * time.Minute).Unix()
+	if store.recordedRetryAfter != wantRetryAfter {
+		t.Fatalf("expected retryAfter %d, got %d", wantRetryAfter, store.recordedRetryAfter)
+	}
+}
+
 func TestConnectionRegistryDoesNotCooldownUpstream4xx(t *testing.T) {
 	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
 	previousTimeNow := registryTimeNow
@@ -424,6 +451,89 @@ func TestConnectionRegistryDoesNotCooldownUpstream4xx(t *testing.T) {
 	}
 	if store.recordedRetryAfter != 0 {
 		t.Fatalf("expected upstream 4xx without cooldown, got retryAfter=%d", store.recordedRetryAfter)
+	}
+}
+
+func TestConnectionRegistryDoesNotCooldownTimeout(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	store := &recordingRuntimeStateStore{}
+	var logBuffer bytes.Buffer
+	firstCalls := 0
+	fallbackCalls := 0
+	registry := NewConnectionRegistryWithStateStore(map[string][]ConnectionEntry{
+		"cx": {
+			newConnectionEntry("cx", 1, recordingConnection{
+				err:    context.DeadlineExceeded,
+				onCall: func() { firstCalls++ },
+			}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{
+				response: openaiwire.ChatCompletionsResponse{ID: "ok"},
+				onCall:   func() { fallbackCalls++ },
+			}, nil),
+		},
+	}, loggerPtr(logging.NewWithWriter("prod", &logBuffer)), store)
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if response.ID != "ok" {
+		t.Fatalf("expected fallback response, got %q", response.ID)
+	}
+	if firstCalls != 4 {
+		t.Fatalf("expected initial timeout plus 3 retries, got %d calls", firstCalls)
+	}
+	if fallbackCalls != 1 {
+		t.Fatalf("expected fallback connection to be called once, got %d", fallbackCalls)
+	}
+	logOutput := logBuffer.String()
+	if got := strings.Count(logOutput, `"level":"error"`); got != 3 {
+		t.Fatalf("expected 3 timeout retry attempts to log at error level, got %d logs: %s", got, logOutput)
+	}
+	if got := strings.Count(logOutput, `"will_retry":true`); got != 3 {
+		t.Fatalf("expected 3 retry logs, got %d logs: %s", got, logOutput)
+	}
+	if store.recordedID != "cx-1" || store.recordedCategory != "timeout" {
+		t.Fatalf("expected timeout to be recorded, got %#v", store)
+	}
+	if store.recordedRetryAfter != 0 {
+		t.Fatalf("expected timeout without cooldown, got retryAfter=%d", store.recordedRetryAfter)
+	}
+}
+
+func TestConnectionRegistryUsesConnectionTimeoutRetryCount(t *testing.T) {
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	previousTimeNow := registryTimeNow
+	registryTimeNow = func() time.Time { return now }
+	t.Cleanup(func() { registryTimeNow = previousTimeNow })
+
+	firstCalls := 0
+	firstConnection := newConnectionEntry("cx", 1, recordingConnection{
+		err:    context.DeadlineExceeded,
+		onCall: func() { firstCalls++ },
+	}, nil)
+	firstConnection.RuntimeSettingsConfigured = true
+	firstConnection.TimeoutRetryCount = 1
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {
+			firstConnection,
+			newConnectionEntry("cx", 2, recordingConnection{response: openaiwire.ChatCompletionsResponse{ID: "ok"}}, nil),
+		},
+	})
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{}, routing.Target{ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if response.ID != "ok" {
+		t.Fatalf("expected fallback response, got %q", response.ID)
+	}
+	if firstCalls != 2 {
+		t.Fatalf("expected initial timeout plus 1 retry, got %d calls", firstCalls)
 	}
 }
 

@@ -75,8 +75,9 @@ type testRuntime struct {
 	repo interface {
 		ListConnections() ([]connection.Record, error)
 	}
-	providers providerregistry.Registry
-	registry  *chatcompletion.ConnectionRegistry
+	providers       providerregistry.Registry
+	registry        *chatcompletion.ConnectionRegistry
+	settingsManager *config.SettingsManager
 }
 
 func (r testRuntime) ReloadConnections() error {
@@ -87,19 +88,26 @@ func (r testRuntime) ReloadConnections() error {
 
 	entries := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
-		connectionClient, err := r.providers.BuildConnection(connectionConfig)
+		runtimeSettings := config.DefaultProviderRuntimeSettings()
+		if r.settingsManager != nil {
+			runtimeSettings = config.EffectiveProviderRuntimeSettings(r.settingsManager.Snapshot(), connectionConfig.ProviderID)
+		}
+		connectionClient, err := r.providers.BuildConnection(connectionConfig, runtimeSettings)
 		if err != nil {
 			return err
 		}
 		entries[connectionConfig.ProviderID] = append(entries[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
-			ID:                  connectionConfig.ID,
-			Name:                connectionConfig.Name,
-			ProviderID:          connectionConfig.ProviderID,
-			LastErrorMessage:    connectionConfig.LastErrorMessage,
-			LastErrorCategory:   connectionConfig.LastErrorCategory,
-			LastErrorAt:         connectionConfig.LastErrorAt,
-			RetryAfter:          connectionConfig.RetryAfter,
-			ProtocolConnections: connectionClient,
+			ID:                        connectionConfig.ID,
+			Name:                      connectionConfig.Name,
+			ProviderID:                connectionConfig.ProviderID,
+			LastErrorMessage:          connectionConfig.LastErrorMessage,
+			LastErrorCategory:         connectionConfig.LastErrorCategory,
+			LastErrorAt:               connectionConfig.LastErrorAt,
+			RetryAfter:                connectionConfig.RetryAfter,
+			RuntimeSettingsConfigured: true,
+			TimeoutRetryCount:         runtimeSettings.TimeoutRetryCount,
+			RetryableCooldownMs:       runtimeSettings.RetryableCooldownMs,
+			ProtocolConnections:       connectionClient,
 		})
 	}
 	r.registry.ReplaceConnections(entries)
@@ -158,7 +166,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 	providers, err := providerregistry.New(
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "cx", Name: "Codex"},
-			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+			BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 				return chatcompletion.ProtocolConnections{
 					ChatCompletions: connectionClient,
 					Responses:       connectionClient,
@@ -221,7 +229,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 		},
 		providerregistry.Registration{
 			Descriptor: provider.Provider{ID: "opena", Name: "OpenAI"},
-			BuildConnection: func(connection.Record) (chatcompletion.ProtocolConnections, error) {
+			BuildConnection: func(connection.Record, config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
 				return chatcompletion.ProtocolConnections{
 					ChatCompletions: &testProvider{},
 					Responses:       &testProvider{},
@@ -243,7 +251,7 @@ func testServerWithUsageAndConnectionAndWebUIAtPath(t *testing.T, getUsage func(
 			},
 		}},
 	}, &logger)
-	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry}, providers, &logger)
+	service := connectionsusecase.NewService(repo, testRuntime{repo: repo, providers: providers, registry: &registry, settingsManager: settingsManager}, providers, &logger)
 	return NewServer(testCatalog(), &registry, service, nil, repo, repo, repo, repo, settingsManager, testAdminToken, webUIRoot, &logger)
 }
 
@@ -1720,10 +1728,11 @@ func TestProvidersListReturnsCatalogWithGroupedConnections(t *testing.T) {
 	var response struct {
 		Object string `json:"object"`
 		Data   []struct {
-			ID              string                    `json:"id"`
-			Category        string                    `json:"category"`
-			ConnectionCount int                       `json:"connection_count"`
-			Connections     []connectionsusecase.Item `json:"connections"`
+			ID              string                          `json:"id"`
+			Category        string                          `json:"category"`
+			ConnectionCount int                             `json:"connection_count"`
+			Connections     []connectionsusecase.Item       `json:"connections"`
+			RuntimeSettings providerRuntimeSettingsResponse `json:"runtime_settings"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
@@ -1742,6 +1751,9 @@ func TestProvidersListReturnsCatalogWithGroupedConnections(t *testing.T) {
 	if response.Data[0].ConnectionCount != 1 {
 		t.Fatalf("expected codex connection count, got %#v", response.Data[0])
 	}
+	if response.Data[0].RuntimeSettings.TimeoutRetryCount != config.DefaultTimeoutRetryCount || response.Data[0].RuntimeSettings.ResponseHeaderTimeoutMs != config.DefaultResponseHeaderTimeoutMs {
+		t.Fatalf("expected default runtime settings, got %#v", response.Data[0].RuntimeSettings)
+	}
 	if len(response.Data[0].Connections) != 1 || response.Data[0].Connections[0].ID != "codex-1" {
 		t.Fatalf("expected codex connection to be grouped, got %#v", response.Data[0].Connections)
 	}
@@ -1759,6 +1771,63 @@ func TestProvidersListReturnsCatalogWithGroupedConnections(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "secret-token") {
 		t.Fatalf("expected grouped provider response to keep secrets redacted, got body=%s", rec.Body.String())
+	}
+}
+
+func TestProviderRuntimeSettingsUpdateAndReset(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/admin/api/providers/cx/runtime-settings", strings.NewReader(`{"dial_timeout_ms":11000,"tls_handshake_timeout_ms":12000,"response_header_timeout_ms":33000,"timeout_retry_count":4,"retryable_cooldown_ms":70000}`))
+	updateReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	updateRec := httptest.NewRecorder()
+	handler.ServeHTTP(updateRec, updateReq)
+
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, updateRec.Code, updateRec.Body.String())
+	}
+	var updated providerRuntimeSettingsResponse
+	if err := json.Unmarshal(updateRec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if updated.DialTimeoutMs != 11000 || updated.TLSHandshakeTimeoutMs != 12000 || updated.ResponseHeaderTimeoutMs != 33000 || updated.TimeoutRetryCount != 4 || updated.RetryableCooldownMs != 70000 {
+		t.Fatalf("unexpected updated runtime settings %#v", updated)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/api/providers", nil)
+	listReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if !strings.Contains(listRec.Body.String(), `"timeout_retry_count":4`) {
+		t.Fatalf("expected provider list to include updated runtime settings, got %s", listRec.Body.String())
+	}
+
+	resetReq := httptest.NewRequest(http.MethodDelete, "/admin/api/providers/cx/runtime-settings", nil)
+	resetReq.Header.Set("Authorization", "Bearer "+testAdminToken)
+	resetRec := httptest.NewRecorder()
+	handler.ServeHTTP(resetRec, resetReq)
+
+	if resetRec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, resetRec.Code, resetRec.Body.String())
+	}
+	var reset providerRuntimeSettingsResponse
+	if err := json.Unmarshal(resetRec.Body.Bytes(), &reset); err != nil {
+		t.Fatalf("decode reset response: %v", err)
+	}
+	if reset.TimeoutRetryCount != config.DefaultTimeoutRetryCount || reset.ResponseHeaderTimeoutMs != config.DefaultResponseHeaderTimeoutMs {
+		t.Fatalf("expected reset defaults, got %#v", reset)
+	}
+}
+
+func TestProviderRuntimeSettingsRejectsUnknownProvider(t *testing.T) {
+	handler := testServer(t, &testProvider{})
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/providers/missing/runtime-settings", strings.NewReader(`{"dial_timeout_ms":11000,"tls_handshake_timeout_ms":12000,"response_header_timeout_ms":33000,"timeout_retry_count":4,"retryable_cooldown_ms":70000}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusNotFound, rec.Code, rec.Body.String())
 	}
 }
 

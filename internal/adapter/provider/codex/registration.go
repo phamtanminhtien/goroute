@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/providerregistry"
@@ -56,8 +57,8 @@ func Registration() providerregistry.Registration {
 				},
 			},
 		},
-		BuildConnection: func(connectionConfig connection.Record) (chatcompletion.ProtocolConnections, error) {
-			client := NewClient(connectionConfig)
+		BuildConnection: func(connectionConfig connection.Record, runtimeSettings config.ProviderRuntimeSettings) (chatcompletion.ProtocolConnections, error) {
+			client := NewClientWithRuntimeSettings(connectionConfig, runtimeSettings)
 			return chatcompletion.ProtocolConnections{
 				Responses: client,
 			}, nil

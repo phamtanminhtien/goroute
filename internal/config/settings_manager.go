@@ -15,6 +15,14 @@ type OpenAICompatibleAuthState struct {
 	Enabled bool
 }
 
+type ProviderRuntimeState struct {
+	DialTimeoutMs           int
+	TLSHandshakeTimeoutMs   int
+	ResponseHeaderTimeoutMs int
+	TimeoutRetryCount       int
+	RetryableCooldownMs     int
+}
+
 type SettingsManager struct {
 	mu   sync.RWMutex
 	path string
@@ -58,6 +66,17 @@ func (m *SettingsManager) OpenAICompatibleAuth() OpenAICompatibleAuthState {
 	cfg := m.Snapshot()
 	return OpenAICompatibleAuthState{
 		Enabled: cfg.OpenAICompatibleAuth.Enabled,
+	}
+}
+
+func (m *SettingsManager) ProviderRuntime(providerID string) ProviderRuntimeState {
+	settings := EffectiveProviderRuntimeSettings(m.Snapshot(), providerID)
+	return ProviderRuntimeState{
+		DialTimeoutMs:           settings.DialTimeoutMs,
+		TLSHandshakeTimeoutMs:   settings.TLSHandshakeTimeoutMs,
+		ResponseHeaderTimeoutMs: settings.ResponseHeaderTimeoutMs,
+		TimeoutRetryCount:       settings.TimeoutRetryCount,
+		RetryableCooldownMs:     settings.RetryableCooldownMs,
 	}
 }
 
@@ -131,4 +150,73 @@ func (m *SettingsManager) UpdateSettings(llmLogging LLMLoggingState, rtk RTKStat
 
 	m.cfg = ApplyDefaults(next)
 	return m.cfg, nil
+}
+
+func (m *SettingsManager) UpdateProviderRuntime(providerID string, state ProviderRuntimeState) (Config, error) {
+	if m == nil {
+		return Config{}, nil
+	}
+
+	settings := ProviderRuntimeSettings{
+		DialTimeoutMs:           state.DialTimeoutMs,
+		TLSHandshakeTimeoutMs:   state.TLSHandshakeTimeoutMs,
+		ResponseHeaderTimeoutMs: state.ResponseHeaderTimeoutMs,
+		TimeoutRetryCount:       state.TimeoutRetryCount,
+		RetryableCooldownMs:     state.RetryableCooldownMs,
+	}
+	if err := ValidateProviderRuntimeSettings(settings); err != nil {
+		return Config{}, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	next := m.cfg
+	next.ProviderRuntime = cloneProviderRuntimeConfig(next.ProviderRuntime)
+	if next.ProviderRuntime == nil {
+		next.ProviderRuntime = ProviderRuntimeConfig{}
+	}
+	next.ProviderRuntime[providerID] = settings
+	if err := SavePath(m.path, next); err != nil {
+		return Config{}, err
+	}
+
+	m.cfg = ApplyDefaults(next)
+	return m.cfg, nil
+}
+
+func (m *SettingsManager) ResetProviderRuntime(providerID string) (Config, error) {
+	if m == nil {
+		return Config{}, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	next := m.cfg
+	next.ProviderRuntime = cloneProviderRuntimeConfig(next.ProviderRuntime)
+	if next.ProviderRuntime != nil {
+		delete(next.ProviderRuntime, providerID)
+		if len(next.ProviderRuntime) == 0 {
+			next.ProviderRuntime = nil
+		}
+	}
+	if err := SavePath(m.path, next); err != nil {
+		return Config{}, err
+	}
+
+	m.cfg = ApplyDefaults(next)
+	return m.cfg, nil
+}
+
+func cloneProviderRuntimeConfig(source ProviderRuntimeConfig) ProviderRuntimeConfig {
+	if len(source) == 0 {
+		return nil
+	}
+
+	cloned := make(ProviderRuntimeConfig, len(source))
+	for providerID, settings := range source {
+		cloned[providerID] = settings
+	}
+	return cloned
 }

@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Pencil, Play, Plus, Trash2 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { ArrowLeft, Pencil, Play, Plus, RotateCcw, Trash2 } from "lucide-react";
+import {
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useState,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -8,6 +13,7 @@ import {
   type ConnectionPayload,
   createConnection,
   createProviderModel,
+  defaultProviderRuntimeSettings,
   deleteConnection,
   deleteProvider,
   deleteProviderModel,
@@ -16,12 +22,16 @@ import {
   type ProviderItem,
   type ProviderModelTestResult,
   type ProviderPayload,
+  type ProviderRuntimeSettings,
+  type ProviderRuntimeSettingsPayload,
   providersQueryKey,
+  resetProviderRuntimeSettings,
   testProviderModel,
   updateConnection,
   updateProvider,
   updateProviderConnectionsEnabled,
   updateProviderModel,
+  updateProviderRuntimeSettings,
 } from "@/features/providers/api";
 import {
   type ConnectionFormFeedback,
@@ -85,6 +95,7 @@ type ProviderFormState = {
   enabled: boolean;
   name: string;
 };
+type RuntimeSettingsFormState = Record<keyof ProviderRuntimeSettings, string>;
 
 type ConnectionModalState =
   | { kind: "closed" }
@@ -126,6 +137,10 @@ export function ProviderDetailPage() {
     name: "",
   });
   const [providerFeedback, setProviderFeedback] = useState<FeedbackState>(null);
+  const [runtimeSettingsDraft, setRuntimeSettingsDraft] =
+    useState<RuntimeSettingsFormState | null>(null);
+  const [runtimeSettingsFeedback, setRuntimeSettingsFeedback] =
+    useState<FeedbackState>(null);
 
   const providersQuery = useQuery({
     queryFn: listProviders,
@@ -343,6 +358,48 @@ export function ProviderDetailPage() {
     },
   });
 
+  const updateProviderRuntimeSettingsMutation = useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: ProviderRuntimeSettingsPayload;
+    }) => updateProviderRuntimeSettings(id, payload),
+    onError: (error) => {
+      setRuntimeSettingsFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setRuntimeSettingsDraft(null);
+      setRuntimeSettingsFeedback({
+        text: "Runtime settings saved.",
+        tone: "success",
+      });
+    },
+  });
+
+  const resetProviderRuntimeSettingsMutation = useMutation({
+    mutationFn: resetProviderRuntimeSettings,
+    onError: (error) => {
+      setRuntimeSettingsFeedback({
+        text: error instanceof Error ? error.message : "Request failed",
+        tone: "error",
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: providersQueryKey });
+      setRuntimeSettingsDraft(null);
+      setRuntimeSettingsFeedback({
+        text: "Runtime settings reset to defaults.",
+        tone: "success",
+      });
+    },
+  });
+
   function openProviderForm() {
     if (!provider) {
       return;
@@ -376,6 +433,33 @@ export function ProviderDetailPage() {
     }
     setProviderFeedback(null);
     await updateProviderMutation.mutateAsync({ id: provider.id, payload });
+  }
+
+  async function handleRuntimeSettingsUpdate(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    if (!provider) {
+      return;
+    }
+
+    try {
+      setRuntimeSettingsFeedback(null);
+      await updateProviderRuntimeSettingsMutation.mutateAsync({
+        id: provider.id,
+        payload: parseRuntimeSettingsForm(
+          runtimeSettingsDraft ??
+            runtimeSettingsToForm(providerRuntimeSettings(provider)),
+        ),
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        !updateProviderRuntimeSettingsMutation.error
+      ) {
+        setRuntimeSettingsFeedback({ text: error.message, tone: "error" });
+      }
+    }
   }
 
   const activeModal =
@@ -713,6 +797,127 @@ export function ProviderDetailPage() {
                 </div>
               )}
             </div>
+          </SectionCard>
+
+          <SectionCard
+            description="Provider-specific upstream request timing, timeout retry, and retryable error cooldown."
+            title="Runtime settings"
+            tone="solid"
+          >
+            <form
+              className="space-y-5"
+              noValidate
+              onSubmit={(event) => void handleRuntimeSettingsUpdate(event)}
+            >
+              {runtimeSettingsFeedback ? (
+                <InlineAlert
+                  tone={
+                    runtimeSettingsFeedback.tone === "success"
+                      ? "success"
+                      : "error"
+                  }
+                >
+                  {runtimeSettingsFeedback.text}
+                </InlineAlert>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <RuntimeSettingsInput
+                  help="Default 10000 ms."
+                  label="Dial timeout"
+                  name="dial_timeout_ms"
+                  provider={provider}
+                  setDraft={setRuntimeSettingsDraft}
+                  value={
+                    (
+                      runtimeSettingsDraft ??
+                      runtimeSettingsToForm(providerRuntimeSettings(provider))
+                    ).dial_timeout_ms
+                  }
+                />
+                <RuntimeSettingsInput
+                  help="Default 10000 ms."
+                  label="TLS handshake timeout"
+                  name="tls_handshake_timeout_ms"
+                  provider={provider}
+                  setDraft={setRuntimeSettingsDraft}
+                  value={
+                    (
+                      runtimeSettingsDraft ??
+                      runtimeSettingsToForm(providerRuntimeSettings(provider))
+                    ).tls_handshake_timeout_ms
+                  }
+                />
+                <RuntimeSettingsInput
+                  help="Default 30000 ms."
+                  label="Response header timeout"
+                  name="response_header_timeout_ms"
+                  provider={provider}
+                  setDraft={setRuntimeSettingsDraft}
+                  value={
+                    (
+                      runtimeSettingsDraft ??
+                      runtimeSettingsToForm(providerRuntimeSettings(provider))
+                    ).response_header_timeout_ms
+                  }
+                />
+                <RuntimeSettingsInput
+                  help="Default 3 retries."
+                  label="Timeout retry count"
+                  min={0}
+                  name="timeout_retry_count"
+                  provider={provider}
+                  setDraft={setRuntimeSettingsDraft}
+                  value={
+                    (
+                      runtimeSettingsDraft ??
+                      runtimeSettingsToForm(providerRuntimeSettings(provider))
+                    ).timeout_retry_count
+                  }
+                />
+                <RuntimeSettingsInput
+                  help="Default 60000 ms."
+                  label="Retryable cooldown"
+                  name="retryable_cooldown_ms"
+                  provider={provider}
+                  setDraft={setRuntimeSettingsDraft}
+                  value={
+                    (
+                      runtimeSettingsDraft ??
+                      runtimeSettingsToForm(providerRuntimeSettings(provider))
+                    ).retryable_cooldown_ms
+                  }
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  disabled={
+                    updateProviderRuntimeSettingsMutation.isPending ||
+                    runtimeSettingsDraft === null
+                  }
+                  type="submit"
+                >
+                  Save runtime settings
+                </Button>
+                <Button
+                  disabled={resetProviderRuntimeSettingsMutation.isPending}
+                  leadingIcon={<RotateCcw className="size-[15px]" />}
+                  onClick={() => {
+                    setRuntimeSettingsFeedback(null);
+                    void resetProviderRuntimeSettingsMutation.mutateAsync(
+                      provider.id,
+                    );
+                  }}
+                  tone="secondary"
+                  type="button"
+                >
+                  {resetProviderRuntimeSettingsMutation.isPending
+                    ? "Resetting..."
+                    : "Reset to defaults"}
+                </Button>
+              </div>
+            </form>
           </SectionCard>
 
           <SectionCard
@@ -1161,6 +1366,43 @@ function ConnectionCard({
     />
   );
 }
+
+function RuntimeSettingsInput({
+  help,
+  label,
+  min = 1,
+  name,
+  provider,
+  setDraft,
+  value,
+}: {
+  help: string;
+  label: string;
+  min?: number;
+  name: keyof ProviderRuntimeSettings;
+  provider: ProviderItem;
+  setDraft: Dispatch<SetStateAction<RuntimeSettingsFormState | null>>;
+  value: string;
+}) {
+  return (
+    <Field help={help} label={label}>
+      <Input
+        min={min}
+        onChange={(event) =>
+          setDraft((current) => ({
+            ...(current ??
+              runtimeSettingsToForm(providerRuntimeSettings(provider))),
+            [name]: event.target.value,
+          }))
+        }
+        step="1"
+        type="number"
+        value={value}
+      />
+    </Field>
+  );
+}
+
 function buildConnectionPayload(
   providerID: string,
   values: ConnectionFormValues,
@@ -1184,6 +1426,60 @@ function buildConnectionPayload(
   }
 
   return payload;
+}
+
+function runtimeSettingsToForm(
+  settings: ProviderRuntimeSettings,
+): RuntimeSettingsFormState {
+  return {
+    dial_timeout_ms: String(settings.dial_timeout_ms),
+    retryable_cooldown_ms: String(settings.retryable_cooldown_ms),
+    response_header_timeout_ms: String(settings.response_header_timeout_ms),
+    timeout_retry_count: String(settings.timeout_retry_count),
+    tls_handshake_timeout_ms: String(settings.tls_handshake_timeout_ms),
+  };
+}
+
+function providerRuntimeSettings(provider: ProviderItem) {
+  return provider.runtime_settings ?? defaultProviderRuntimeSettings();
+}
+
+function parseRuntimeSettingsForm(
+  values: RuntimeSettingsFormState,
+): ProviderRuntimeSettingsPayload {
+  return {
+    dial_timeout_ms: parseRuntimeSetting(
+      values.dial_timeout_ms,
+      "Dial timeout",
+    ),
+    retryable_cooldown_ms: parseRuntimeSetting(
+      values.retryable_cooldown_ms,
+      "Retryable cooldown",
+    ),
+    response_header_timeout_ms: parseRuntimeSetting(
+      values.response_header_timeout_ms,
+      "Response header timeout",
+    ),
+    timeout_retry_count: parseRuntimeSetting(
+      values.timeout_retry_count,
+      "Timeout retry count",
+      0,
+    ),
+    tls_handshake_timeout_ms: parseRuntimeSetting(
+      values.tls_handshake_timeout_ms,
+      "TLS handshake timeout",
+    ),
+  };
+}
+
+function parseRuntimeSetting(value: string, label: string, min = 1) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) {
+    throw new Error(
+      `${label} must be an integer greater than or equal to ${min}.`,
+    );
+  }
+  return parsed;
 }
 
 function buildConnectionTogglePayload(

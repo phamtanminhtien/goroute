@@ -20,12 +20,14 @@ import {
   getConnectionUsage,
   listModelCombos,
   listProviders,
+  resetProviderRuntimeSettings,
   testProviderModel,
   updateConnection,
   updateModelCombo,
   updateProvider,
   updateProviderConnectionsEnabled,
   updateProviderModel,
+  updateProviderRuntimeSettings,
 } from "@/features/providers/api";
 import { renderWithQueryClient } from "@/test/test-utils";
 
@@ -49,10 +51,12 @@ vi.mock("@/features/providers/api", () => ({
   listModelCombos: vi.fn(),
   listProviders: vi.fn(),
   providersQueryKey: ["providers"],
+  resetProviderRuntimeSettings: vi.fn(),
   testProviderModel: vi.fn(),
   updateConnection: vi.fn(),
   updateProvider: vi.fn(),
   updateProviderConnectionsEnabled: vi.fn(),
+  updateProviderRuntimeSettings: vi.fn(),
   updateProviderModel: vi.fn(),
   updateModelCombo: vi.fn(),
 }));
@@ -71,6 +75,9 @@ const generateProviderOAuthURLMock = vi.mocked(generateProviderOAuthURL);
 const getConnectionUsageMock = vi.mocked(getConnectionUsage);
 const listModelCombosMock = vi.mocked(listModelCombos);
 const listProvidersMock = vi.mocked(listProviders);
+const resetProviderRuntimeSettingsMock = vi.mocked(
+  resetProviderRuntimeSettings,
+);
 const testProviderModelMock = vi.mocked(testProviderModel);
 const updateConnectionMock = vi.mocked(updateConnection);
 const updateModelComboMock = vi.mocked(updateModelCombo);
@@ -78,7 +85,18 @@ const updateProviderMock = vi.mocked(updateProvider);
 const updateProviderConnectionsEnabledMock = vi.mocked(
   updateProviderConnectionsEnabled,
 );
+const updateProviderRuntimeSettingsMock = vi.mocked(
+  updateProviderRuntimeSettings,
+);
 const updateProviderModelMock = vi.mocked(updateProviderModel);
+
+const defaultRuntimeSettings = {
+  dial_timeout_ms: 10000,
+  retryable_cooldown_ms: 60000,
+  response_header_timeout_ms: 30000,
+  timeout_retry_count: 3,
+  tls_handshake_timeout_ms: 10000,
+};
 
 const baseProviders = [
   {
@@ -107,6 +125,7 @@ const baseProviders = [
     id: "cx",
     models: [{ description: "", id: "cx/gpt-5.4", name: "GPT-5.4" }],
     name: "Codex",
+    runtime_settings: defaultRuntimeSettings,
   },
   {
     auth_type: "api_key",
@@ -118,6 +137,7 @@ const baseProviders = [
     id: "openai",
     models: [{ description: "", id: "openai/gpt-4.1", name: "GPT-4.1" }],
     name: "OpenAI",
+    runtime_settings: defaultRuntimeSettings,
   },
 ];
 
@@ -171,6 +191,7 @@ describe("providers pages", () => {
       id: "openrouter",
       models: [],
       name: "OpenRouter",
+      runtime_settings: defaultRuntimeSettings,
     });
     createProviderModelMock.mockResolvedValue({
       description: "",
@@ -196,6 +217,11 @@ describe("providers pages", () => {
     updateProviderConnectionsEnabledMock.mockResolvedValue(
       baseProviders[0].connections,
     );
+    updateProviderRuntimeSettingsMock.mockResolvedValue({
+      ...defaultRuntimeSettings,
+      timeout_retry_count: 5,
+    });
+    resetProviderRuntimeSettingsMock.mockResolvedValue(defaultRuntimeSettings);
     deleteProviderModelMock.mockResolvedValue(undefined);
     deleteConnectionMock.mockResolvedValue(undefined);
     deleteProviderMock.mockResolvedValue(undefined);
@@ -265,6 +291,76 @@ describe("providers pages", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/retry in:/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /test/i })).toBeInTheDocument();
+  });
+
+  it("updates and resets provider runtime settings", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", {
+      level: 2,
+      name: /runtime settings/i,
+    });
+
+    const retryInput = screen.getByLabelText(/timeout retry count/i);
+    await user.clear(retryInput);
+    await user.type(retryInput, "5");
+    await user.click(
+      screen.getByRole("button", { name: /save runtime settings/i }),
+    );
+
+    await waitFor(() =>
+      expect(updateProviderRuntimeSettingsMock).toHaveBeenCalledWith("cx", {
+        ...defaultRuntimeSettings,
+        timeout_retry_count: 5,
+      }),
+    );
+    expect(
+      await screen.findByText(/runtime settings saved/i),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /reset to defaults/i }),
+    );
+
+    await waitFor(() =>
+      expect(resetProviderRuntimeSettingsMock.mock.calls[0]?.[0]).toBe("cx"),
+    );
+    expect(
+      await screen.findByText(/runtime settings reset to defaults/i),
+    ).toBeInTheDocument();
+  });
+
+  it("validates provider runtime settings before submit", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers/cx"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole("heading", {
+      level: 2,
+      name: /runtime settings/i,
+    });
+
+    const dialInput = screen.getByLabelText(/dial timeout/i);
+    await user.clear(dialInput);
+    await user.type(dialInput, "0");
+    await user.click(
+      screen.getByRole("button", { name: /save runtime settings/i }),
+    );
+
+    expect(
+      await screen.findByText(/dial timeout must be an integer/i),
+    ).toBeInTheDocument();
+    expect(updateProviderRuntimeSettingsMock).not.toHaveBeenCalled();
   });
 
   it("disables model testing and shows a tooltip when the provider has no connections", async () => {

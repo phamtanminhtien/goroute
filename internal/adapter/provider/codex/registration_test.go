@@ -3,6 +3,7 @@ package codex
 import (
 	"testing"
 
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 )
 
@@ -15,7 +16,7 @@ func TestRegistrationBuildConnectionProvidesProtocolClients(t *testing.T) {
 		APIKey:     "token",
 	}
 
-	protocols, err := registration.BuildConnection(connectionConfig)
+	protocols, err := registration.BuildConnection(connectionConfig, config.DefaultProviderRuntimeSettings())
 	if err != nil {
 		t.Fatalf("BuildConnection returned error: %v", err)
 	}

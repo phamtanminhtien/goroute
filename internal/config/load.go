@@ -66,6 +66,7 @@ func NewDefaultConfig() Config {
 		LLMLogging:           NewLLMLoggingConfig(true, true),
 		RTK:                  NewRTKConfig(true),
 		OpenAICompatibleAuth: OpenAICompatibleAuthConfig{Enabled: false},
+		ProviderRuntime:      nil,
 	}
 }
 

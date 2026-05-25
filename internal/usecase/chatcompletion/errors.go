@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/phamtanminhtien/goroute/internal/config"
 )
 
-const RetryableConnectionCooldown = time.Minute
+const RetryableConnectionCooldown = time.Duration(config.DefaultRetryableCooldownMs) * time.Millisecond
 
 type UpstreamError struct {
 	StatusCode int

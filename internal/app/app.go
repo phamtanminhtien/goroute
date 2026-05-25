@@ -55,7 +55,7 @@ func New(logger zerolog.Logger) (*App, error) {
 		return nil, fmt.Errorf("open sqlite repository: %w", err)
 	}
 
-	providerRuntime := &providerRuntime{repo: repo}
+	providerRuntime := &providerRuntime{repo: repo, settingsManager: settingsManager}
 	if err := providerRuntime.ReloadProviders(); err != nil {
 		repo.Close()
 		return nil, fmt.Errorf("build provider registry: %w", err)
@@ -124,7 +124,7 @@ func buildProviderRegistryWithCustom(customProviders []provider.Record) (provide
 }
 
 func buildConnectionRegistryWithLogger(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger) (*chatcompletion.ConnectionRegistry, error) {
-	entries, err := buildConnectionEntries(connectionConfigs, providers, logger)
+	entries, err := buildConnectionEntries(connectionConfigs, providers, nil, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func buildConnectionRegistryWithLogger(connectionConfigs []connection.Record, pr
 	return &registry, nil
 }
 
-func buildConnectionEntries(connectionConfigs []connection.Record, providers providerregistry.Registry, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
+func buildConnectionEntries(connectionConfigs []connection.Record, providers providerregistry.Registry, settingsManager *config.SettingsManager, logger *zerolog.Logger) (map[string][]chatcompletion.ConnectionEntry, error) {
 	connectionsByProvider := make(map[string][]chatcompletion.ConnectionEntry, len(connectionConfigs))
 	for _, connectionConfig := range connectionConfigs {
 		logConnectionDiagnostic(logger, providers, connectionConfig)
@@ -141,19 +141,26 @@ func buildConnectionEntries(connectionConfigs []connection.Record, providers pro
 			continue
 		}
 
-		connections, err := providers.BuildConnection(connectionConfig)
+		runtimeSettings := config.DefaultProviderRuntimeSettings()
+		if settingsManager != nil {
+			runtimeSettings = config.EffectiveProviderRuntimeSettings(settingsManager.Snapshot(), connectionConfig.ProviderID)
+		}
+		connections, err := providers.BuildConnection(connectionConfig, runtimeSettings)
 		if err != nil {
 			return nil, err
 		}
 		connectionsByProvider[connectionConfig.ProviderID] = append(connectionsByProvider[connectionConfig.ProviderID], chatcompletion.ConnectionEntry{
-			ID:                  connectionConfig.ID,
-			Name:                connectionConfig.Name,
-			ProviderID:          connectionConfig.ProviderID,
-			LastErrorMessage:    connectionConfig.LastErrorMessage,
-			LastErrorCategory:   connectionConfig.LastErrorCategory,
-			LastErrorAt:         connectionConfig.LastErrorAt,
-			RetryAfter:          connectionConfig.RetryAfter,
-			ProtocolConnections: connections,
+			ID:                        connectionConfig.ID,
+			Name:                      connectionConfig.Name,
+			ProviderID:                connectionConfig.ProviderID,
+			LastErrorMessage:          connectionConfig.LastErrorMessage,
+			LastErrorCategory:         connectionConfig.LastErrorCategory,
+			LastErrorAt:               connectionConfig.LastErrorAt,
+			RetryAfter:                connectionConfig.RetryAfter,
+			RuntimeSettingsConfigured: true,
+			TimeoutRetryCount:         runtimeSettings.TimeoutRetryCount,
+			RetryableCooldownMs:       runtimeSettings.RetryableCooldownMs,
+			ProtocolConnections:       connections,
 		})
 	}
 
@@ -197,7 +204,7 @@ func (r *connectionRuntime) BuildRegistry() (*chatcompletion.ConnectionRegistry,
 		return nil, fmt.Errorf("load runtime connections: %w", err)
 	}
 
-	entries, err := buildConnectionEntries(connectionConfigs, r.providerRuntime.Registry(), r.logger)
+	entries, err := buildConnectionEntries(connectionConfigs, r.providerRuntime.Registry(), r.providerRuntime.settingsManager, r.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +219,7 @@ func (r *connectionRuntime) ReloadConnections() error {
 		return fmt.Errorf("load runtime connections: %w", err)
 	}
 
-	entries, err := buildConnectionEntries(connectionConfigs, r.providerRuntime.Registry(), r.logger)
+	entries, err := buildConnectionEntries(connectionConfigs, r.providerRuntime.Registry(), r.providerRuntime.settingsManager, r.logger)
 	if err != nil {
 		return err
 	}
@@ -226,10 +233,11 @@ type providerRepository interface {
 }
 
 type providerRuntime struct {
-	mu       sync.RWMutex
-	repo     providerRepository
-	registry providerregistry.Registry
-	catalog  provider.Catalog
+	mu              sync.RWMutex
+	repo            providerRepository
+	settingsManager *config.SettingsManager
+	registry        providerregistry.Registry
+	catalog         provider.Catalog
 }
 
 func (r *providerRuntime) ReloadProviders() error {

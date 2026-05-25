@@ -21,6 +21,34 @@ func TestLoadPathDefaultsLoggingAndRTKWhenMissing(t *testing.T) {
 	if !cfg.RTK.Enabled {
 		t.Fatalf("expected rtk default to be enabled, got %#v", cfg.RTK)
 	}
+	if got := EffectiveProviderRuntimeSettings(cfg, "cx"); got != DefaultProviderRuntimeSettings() {
+		t.Fatalf("expected default provider runtime settings, got %#v", got)
+	}
+}
+
+func TestLoadPathParsesProviderRuntimeSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, path, `{"server":{"listen":":2232","auth_token":"secret","web_ui_dir":"web/dist"},"providerRuntimeSettings":{"cx":{"dialTimeoutMs":11000,"tlsHandshakeTimeoutMs":12000,"responseHeaderTimeoutMs":33000,"timeoutRetryCount":4,"retryableCooldownMs":70000}}}`)
+
+	cfg, err := LoadPath(path)
+	if err != nil {
+		t.Fatalf("LoadPath returned error: %v", err)
+	}
+
+	got := EffectiveProviderRuntimeSettings(cfg, "cx")
+	if got.DialTimeoutMs != 11000 || got.TLSHandshakeTimeoutMs != 12000 || got.ResponseHeaderTimeoutMs != 33000 || got.TimeoutRetryCount != 4 || got.RetryableCooldownMs != 70000 {
+		t.Fatalf("unexpected provider runtime settings %#v", got)
+	}
+}
+
+func TestLoadPathRejectsInvalidProviderRuntimeSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, path, `{"server":{"listen":":2232","auth_token":"secret","web_ui_dir":"web/dist"},"providerRuntimeSettings":{"cx":{"dialTimeoutMs":0,"tlsHandshakeTimeoutMs":12000,"responseHeaderTimeoutMs":33000,"timeoutRetryCount":11,"retryableCooldownMs":70000}}}`)
+
+	_, err := LoadPath(path)
+	if err == nil {
+		t.Fatal("expected invalid provider runtime settings error")
+	}
 }
 
 func TestLoadPathParsesFalseLLMLogging(t *testing.T) {

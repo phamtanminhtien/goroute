@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -21,17 +22,26 @@ type adminProvidersListResponse struct {
 }
 
 type adminProviderItem struct {
-	ID                     string                    `json:"id"`
-	Name                   string                    `json:"name"`
-	AuthType               provider.AuthType         `json:"auth_type"`
-	Category               string                    `json:"category"`
-	AdapterType            provider.AdapterType      `json:"adapter_type,omitempty"`
-	BaseURL                string                    `json:"base_url,omitempty"`
-	ConnectionCount        int                       `json:"connection_count"`
-	EnabledConnectionCount int                       `json:"enabled_connection_count"`
-	DefaultModel           string                    `json:"default_model"`
-	Models                 []provider.Model          `json:"models"`
-	Connections            []connectionsusecase.Item `json:"connections"`
+	ID                     string                          `json:"id"`
+	Name                   string                          `json:"name"`
+	AuthType               provider.AuthType               `json:"auth_type"`
+	Category               string                          `json:"category"`
+	AdapterType            provider.AdapterType            `json:"adapter_type,omitempty"`
+	BaseURL                string                          `json:"base_url,omitempty"`
+	ConnectionCount        int                             `json:"connection_count"`
+	EnabledConnectionCount int                             `json:"enabled_connection_count"`
+	DefaultModel           string                          `json:"default_model"`
+	Models                 []provider.Model                `json:"models"`
+	Connections            []connectionsusecase.Item       `json:"connections"`
+	RuntimeSettings        providerRuntimeSettingsResponse `json:"runtime_settings"`
+}
+
+type providerRuntimeSettingsResponse struct {
+	DialTimeoutMs           int `json:"dial_timeout_ms"`
+	TLSHandshakeTimeoutMs   int `json:"tls_handshake_timeout_ms"`
+	ResponseHeaderTimeoutMs int `json:"response_header_timeout_ms"`
+	TimeoutRetryCount       int `json:"timeout_retry_count"`
+	RetryableCooldownMs     int `json:"retryable_cooldown_ms"`
 }
 
 type providerModelRepository interface {
@@ -61,11 +71,20 @@ type providerConnectionsEnabledRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 
+type providerRuntimeSettingsRequest struct {
+	DialTimeoutMs           *int `json:"dial_timeout_ms"`
+	TLSHandshakeTimeoutMs   *int `json:"tls_handshake_timeout_ms"`
+	ResponseHeaderTimeoutMs *int `json:"response_header_timeout_ms"`
+	TimeoutRetryCount       *int `json:"timeout_retry_count"`
+	RetryableCooldownMs     *int `json:"retryable_cooldown_ms"`
+}
+
 func providersHandler(
 	catalog catalogSource,
 	connectionService *connectionsusecase.Service,
 	providerService providerMutationService,
 	modelRepo providerModelRepository,
+	settingsManager *config.SettingsManager,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -78,7 +97,7 @@ func providersHandler(
 
 			writeJSON(w, http.StatusOK, adminProvidersListResponse{
 				Object: "list",
-				Data:   buildAdminProviderItems(resolvedCatalog, connectionService.List()),
+				Data:   buildAdminProviderItems(resolvedCatalog, connectionService.List(), settingsManager),
 			})
 		case http.MethodPost:
 			if providerService == nil {
@@ -211,6 +230,69 @@ func providerConnectionsEnabledHandler(
 			"object": "list",
 			"data":   connections,
 		})
+	})
+}
+
+func providerRuntimeSettingsHandler(
+	catalog catalogSource,
+	connectionService *connectionsusecase.Service,
+	settingsManager *config.SettingsManager,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut && r.Method != http.MethodDelete {
+			writeError(r, w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if settingsManager == nil {
+			writeError(r, w, http.StatusInternalServerError, "internal_error", "settings manager is not configured")
+			return
+		}
+
+		providerID := strings.TrimSpace(chi.URLParam(r, "id"))
+		if providerID == "" || strings.Contains(providerID, "/") {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+		if _, ok := catalog.Catalog().FindByID(providerID); !ok {
+			writeError(r, w, http.StatusNotFound, "not_found", "provider not found")
+			return
+		}
+
+		var cfg config.Config
+		var err error
+		switch r.Method {
+		case http.MethodPut:
+			var input providerRuntimeSettingsRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+				return
+			}
+			if input.DialTimeoutMs == nil || input.TLSHandshakeTimeoutMs == nil || input.ResponseHeaderTimeoutMs == nil || input.TimeoutRetryCount == nil || input.RetryableCooldownMs == nil {
+				writeError(r, w, http.StatusBadRequest, "invalid_request", "dial_timeout_ms, tls_handshake_timeout_ms, response_header_timeout_ms, timeout_retry_count, and retryable_cooldown_ms are required")
+				return
+			}
+			cfg, err = settingsManager.UpdateProviderRuntime(providerID, config.ProviderRuntimeState{
+				DialTimeoutMs:           *input.DialTimeoutMs,
+				TLSHandshakeTimeoutMs:   *input.TLSHandshakeTimeoutMs,
+				ResponseHeaderTimeoutMs: *input.ResponseHeaderTimeoutMs,
+				TimeoutRetryCount:       *input.TimeoutRetryCount,
+				RetryableCooldownMs:     *input.RetryableCooldownMs,
+			})
+		case http.MethodDelete:
+			cfg, err = settingsManager.ResetProviderRuntime(providerID)
+		}
+		if err != nil {
+			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		if connectionService != nil {
+			if err := connectionService.ReloadRuntime(); err != nil {
+				writeError(r, w, http.StatusInternalServerError, "internal_error", err.Error())
+				return
+			}
+		}
+
+		writeJSON(w, http.StatusOK, buildProviderRuntimeSettingsResponse(config.EffectiveProviderRuntimeSettings(cfg, providerID)))
 	})
 }
 
@@ -527,6 +609,7 @@ func firstCompletionText(response openaiwire.ChatCompletionsResponse) string {
 func buildAdminProviderItems(
 	catalog provider.Catalog,
 	connections []connectionsusecase.Item,
+	settingsManager *config.SettingsManager,
 ) []adminProviderItem {
 	groupedConnections := make(map[string][]connectionsusecase.Item, len(connections))
 	for _, connection := range connections {
@@ -565,10 +648,28 @@ func buildAdminProviderItems(
 			DefaultModel:           providerItem.DefaultModel,
 			Models:                 models,
 			Connections:            providerConnections,
+			RuntimeSettings:        buildProviderRuntimeSettingsResponse(effectiveProviderRuntimeSettings(settingsManager, providerItem.ID)),
 		})
 	}
 
 	return items
+}
+
+func effectiveProviderRuntimeSettings(settingsManager *config.SettingsManager, providerID string) config.ProviderRuntimeSettings {
+	if settingsManager == nil {
+		return config.DefaultProviderRuntimeSettings()
+	}
+	return config.EffectiveProviderRuntimeSettings(settingsManager.Snapshot(), providerID)
+}
+
+func buildProviderRuntimeSettingsResponse(settings config.ProviderRuntimeSettings) providerRuntimeSettingsResponse {
+	return providerRuntimeSettingsResponse{
+		DialTimeoutMs:           settings.DialTimeoutMs,
+		TLSHandshakeTimeoutMs:   settings.TLSHandshakeTimeoutMs,
+		ResponseHeaderTimeoutMs: settings.ResponseHeaderTimeoutMs,
+		TimeoutRetryCount:       settings.TimeoutRetryCount,
+		RetryableCooldownMs:     settings.RetryableCooldownMs,
+	}
 }
 
 func modelsWithSource(models []provider.Model) []provider.Model {
