@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestLoadPathDefaultsLoggingAndRTKWhenMissing(t *testing.T) {
+func TestLoadPathDefaultsLLMLoggingOffAndRTKOnWhenMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	writeConfigFile(t, path, `{"server":{"listen":":2232","auth_token":"secret","web_ui_dir":"web/dist"}}`)
 
@@ -15,8 +15,8 @@ func TestLoadPathDefaultsLoggingAndRTKWhenMissing(t *testing.T) {
 		t.Fatalf("LoadPath returned error: %v", err)
 	}
 
-	if !cfg.LLMLogging.Flow || !cfg.LLMLogging.ThirdParty {
-		t.Fatalf("expected llm logging defaults to be enabled, got %#v", cfg.LLMLogging)
+	if cfg.LLMLogging.Flow || cfg.LLMLogging.ThirdParty {
+		t.Fatalf("expected llm logging defaults to be disabled, got %#v", cfg.LLMLogging)
 	}
 	if !cfg.RTK.Enabled {
 		t.Fatalf("expected rtk default to be enabled, got %#v", cfg.RTK)
@@ -123,8 +123,8 @@ func TestLoadOrCreatePathCreatesDefaultConfigWhenMissing(t *testing.T) {
 	if cfg.Server.WebUIDir != DefaultWebUIDir {
 		t.Fatalf("expected default web UI dir, got %q", cfg.Server.WebUIDir)
 	}
-	if !cfg.LLMLogging.Flow || !cfg.LLMLogging.ThirdParty {
-		t.Fatalf("expected llm logging to default enabled, got %#v", cfg.LLMLogging)
+	if cfg.LLMLogging.Flow || cfg.LLMLogging.ThirdParty {
+		t.Fatalf("expected llm logging to default disabled, got %#v", cfg.LLMLogging)
 	}
 	if !cfg.RTK.Enabled {
 		t.Fatalf("expected default config to enable rtk, got %#v", cfg.RTK)

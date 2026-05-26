@@ -41,8 +41,8 @@ func ApplyDefaults(cfg Config) Config {
 	}
 	if !cfg.LLMLogging.IsPresent() {
 		cfg.LLMLogging = LLMLoggingConfig{
-			Flow:       true,
-			ThirdParty: true,
+			Flow:       false,
+			ThirdParty: false,
 			present:    true,
 		}
 	}

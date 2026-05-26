@@ -173,10 +173,7 @@ Current implemented shape:
     "auth_token": "change-me",
     "web_ui_dir": "web/dist"
   },
-  "llmLogging": {
-    "flow": true,
-    "thirdParty": true
-  },
+  "llmLogging": false,
   "rtk": {
     "enabled": true
   }
@@ -185,7 +182,7 @@ Current implemented shape:
 
 `server.auth_token` is required and protects admin-only backend routes.
 `server.web_ui_dir` defaults to `web/dist`; when that folder exists, `goroute` also serves the built admin UI from the same server.
-When `llmLogging` is omitted, both `flow` and `thirdParty` default to enabled. `llmLogging: false` or `llmLogging: {}` disables both optional LLM log stores while still keeping `ai_request_runs`.
+When `llmLogging` is omitted, both `flow` and `thirdParty` default to disabled. Enable them with `llmLogging: { "flow": true, "thirdParty": true }`. `llmLogging: false` or `llmLogging: {}` disables both optional LLM log stores while still keeping `ai_request_runs`.
 `rtk` defaults to enabled. When enabled, it applies deterministic compression to large machine-generated user/tool request text before upstream dispatch and persists diagnostics in `rtk_records`.
 Connections are persisted in `~/.goroute/goroute.db` and are created through the admin API and UI.
 
