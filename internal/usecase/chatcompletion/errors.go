@@ -29,6 +29,7 @@ type ConnectionConfigurationError struct {
 	ConnectionID   string
 	ConnectionName string
 	Message        string
+	AllowFallback  bool
 }
 
 func (e ConnectionConfigurationError) Error() string {
@@ -59,14 +60,15 @@ type FailurePolicy struct {
 
 func ClassifyError(err error) FailurePolicy {
 	var upstreamErr UpstreamError
+	var configErr ConnectionConfigurationError
 	switch {
 	case errors.As(err, &upstreamErr):
 		return classifyUpstreamError(upstreamErr)
-	case errors.As(err, new(ConnectionConfigurationError)):
+	case errors.As(err, &configErr):
 		return FailurePolicy{
 			Class:         FailureClassTerminal,
 			Category:      "connection_config_error",
-			AllowFallback: false,
+			AllowFallback: configErr.AllowFallback,
 		}
 	case errors.Is(err, context.Canceled):
 		return FailurePolicy{
