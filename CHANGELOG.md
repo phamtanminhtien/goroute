@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/phamtanminhtien/goroute/compare/v1.8.0...v1.8.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **config:** disable AI logging by default ([0b88ff5](https://github.com/phamtanminhtien/goroute/commit/0b88ff5f376386b22a4884e2afbfe38af917b106))
+
 ## [1.8.0](https://github.com/phamtanminhtien/goroute/compare/v1.7.1...v1.8.0) (2026-05-25)
 
 
