@@ -20,10 +20,7 @@ Example `~/.goroute/config.json`:
     "auth_token": "change-me",
     "web_ui_dir": "web/dist"
   },
-  "llmLogging": {
-    "flow": true,
-    "thirdParty": true
-  },
+  "llmLogging": false,
   "rtk": {
     "enabled": true
   }
@@ -35,7 +32,8 @@ Example `~/.goroute/config.json`:
 `server.web_ui_dir` defaults to `web/dist`; when that directory exists, the Go server also serves the built admin UI and SPA routes.
 `llmLogging` controls optional persisted LLM request detail:
 
-- when `llmLogging` is omitted, both `flow` and `thirdParty` default to enabled
+- when `llmLogging` is omitted, both `flow` and `thirdParty` default to disabled
+- enable optional LLM log stores with `llmLogging: { "flow": true, "thirdParty": true }`
 - `llmLogging: false` disables both optional log stores
 - `llmLogging: {}` also disables both optional log stores
 - `llmLogging.flow` controls persistence to `ai_request_flows`

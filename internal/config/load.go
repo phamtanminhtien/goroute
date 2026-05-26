@@ -63,7 +63,7 @@ func NewDefaultConfig() Config {
 			AuthToken: DefaultAuthToken,
 			WebUIDir:  DefaultWebUIDir,
 		},
-		LLMLogging:           NewLLMLoggingConfig(true, true),
+		LLMLogging:           NewLLMLoggingConfig(false, false),
 		RTK:                  NewRTKConfig(true),
 		OpenAICompatibleAuth: OpenAICompatibleAuthConfig{Enabled: false},
 		ProviderRuntime:      nil,
