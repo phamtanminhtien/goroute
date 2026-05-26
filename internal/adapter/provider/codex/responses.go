@@ -77,11 +77,7 @@ func (c *Client) ResponsesStream(ctx context.Context, req openaiwire.ResponsesRe
 func (c *Client) doResponsesRequest(ctx context.Context, req openaiwire.ResponsesRequest, target routing.Target) (*http.Response, []byte, *http.Request, time.Time, int, error) {
 	credential, err := c.resolveAccessToken(false)
 	if err != nil {
-		return nil, nil, nil, time.Time{}, 0, chatcompletion.ConnectionConfigurationError{
-			ConnectionID:   c.connection.ID,
-			ConnectionName: c.connection.Name,
-			Message:        err.Error(),
-		}
+		return nil, nil, nil, time.Time{}, 0, connectionAuthError(c.connection, err)
 	}
 
 	payload, sessionID, err := c.marshalResponsesUpstreamRequest(ctx, req, target)
@@ -113,11 +109,7 @@ func (c *Client) doResponsesRequest(ctx context.Context, req openaiwire.Response
 
 		credential, err = c.resolveAccessToken(true)
 		if err != nil {
-			return nil, nil, nil, time.Time{}, 0, chatcompletion.ConnectionConfigurationError{
-				ConnectionID:   c.connection.ID,
-				ConnectionName: c.connection.Name,
-				Message:        err.Error(),
-			}
+			return nil, nil, nil, time.Time{}, 0, connectionAuthError(c.connection, err)
 		}
 
 		httpReq, err = c.newResponsesRequest(ctx, payload, sessionID)

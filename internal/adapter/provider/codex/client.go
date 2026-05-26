@@ -7,6 +7,7 @@ import (
 	adapterhttpclient "github.com/phamtanminhtien/goroute/internal/adapter/httpclient"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
+	"github.com/phamtanminhtien/goroute/internal/usecase/chatcompletion"
 )
 
 const (
@@ -80,6 +81,19 @@ func shouldRetryWithTokenRefresh(statusCode int, connection connection.Record) b
 	}
 
 	return strings.TrimSpace(connection.RefreshToken) != ""
+}
+
+func tokenRefreshFailed(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "token refresh failed")
+}
+
+func connectionAuthError(connection connection.Record, err error) error {
+	return chatcompletion.ConnectionConfigurationError{
+		ConnectionID:   connection.ID,
+		ConnectionName: connection.Name,
+		Message:        err.Error(),
+		AllowFallback:  tokenRefreshFailed(err),
+	}
 }
 
 func defaultString(value string, fallback string) string {

@@ -46,6 +46,13 @@ func TestClassifyError(t *testing.T) {
 			wantCategory: "connection_config_error",
 		},
 		{
+			name:         "fallback-enabled connection config error allows fallback",
+			err:          ConnectionConfigurationError{ConnectionID: "c1", Message: "token refresh failed", AllowFallback: true},
+			wantClass:    FailureClassTerminal,
+			wantCategory: "connection_config_error",
+			wantFallback: true,
+		},
+		{
 			name:         "context cancellation is terminal",
 			err:          context.Canceled,
 			wantClass:    FailureClassTerminal,

@@ -173,6 +173,32 @@ func TestConnectionRegistryStopsFallbackOnTerminalErrors(t *testing.T) {
 	}
 }
 
+func TestConnectionRegistryFallsBackOnFallbackEnabledConnectionConfigurationError(t *testing.T) {
+	secondCalled := false
+	registry := newTestRegistry(map[string][]ConnectionEntry{
+		"cx": {
+			newConnectionEntry("cx", 1, recordingConnection{err: ConnectionConfigurationError{ConnectionID: "codex-1", Message: "token refresh failed", AllowFallback: true}}, nil),
+			newConnectionEntry("cx", 2, recordingConnection{
+				response: openaiwire.ChatCompletionsResponse{ID: "fallback-response"},
+				onCall: func() {
+					secondCalled = true
+				},
+			}, nil),
+		},
+	})
+
+	response, err := registry.ChatCompletions(context.Background(), openaiwire.ChatCompletionsRequest{Model: "cx/gpt-5.4"}, routing.Target{Prefix: "cx", RequestedModel: "gpt-5.4", ProviderID: "cx", ProviderName: "Codex"})
+	if err != nil {
+		t.Fatalf("ChatCompletions returned error: %v", err)
+	}
+	if !secondCalled {
+		t.Fatal("expected fallback connection to be called")
+	}
+	if response.ID != "fallback-response" {
+		t.Fatalf("expected fallback response, got %q", response.ID)
+	}
+}
+
 func TestConnectionRegistryLogsAttemptsAndFinalCategory(t *testing.T) {
 	var logs bytes.Buffer
 	registry := NewConnectionRegistryWithEntries(map[string][]ConnectionEntry{
