@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0](https://github.com/phamtanminhtien/goroute/compare/v1.8.1...v1.9.0) (2026-05-27)
+
+
+### Features
+
+* **providers:** add anthropic-compatible custom providers ([d15c76d](https://github.com/phamtanminhtien/goroute/commit/d15c76dd210424491d91b1d8c1ef12d3abe8d28b))
+
+
+### Bug Fixes
+
+* **codex:** fallback on token refresh failures ([459d3eb](https://github.com/phamtanminhtien/goroute/commit/459d3ebeff932a8341e5172bdbc644b66d21c3a8))
+
 ## [1.8.1](https://github.com/phamtanminhtien/goroute/compare/v1.8.0...v1.8.1) (2026-05-26)
 
 
