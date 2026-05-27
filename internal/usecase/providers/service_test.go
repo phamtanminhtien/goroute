@@ -142,6 +142,47 @@ func TestServiceCreatesCustomProviderWithManagedConnection(t *testing.T) {
 	}
 }
 
+func TestServiceCreatesAnthropicCompatibleCustomProvider(t *testing.T) {
+	repo := &stubProviderRepo{}
+	runtime := &stubProviderRuntime{system: map[string]bool{"anthropic": true}}
+	service := NewService(repo, runtime)
+
+	created, err := service.Create(MutationInput{
+		ID:           "customanthropic",
+		Name:         "Custom Anthropic",
+		AdapterType:  provider.AdapterTypeAnthropicCompatible,
+		BaseURL:      "https://anthropic.example.com/",
+		DefaultModel: "customanthropic/claude-sonnet-4-5",
+		APIKey:       "secret",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if created.AdapterType != provider.AdapterTypeAnthropicCompatible || created.BaseURL != "https://anthropic.example.com" {
+		t.Fatalf("unexpected provider %#v", created)
+	}
+	if len(repo.connections) != 1 || repo.connections[0].APIKey != "secret" {
+		t.Fatalf("expected managed connection, got %#v", repo.connections)
+	}
+}
+
+func TestServiceRejectsUnsupportedCustomProviderAdapterType(t *testing.T) {
+	service := NewService(&stubProviderRepo{}, &stubProviderRuntime{})
+
+	_, err := service.Create(MutationInput{
+		ID:           "custom",
+		Name:         "Custom",
+		AdapterType:  provider.AdapterType("made_up"),
+		BaseURL:      "https://example.com",
+		DefaultModel: "custom/model",
+		APIKey:       "secret",
+	})
+	if err == nil {
+		t.Fatal("expected unsupported adapter type error")
+	}
+}
+
 func TestServiceUpdatesCustomProviderAndPreservesBlankAPIKey(t *testing.T) {
 	repo := &stubProviderRepo{
 		providers: []provider.Record{{

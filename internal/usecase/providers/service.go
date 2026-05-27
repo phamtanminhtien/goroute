@@ -159,7 +159,7 @@ func (s *Service) buildRecords(input MutationInput, preserveSecrets bool, existi
 	if name == "" {
 		return provider.Record{}, connection.Record{}, provider.ModelRecord{}, fmt.Errorf("name is required")
 	}
-	if adapterType != provider.AdapterTypeOpenAICompatible {
+	if adapterType != provider.AdapterTypeOpenAICompatible && adapterType != provider.AdapterTypeAnthropicCompatible {
 		return provider.Record{}, connection.Record{}, provider.ModelRecord{}, fmt.Errorf("unsupported adapter_type %q", adapterType)
 	}
 	if baseURL == "" {

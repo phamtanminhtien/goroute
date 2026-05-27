@@ -4,7 +4,6 @@ import {
   Braces,
   Cloud,
   Code2,
-  KeyRound,
   Layers3,
   Plus,
   Sparkles,
@@ -32,6 +31,7 @@ import {
 } from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionCard } from "@/shared/ui/section-card";
+import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { StatusBadge } from "@/shared/ui/status-badge";
 
@@ -50,11 +50,25 @@ const categoryTitles: Record<string, string> = {
 
 const categoryOrder = ["custom", "oauth", "api_key", "free_tier"];
 
+const customProviderAdapterOptions = [
+  {
+    icon: <ProviderBrandIcon providerID="openai" size="sm" />,
+    label: "OpenAI compatible",
+    value: "openai_compatible",
+  },
+  {
+    icon: <ProviderBrandIcon providerID="anthropic" size="sm" />,
+    label: "Anthropic compatible",
+    value: "anthropic_compatible",
+  },
+];
+
 export function ProvidersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({
+    adapterType: "openai_compatible",
     apiKey: "",
     baseURL: "",
     defaultModel: "",
@@ -78,6 +92,7 @@ export function ProvidersPage() {
       await queryClient.invalidateQueries({ queryKey: providersQueryKey });
       setCreateOpen(false);
       setForm({
+        adapterType: "openai_compatible",
         apiKey: "",
         baseURL: "",
         defaultModel: "",
@@ -103,7 +118,7 @@ export function ProvidersPage() {
     }
     setFormError(null);
     await createProviderMutation.mutateAsync({
-      adapter_type: "openai_compatible",
+      adapter_type: form.adapterType,
       api_key: apiKey,
       base_url: baseURL,
       default_model: defaultModel,
@@ -211,7 +226,7 @@ export function ProvidersPage() {
       <Modal onOpenChange={setCreateOpen} open={createOpen}>
         <ModalContent>
           <ModalPanel
-            description="Create a custom OpenAI-compatible provider and its managed connection."
+            description="Create a custom compatible provider and its managed connection."
             title="Add custom provider"
           >
             <form
@@ -245,6 +260,18 @@ export function ProvidersPage() {
                   />
                 </Field>
               </div>
+              <Field label="Adapter" required>
+                <Select
+                  onValueChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      adapterType: value,
+                    }))
+                  }
+                  options={customProviderAdapterOptions}
+                  value={form.adapterType}
+                />
+              </Field>
               <Field label="Base URL" required>
                 <Input
                   onChange={(event) =>
@@ -253,7 +280,9 @@ export function ProvidersPage() {
                       baseURL: event.target.value,
                     }))
                   }
-                  placeholder="https://openrouter.ai/api"
+                  placeholder={
+                    providerAdapterPlaceholder(form.adapterType).baseURL
+                  }
                   value={form.baseURL}
                 />
               </Field>
@@ -265,7 +294,9 @@ export function ProvidersPage() {
                       defaultModel: event.target.value,
                     }))
                   }
-                  placeholder="openrouter/openai/gpt-4.1"
+                  placeholder={
+                    providerAdapterPlaceholder(form.adapterType).defaultModel
+                  }
                   value={form.defaultModel}
                 />
               </Field>
@@ -347,13 +378,30 @@ function ProviderCard({
         <h3 className="truncate text-[14px] font-semibold tracking-[-0.03em] text-[var(--dashboard-title)]">
           {provider.name}
         </h3>
-        <ConnectionStatusPill
-          enabledCount={enabledConnectionCount(provider)}
-          totalCount={provider.connection_count}
-        />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ConnectionStatusPill
+            enabledCount={enabledConnectionCount(provider)}
+            totalCount={provider.connection_count}
+          />
+          <CustomProviderAdapterBadge provider={provider} />
+        </div>
       </div>
     </button>
   );
+}
+
+function providerAdapterPlaceholder(adapterType: string) {
+  if (adapterType === "anthropic_compatible") {
+    return {
+      baseURL: "https://api.anthropic.com",
+      defaultModel: "myanthropic/claude-sonnet-4-5",
+    };
+  }
+
+  return {
+    baseURL: "https://openrouter.ai/api",
+    defaultModel: "openrouter/openai/gpt-4.1",
+  };
 }
 
 function buildProviderSections(providers: ProviderItem[]) {
@@ -427,12 +475,51 @@ function ConnectionStatusPill({
   );
 }
 
+function CustomProviderAdapterBadge({ provider }: { provider: ProviderItem }) {
+  if (provider.category !== "custom") {
+    return null;
+  }
+
+  const adapter = customProviderAdapterDetails(provider);
+
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex items-center gap-1 rounded-full bg-white/6 px-2 py-1 text-[10px] font-semibold text-[var(--dashboard-muted-soft)]"
+    >
+      {adapter.icon}
+      <span>{adapter.label}</span>
+    </span>
+  );
+}
+
+function customProviderAdapterDetails(provider: ProviderItem) {
+  if (provider.adapter_type === "anthropic_compatible") {
+    return {
+      icon: <ProviderBrandIcon providerID="anthropic" size="xs" />,
+      label: "Anthropic",
+    };
+  }
+
+  if (provider.adapter_type === "openai_compatible" || !provider.adapter_type) {
+    return {
+      icon: <ProviderBrandIcon providerID="openai" size="xs" />,
+      label: "OpenAI",
+    };
+  }
+
+  return {
+    icon: <Layers3 className="size-3" />,
+    label: humanizeCategory(provider.adapter_type),
+  };
+}
+
 function ProviderLogoFallback({ provider }: { provider: ProviderItem }) {
   switch (provider.id) {
     case "anthropic":
-      return <Bot className="size-5" />;
+      return <ProviderBrandIcon providerID="anthropic" size="md" />;
     case "openai":
-      return <KeyRound className="size-5" />;
+      return <ProviderBrandIcon providerID="openai" size="md" />;
     case "cx":
       return <Sparkles className="size-5" />;
   }
@@ -447,10 +534,42 @@ function ProviderLogoFallback({ provider }: { provider: ProviderItem }) {
     return <Cloud className="size-5" />;
   }
   if (provider.category === "custom") {
+    if (provider.adapter_type === "anthropic_compatible") {
+      return <ProviderBrandIcon providerID="anthropic" size="md" />;
+    }
+    if (
+      provider.adapter_type === "openai_compatible" ||
+      !provider.adapter_type
+    ) {
+      return <ProviderBrandIcon providerID="openai" size="md" />;
+    }
     return <Layers3 className="size-5" />;
   }
 
   return <Code2 className="size-5" />;
+}
+
+function ProviderBrandIcon({
+  providerID,
+  size,
+}: {
+  providerID: "anthropic" | "openai";
+  size: "md" | "sm" | "xs";
+}) {
+  const sizeClassName = {
+    md: "size-6",
+    sm: "size-4",
+    xs: "size-3",
+  }[size];
+
+  return (
+    <img
+      alt=""
+      aria-hidden="true"
+      className={`${sizeClassName} shrink-0 rounded-[4px] bg-white/90 object-contain p-[1px]`}
+      src={`/images/providers/${providerID}.png`}
+    />
+  );
 }
 
 function humanizeCategory(value: string) {
