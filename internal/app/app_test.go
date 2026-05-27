@@ -9,6 +9,7 @@ import (
 
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
+	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/logging"
 )
 
@@ -55,6 +56,34 @@ func TestBuildConnectionEntriesSkipsDisabledConnections(t *testing.T) {
 	}
 	if len(entries["openai"]) != 0 {
 		t.Fatalf("expected disabled connection to be skipped, got %#v", entries)
+	}
+}
+
+func TestBuildProviderRegistryWithCustomAnthropicCompatibleProvider(t *testing.T) {
+	providers, err := buildProviderRegistryWithCustom([]provider.Record{{
+		ID:           "customanthropic",
+		Name:         "Custom Anthropic",
+		AuthType:     provider.AuthTypeAPIKey,
+		Category:     "custom",
+		AdapterType:  provider.AdapterTypeAnthropicCompatible,
+		BaseURL:      "https://anthropic.example.com",
+		DefaultModel: "customanthropic/claude-sonnet-4-5",
+	}})
+	if err != nil {
+		t.Fatalf("buildProviderRegistryWithCustom returned error: %v", err)
+	}
+
+	connections, err := providers.BuildConnection(connection.Record{
+		ID:         "customanthropic",
+		ProviderID: "customanthropic",
+		Name:       "Custom Anthropic",
+		APIKey:     "token",
+	}, config.DefaultProviderRuntimeSettings())
+	if err != nil {
+		t.Fatalf("BuildConnection returned error: %v", err)
+	}
+	if connections.ChatCompletions == nil || connections.Responses == nil || connections.Anthropic == nil {
+		t.Fatalf("expected Anthropic-compatible protocols, got %#v", connections)
 	}
 }
 
