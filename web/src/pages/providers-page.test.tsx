@@ -272,6 +272,173 @@ describe("providers pages", () => {
     ).toBeInTheDocument();
   });
 
+  it("creates an OpenAI-compatible custom provider by default", async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/api key providers/i);
+    await user.click(screen.getByRole("button", { name: /add provider/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(
+      within(dialog).getAllByText(/openai compatible/i).length,
+    ).toBeGreaterThan(0);
+
+    await user.type(
+      within(dialog).getByLabelText(/provider id/i),
+      "openrouter",
+    );
+    await user.type(within(dialog).getByLabelText(/^name/i), "OpenRouter");
+    await user.type(
+      within(dialog).getByLabelText(/base url/i),
+      "https://openrouter.ai/api",
+    );
+    await user.type(
+      within(dialog).getByLabelText(/default model/i),
+      "openrouter/openai/gpt-4.1",
+    );
+    await user.type(within(dialog).getByLabelText(/api key/i), "secret");
+    await user.click(
+      within(dialog).getByRole("button", { name: /create provider/i }),
+    );
+
+    await waitFor(() => {
+      expect(createProviderMock).toHaveBeenCalledWith({
+        adapter_type: "openai_compatible",
+        api_key: "secret",
+        base_url: "https://openrouter.ai/api",
+        default_model: "openrouter/openai/gpt-4.1",
+        enabled: true,
+        id: "openrouter",
+        name: "OpenRouter",
+      });
+    });
+  });
+
+  it("creates an Anthropic-compatible custom provider when selected", async () => {
+    const user = userEvent.setup();
+    createProviderMock.mockResolvedValueOnce({
+      adapter_type: "anthropic_compatible",
+      auth_type: "api_key",
+      base_url: "https://api.anthropic.com",
+      category: "custom",
+      connection_count: 1,
+      connections: [],
+      default_model: "myanthropic/claude-sonnet-4-5",
+      enabled_connection_count: 1,
+      id: "myanthropic",
+      models: [],
+      name: "My Anthropic",
+      runtime_settings: defaultRuntimeSettings,
+    });
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/api key providers/i);
+    await user.click(screen.getByRole("button", { name: /add provider/i }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(
+      within(dialog).getByRole("combobox", { name: /adapter/i }),
+    );
+    await user.click(
+      screen.getByRole("option", { name: /anthropic compatible/i }),
+    );
+
+    expect(within(dialog).getByLabelText(/base url/i)).toHaveAttribute(
+      "placeholder",
+      "https://api.anthropic.com",
+    );
+    expect(within(dialog).getByLabelText(/default model/i)).toHaveAttribute(
+      "placeholder",
+      "myanthropic/claude-sonnet-4-5",
+    );
+
+    await user.type(
+      within(dialog).getByLabelText(/provider id/i),
+      "myanthropic",
+    );
+    await user.type(within(dialog).getByLabelText(/^name/i), "My Anthropic");
+    await user.type(
+      within(dialog).getByLabelText(/base url/i),
+      "https://api.anthropic.com",
+    );
+    await user.type(
+      within(dialog).getByLabelText(/default model/i),
+      "myanthropic/claude-sonnet-4-5",
+    );
+    await user.type(within(dialog).getByLabelText(/api key/i), "secret");
+    await user.click(
+      within(dialog).getByRole("button", { name: /create provider/i }),
+    );
+
+    await waitFor(() => {
+      expect(createProviderMock).toHaveBeenCalledWith({
+        adapter_type: "anthropic_compatible",
+        api_key: "secret",
+        base_url: "https://api.anthropic.com",
+        default_model: "myanthropic/claude-sonnet-4-5",
+        enabled: true,
+        id: "myanthropic",
+        name: "My Anthropic",
+      });
+    });
+  });
+
+  it("renders adapter badges for custom provider cards", async () => {
+    listProvidersMock.mockResolvedValueOnce([
+      ...baseProviders,
+      {
+        adapter_type: "openai_compatible",
+        auth_type: "api_key",
+        base_url: "https://openrouter.ai/api",
+        category: "custom",
+        connection_count: 1,
+        connections: [],
+        default_model: "openrouter/openai/gpt-4.1",
+        enabled_connection_count: 1,
+        id: "openrouter",
+        models: [],
+        name: "OpenRouter",
+        runtime_settings: defaultRuntimeSettings,
+      },
+      {
+        adapter_type: "anthropic_compatible",
+        auth_type: "api_key",
+        base_url: "https://api.anthropic.com",
+        category: "custom",
+        connection_count: 1,
+        connections: [],
+        default_model: "myanthropic/claude-sonnet-4-5",
+        enabled_connection_count: 1,
+        id: "myanthropic",
+        models: [],
+        name: "My Anthropic",
+        runtime_settings: defaultRuntimeSettings,
+      },
+    ]);
+
+    renderWithQueryClient(
+      <MemoryRouter initialEntries={["/providers"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/custom providers/i);
+
+    expect(screen.getByText(/^Anthropic$/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^OpenAI$/i).length).toBeGreaterThan(0);
+  });
+
   it("renders provider detail with connections and available models sections", async () => {
     renderWithQueryClient(
       <MemoryRouter initialEntries={["/providers/cx"]}>

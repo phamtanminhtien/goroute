@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	adapteranthropiccompatible "github.com/phamtanminhtien/goroute/internal/adapter/anthropiccompatible"
 	adapteropenaicompatible "github.com/phamtanminhtien/goroute/internal/adapter/openaicompatible"
 	provideranthropic "github.com/phamtanminhtien/goroute/internal/adapter/provider/anthropic"
 	providercodex "github.com/phamtanminhtien/goroute/internal/adapter/provider/codex"
@@ -117,7 +118,14 @@ func buildProviderRegistryWithCustom(customProviders []provider.Record) (provide
 		provideranthropic.Registration(),
 	}
 	for _, customProvider := range customProviders {
-		registrations = append(registrations, adapteropenaicompatible.Registration(customProvider.Provider()))
+		switch customProvider.AdapterType {
+		case "", provider.AdapterTypeOpenAICompatible:
+			registrations = append(registrations, adapteropenaicompatible.Registration(customProvider.Provider()))
+		case provider.AdapterTypeAnthropicCompatible:
+			registrations = append(registrations, adapteranthropiccompatible.Registration(customProvider.Provider()))
+		default:
+			return providerregistry.Registry{}, fmt.Errorf("unsupported custom provider adapter_type %q for provider %q", customProvider.AdapterType, customProvider.ID)
+		}
 	}
 
 	return providerregistry.New(registrations...)

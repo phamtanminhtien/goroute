@@ -51,6 +51,10 @@ func NewClientWithRuntimeSettings(connection connection.Record, settings config.
 	return NewClientWithBaseURL(adapterhttpclient.NewStreamingClientWithSettings(settings), connection, "")
 }
 
+func NewClientWithBaseURLAndRuntimeSettings(connection connection.Record, baseURL string, settings config.ProviderRuntimeSettings) *Client {
+	return NewClientWithBaseURL(adapterhttpclient.NewStreamingClientWithSettings(settings), connection, baseURL)
+}
+
 func (c *Client) AnthropicMessages(ctx context.Context, req anthropicwire.MessagesRequest, target routing.Target) (anthropicwire.MessagesResponse, error) {
 	credential, err := c.credential()
 	if err != nil {

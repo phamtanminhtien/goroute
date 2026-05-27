@@ -10,7 +10,8 @@ const (
 type AdapterType string
 
 const (
-	AdapterTypeOpenAICompatible AdapterType = "openai_compatible"
+	AdapterTypeOpenAICompatible    AdapterType = "openai_compatible"
+	AdapterTypeAnthropicCompatible AdapterType = "anthropic_compatible"
 )
 
 type Provider struct {
