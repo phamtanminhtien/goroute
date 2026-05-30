@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/phamtanminhtien/goroute/compare/v1.9.0...v1.10.0) (2026-05-30)
+
+
+### Features
+
+* implement SSE response reconstruction for Anthropic and OpenAI clients and add Anthropic support to provider testing API ([c4fbd92](https://github.com/phamtanminhtien/goroute/commit/c4fbd92c78a33ad527a9cb40fc34afc87cd9ac4b))
+
 ## [1.9.0](https://github.com/phamtanminhtien/goroute/compare/v1.8.1...v1.9.0) (2026-05-27)
 
 
