@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/phamtanminhtien/goroute/internal/anthropicwire"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
 	"github.com/phamtanminhtien/goroute/internal/openaiwire"
@@ -24,6 +25,10 @@ type testProvider struct {
 	responsesErr        error
 	lastResponsesReq    openaiwire.ResponsesRequest
 	lastResponsesTarget routing.Target
+	anthropicResponse   anthropicwire.MessagesResponse
+	anthropicErr        error
+	lastAnthropicReq    anthropicwire.MessagesRequest
+	lastAnthropicTarget routing.Target
 }
 
 func (p *testProvider) ChatCompletions(_ context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error) {
@@ -36,6 +41,12 @@ func (p *testProvider) Responses(_ context.Context, req openaiwire.ResponsesRequ
 	p.lastResponsesReq = req
 	p.lastResponsesTarget = target
 	return p.responsesResponse, p.responsesErr
+}
+
+func (p *testProvider) AnthropicMessages(_ context.Context, req anthropicwire.MessagesRequest, target routing.Target) (anthropicwire.MessagesResponse, error) {
+	p.lastAnthropicReq = req
+	p.lastAnthropicTarget = target
+	return p.anthropicResponse, p.anthropicErr
 }
 
 func (p *testProvider) ChatCompletionsStream(_ context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (io.ReadCloser, error) {
@@ -61,6 +72,15 @@ func (p *testProvider) ResponsesStream(_ context.Context, req openaiwire.Respons
 	}
 
 	return io.NopCloser(strings.NewReader("data: {\"type\":\"response.created\"}\n\ndata: [DONE]\n\n")), nil
+}
+
+func (p *testProvider) AnthropicMessagesStream(_ context.Context, req anthropicwire.MessagesRequest, target routing.Target) (io.ReadCloser, error) {
+	p.lastAnthropicReq = req
+	p.lastAnthropicTarget = target
+	if p.anthropicErr != nil {
+		return nil, p.anthropicErr
+	}
+	return io.NopCloser(strings.NewReader("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")), nil
 }
 
 type streamingTestProvider struct {

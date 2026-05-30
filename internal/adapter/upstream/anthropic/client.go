@@ -95,6 +95,10 @@ func (c *Client) AnthropicMessages(ctx context.Context, req anthropicwire.Messag
 	}
 	var out anthropicwire.MessagesResponse
 	if err := json.Unmarshal(body, &out); err != nil {
+		if reconstructed, parseErr := parseUnexpectedAnthropicStream(body); parseErr == nil {
+			c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, nil, attemptIndex)
+			return reconstructed, nil
+		}
 		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, err, attemptIndex)
 		return anthropicwire.MessagesResponse{}, fmt.Errorf("decode upstream response: %w", err)
 	}
@@ -303,4 +307,12 @@ func defaultProviderRequestMode(request *http.Request) string {
 		return chatcompletion.RequestModeStream
 	}
 	return chatcompletion.RequestModeSync
+}
+
+func parseUnexpectedAnthropicStream(body []byte) (anthropicwire.MessagesResponse, error) {
+	trimmed := bytes.TrimSpace(body)
+	if !bytes.HasPrefix(trimmed, []byte("event:")) && !bytes.HasPrefix(trimmed, []byte("data:")) {
+		return anthropicwire.MessagesResponse{}, fmt.Errorf("not an SSE body")
+	}
+	return protocoltranslator.ParseAnthropicSSE(body)
 }

@@ -90,3 +90,29 @@ func TestClientAnthropicMessagesStreamForcesStream(t *testing.T) {
 		t.Fatalf("expected stream true, got %#v", upstreamBody)
 	}
 }
+
+func TestClientAnthropicMessagesReconstructsUnexpectedStreamResponse(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"content\":[]}}\n\n" +
+					"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n" +
+					"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+			)),
+		}, nil
+	})}
+	client := NewClientWithBaseURL(httpClient, connection.Record{ID: "anthropic-1", ProviderID: "anthropic", Name: "Anthropic", APIKey: "token"}, "https://api.anthropic.test")
+
+	response, err := client.AnthropicMessages(context.Background(), anthropicwire.MessagesRequest{
+		Model:    "anthropic/claude-sonnet-4-5",
+		Messages: []anthropicwire.MessageParam{{Role: "user", Content: anthropicwire.TextContent("hello")}},
+	}, routing.Target{ProviderID: "anthropic", ProviderName: "Anthropic", RequestedModel: "claude-sonnet-4-5"})
+	if err != nil {
+		t.Fatalf("AnthropicMessages returned error: %v", err)
+	}
+	if response.ID != "msg_1" || response.Content[0].Text != "hi" {
+		t.Fatalf("unexpected reconstructed response %#v", response)
+	}
+}

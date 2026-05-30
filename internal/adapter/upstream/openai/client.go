@@ -229,6 +229,10 @@ func (c *Client) Responses(ctx context.Context, req openaiwire.ResponsesRequest,
 
 	var out openaiwire.ResponsesResponse
 	if err := json.Unmarshal(body, &out); err != nil {
+		if reconstructed, parseErr := parseUnexpectedResponsesStream(body); parseErr == nil {
+			c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, nil, attemptIndex)
+			return reconstructed, nil
+		}
 		c.recordThirdPartyLog(ctx, target, payload, httpReq, resp, body, startedAt, completedAt, err, attemptIndex)
 		return openaiwire.ResponsesResponse{}, fmt.Errorf("decode upstream response: %w", err)
 	}
@@ -391,6 +395,14 @@ func defaultProviderRequestMode(request *http.Request) string {
 		return chatcompletion.RequestModeStream
 	}
 	return chatcompletion.RequestModeSync
+}
+
+func parseUnexpectedResponsesStream(body []byte) (openaiwire.ResponsesResponse, error) {
+	trimmed := bytes.TrimSpace(body)
+	if !bytes.HasPrefix(trimmed, []byte("event:")) && !bytes.HasPrefix(trimmed, []byte("data:")) {
+		return openaiwire.ResponsesResponse{}, fmt.Errorf("not an SSE body")
+	}
+	return responsesusecase.ParseSSE(body)
 }
 
 func marshalResponsesUpstreamRequest(req openaiwire.ResponsesRequest, model string, forceStream *bool) ([]byte, error) {

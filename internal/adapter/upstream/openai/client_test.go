@@ -323,6 +323,33 @@ func TestClientResponsesPassesThroughRawBody(t *testing.T) {
 	}
 }
 
+func TestClientResponsesReconstructsUnexpectedStreamResponse(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":123,\"status\":\"in_progress\",\"model\":\"gpt-4.1\",\"output\":[]}}\n\n" +
+					"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hi\"}]}}\n\n" +
+					"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":123,\"status\":\"completed\",\"model\":\"gpt-4.1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		}, nil
+	})}
+
+	client := NewClient(httpClient, connection.Record{ProviderID: "openai", Name: "openai-user", APIKey: "token"})
+	response, err := client.Responses(context.Background(), openaiwire.ResponsesRequest{
+		Model: "opena/gpt-4.1",
+		Input: []openaiwire.ResponseInputItem{{Type: "message", Role: "user", Content: []openaiwire.ResponseInputContentPart{{Type: "input_text", Text: "hello"}}}},
+	}, routing.Target{ProviderID: "openai", ProviderName: "OpenAI", RequestedModel: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("responses: %v", err)
+	}
+	if response.ID != "resp_1" || response.TextValue() != "hi" || response.Status != openaiwire.ResponsesStatusCompleted {
+		t.Fatalf("unexpected reconstructed response %#v", response)
+	}
+}
+
 func TestClientChatCompletionsAppliesRTKCompressionWhenEnabled(t *testing.T) {
 	var upstreamBody map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

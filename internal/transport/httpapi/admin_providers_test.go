@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/phamtanminhtien/goroute/internal/anthropicwire"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/connection"
 	"github.com/phamtanminhtien/goroute/internal/domain/modelcombo"
@@ -380,6 +381,61 @@ func TestProviderModelTestHandlerReturnsSuccessAndUsesChatCompletions(t *testing
 	}
 }
 
+func TestProviderModelTestHandlerUsesAnthropicMessagesForAnthropicProvider(t *testing.T) {
+	connectionClient := &testProvider{
+		anthropicResponse: anthropicwire.MessagesResponse{
+			ID:         "msg_1",
+			Type:       anthropicwire.MessageTypeMessage,
+			Role:       anthropicwire.RoleAssistant,
+			Model:      "claude-sonnet-4-5",
+			Content:    []anthropicwire.ContentBlock{{Type: anthropicwire.ContentTypeText, Text: "OK"}},
+			StopReason: anthropicwire.StopReasonEndTurn,
+		},
+	}
+	handler := newProviderModelTestServer(t, newProviderModelTestServerInput{
+		initialConnections: []connection.Record{{
+			ID:         "anthropic-1",
+			ProviderID: "anthropic",
+			Name:       "anthropic-user",
+			APIKey:     "secret-token",
+		}},
+		registryEntries: map[string][]chatcompletion.ConnectionEntry{
+			"anthropic": {{
+				ID:         "anthropic-1",
+				Name:       "anthropic-user",
+				ProviderID: "anthropic",
+				ProtocolConnections: chatcompletion.ProtocolConnections{
+					ChatCompletions: connectionClient,
+					Responses:       connectionClient,
+					Anthropic:       connectionClient,
+				},
+			}},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/providers/anthropic/test", strings.NewReader(`{"model":"anthropic/claude-sonnet-4-5"}`))
+	req.Header.Set("Authorization", "Bearer "+testAdminToken)
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if connectionClient.lastAnthropicReq.Model != "anthropic/claude-sonnet-4-5" {
+		t.Fatalf("expected anthropic test request, got %#v", connectionClient.lastAnthropicReq)
+	}
+	if connectionClient.lastAnthropicTarget.RequestedModel != "claude-sonnet-4-5" {
+		t.Fatalf("expected upstream target model to be stripped, got %#v", connectionClient.lastAnthropicTarget)
+	}
+	if connectionClient.lastReq.Model != "" {
+		t.Fatalf("expected chat completions not to be used, got %#v", connectionClient.lastReq)
+	}
+	if !strings.Contains(rec.Body.String(), `"output_text":"OK"`) {
+		t.Fatalf("expected anthropic output text, got %s", rec.Body.String())
+	}
+}
+
 func TestProviderModelTestHandlerStripsOnlyRoutePrefixForNestedModel(t *testing.T) {
 	connectionClient := &testProvider{
 		response: openaiwire.ChatCompletionsResponse{
@@ -585,5 +641,14 @@ func newProviderModelTestServer(t *testing.T, input newProviderModelTestServerIn
 		&logger,
 	)
 
-	return NewServer(testCatalog(), &registry, service, nil, repo, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
+	catalog := testCatalog()
+	catalog.Providers = append(catalog.Providers, provider.Provider{
+		ID:           "anthropic",
+		Name:         "Anthropic",
+		AuthType:     provider.AuthTypeAPIKey,
+		Category:     "api_key",
+		DefaultModel: "anthropic/claude-sonnet-4-5",
+		Models:       []provider.Model{{ID: "anthropic/claude-sonnet-4-5", Name: "Claude Sonnet 4.5", InputPricePerMillionUSD: 3, OutputPricePerMillionUSD: 15}},
+	})
+	return NewServer(catalog, &registry, service, nil, repo, repo, repo, repo, settingsManager, testAdminToken, nil, &logger)
 }

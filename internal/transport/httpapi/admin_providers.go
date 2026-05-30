@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/phamtanminhtien/goroute/internal/anthropicwire"
 	"github.com/phamtanminhtien/goroute/internal/config"
 	"github.com/phamtanminhtien/goroute/internal/domain/provider"
 	"github.com/phamtanminhtien/goroute/internal/domain/routing"
@@ -440,6 +441,7 @@ func providerOAuthURLHandler(starter providerOAuthStarter) http.Handler {
 
 type providerModelTester interface {
 	ChatCompletions(ctx context.Context, req openaiwire.ChatCompletionsRequest, target routing.Target) (openaiwire.ChatCompletionsResponse, error)
+	AnthropicMessages(ctx context.Context, req anthropicwire.MessagesRequest, target routing.Target) (anthropicwire.MessagesResponse, error)
 }
 
 type providerModelTestRequest struct {
@@ -508,19 +510,11 @@ func providerModelTestHandler(
 			return
 		}
 
-		response, err := tester.ChatCompletions(r.Context(), openaiwire.ChatCompletionsRequest{
-			Model: modelID,
-			Messages: []openaiwire.ChatMessage{{
-				Role:    openaiwire.ChatRoleUser,
-				Content: openaiwire.TextContent("Reply with OK if this test request reaches the model."),
-			}},
-		}, target)
+		outputText, err := executeProviderModelTest(r.Context(), resolvedProvider, tester, modelID, target)
 		if err != nil {
 			writeError(r, w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
-
-		outputText := firstCompletionText(response)
 		writeJSON(w, http.StatusOK, providerModelTestResponse{
 			ProviderID: resolvedProvider.ID,
 			Model:      modelID,
@@ -529,6 +523,35 @@ func providerModelTestHandler(
 			OutputText: outputText,
 		})
 	})
+}
+
+func executeProviderModelTest(ctx context.Context, resolvedProvider provider.Provider, tester providerModelTester, modelID string, target routing.Target) (string, error) {
+	if resolvedProvider.ID == "anthropic" {
+		response, err := tester.AnthropicMessages(ctx, anthropicwire.MessagesRequest{
+			Model:     modelID,
+			MaxTokens: 16,
+			Messages: []anthropicwire.MessageParam{{
+				Role:    anthropicwire.RoleUser,
+				Content: anthropicwire.TextContent("Reply with OK if this test request reaches the model."),
+			}},
+		}, target)
+		if err != nil {
+			return "", err
+		}
+		return firstAnthropicMessageText(response), nil
+	}
+
+	response, err := tester.ChatCompletions(ctx, openaiwire.ChatCompletionsRequest{
+		Model: modelID,
+		Messages: []openaiwire.ChatMessage{{
+			Role:    openaiwire.ChatRoleUser,
+			Content: openaiwire.TextContent("Reply with OK if this test request reaches the model."),
+		}},
+	}, target)
+	if err != nil {
+		return "", err
+	}
+	return firstCompletionText(response), nil
 }
 
 func providerHasModel(resolvedProvider provider.Provider, modelID string) bool {
@@ -604,6 +627,15 @@ func firstCompletionText(response openaiwire.ChatCompletionsResponse) string {
 	}
 
 	return strings.TrimSpace(response.Choices[0].Message.Content)
+}
+
+func firstAnthropicMessageText(response anthropicwire.MessagesResponse) string {
+	for _, block := range response.Content {
+		if block.Type == anthropicwire.ContentTypeText && strings.TrimSpace(block.Text) != "" {
+			return strings.TrimSpace(block.Text)
+		}
+	}
+	return ""
 }
 
 func buildAdminProviderItems(
